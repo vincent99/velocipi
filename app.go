@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"velocity/hardware/brightness"
 	"velocity/hardware/lightsensor"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -13,7 +14,10 @@ import (
 
 // App struct
 type App struct {
-	ctx      context.Context
+	ctx    context.Context
+	light  *lightsensor.LightSensor
+	bright *brightness.Brightness
+
 	stopTick chan struct{}
 }
 
@@ -33,32 +37,23 @@ func (a *App) ready(ctx context.Context) {
 	fmt.Println("Ready")
 	ticker := time.NewTicker(10 * time.Second)
 
-	fmt.Println("Connecting")
 	light, err := lightsensor.NewLightSensor()
 	if err != nil {
 		log.Fatal("Failed to find light sensor", err)
 	}
 
-	fmt.Println("Connected", light.IsConnected())
+	bright, err := brightness.NewBrightness(&brightness.Config{
+		Sensor:        light,
+		MinBrightness: 40,
+		MinLux:        5,
+		MaxLux:        100,
+	})
+	if err != nil {
+		log.Fatal("Failed to find brightness control", err)
+	}
 
-	power, _ := light.GetPower()
-	fmt.Println("Power", power)
-
-	powerSave, mode, _ := light.GetPowerSave()
-	fmt.Println("Power Save", powerSave, mode)
-
-	gain, _ := light.GetGain()
-	fmt.Println("Gain", gain)
-
-	integration, _ := light.GetIntegrationTime()
-	fmt.Println("Integration", integration)
-
-	protect, _ := light.GetPersistenceProtect()
-	fmt.Println("Protect", protect)
-
-	interrupt, _ := light.GetInterruptEnabled()
-	low, high, _ := light.GetInterruptThresholds()
-	fmt.Println("Interrupt", interrupt, low, high)
+	a.light = light
+	a.bright = bright
 
 	quit := make(chan struct{})
 	a.stopTick = quit
@@ -68,9 +63,6 @@ func (a *App) ready(ctx context.Context) {
 			select {
 			case <-ticker.C:
 				t := time.Now().Format(time.DateTime)
-				ambient, _ := light.GetAmbientLux()
-				white, _ := light.GetWhiteLux()
-				fmt.Println("Tick: ", t, ", Ambient: ", ambient, ", White:", white)
 				runtime.EventsEmit(ctx, "foo", t)
 			case <-quit:
 				ticker.Stop()

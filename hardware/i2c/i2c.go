@@ -21,6 +21,8 @@ import (
 )
 
 const (
+	DEFAULT_DEVICE = "/dev/i2c-1"
+
 	// constants from C files linux/i2c-dev.h and linux/i2c.h
 	I2C_SLAVE = 0x0703
 	I2C_M_RD  = 0x0001
@@ -53,7 +55,10 @@ type i2c_rdwr_ioctl_data struct {
 // supported as well: you should preliminary specify
 // register address to read from, either write register
 // together with the data in case of write operations.
-func New(addr uint8, dev string) (*I2C, error) {
+func New(dev string, addr uint8) (*I2C, error) {
+	if dev == "" {
+		dev = DEFAULT_DEVICE
+	}
 
 	i2c := &I2C{
 		addr: addr,

@@ -6,7 +6,6 @@ package lightsensor
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"velocity/hardware/i2c"
 )
@@ -65,8 +64,8 @@ type LightSensor struct {
 }
 
 type Config struct {
-	address uint8
-	device  string
+	Address uint8
+	Device  string
 }
 
 func NewLightSensor() (*LightSensor, error) {
@@ -74,18 +73,12 @@ func NewLightSensor() (*LightSensor, error) {
 }
 
 func NewLightSensorWithOptions(opt *Config) (*LightSensor, error) {
-	address := opt.address
+	address := opt.Address
 	if address == 0 {
 		address = DEFAULT_ADDRESS
 	}
 
-	dev := opt.device
-	if dev == "" {
-		dev = "/dev/i2c-1"
-	}
-
-	fmt.Println("Starting i2c for", address, dev)
-	iface, err := i2c.New(address, dev)
+	iface, err := i2c.New(opt.Device, address)
 
 	if err != nil {
 		return nil, err
