@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"velocity/hardware/brightness"
 	"velocity/hardware/lightsensor"
+	"velocity/hardware/tpms"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -18,12 +18,13 @@ type App struct {
 	light  *lightsensor.LightSensor
 	bright *brightness.Brightness
 
-	stopTick chan struct{}
+	stopTick chan bool
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{}
+	return &App{
+	}
 }
 
 // startup is called when the app starts. The context is saved
@@ -35,11 +36,29 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) ready(ctx context.Context) {
 	fmt.Println("Ready")
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
+
+	_, err := tpms.Listen(func (t *tpms.Tire) {
+		runtime.EventsEmit(ctx, "tire", t)
+	})
+
+	if err != nil {
+		fmt.Println("Failed to init TPMS", err)
+	}
+
+	// wave3, err := wave.New()
+	// if err != nil {
+	// 	fmt.Println("Failed to init EcoFlow Wave", err)
+	// }
+
+	// err = wave3.Connect()
+	// if err != nil {
+	// 	fmt.Println("Failed to find EcoFlow Wave", err)
+	// }
 
 	light, err := lightsensor.NewLightSensor()
 	if err != nil {
-		log.Fatal("Failed to find light sensor", err)
+		fmt.Println("Failed to find light sensor", err)
 	}
 
 	bright, err := brightness.NewBrightness(&brightness.Config{
@@ -49,21 +68,21 @@ func (a *App) ready(ctx context.Context) {
 		MaxLux:        100,
 	})
 	if err != nil {
-		log.Fatal("Failed to find brightness control", err)
+		fmt.Println("Failed to find brightness control", err)
 	}
 
 	a.light = light
 	a.bright = bright
 
-	quit := make(chan struct{})
+	quit := make(chan bool)
 	a.stopTick = quit
 
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				t := time.Now().Format(time.DateTime)
-				runtime.EventsEmit(ctx, "foo", t)
+				t := time.Now()
+				runtime.EventsEmit(ctx, "ticker", t)
 			case <-quit:
 				ticker.Stop()
 				return
@@ -75,8 +94,7 @@ func (a *App) ready(ctx context.Context) {
 
 func (a *App) unload(ctx context.Context) (prevent bool) {
 	fmt.Println("Unloading")
-	close(a.stopTick)
-
+	a.stopTick <- true
 	return false
 }
 
@@ -84,7 +102,9 @@ func (a *App) shutdown(ctx context.Context) {
 	fmt.Println("Shutdown")
 }
 
+/*
 // Greet returns a greeting for the given name
 func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
+*/
