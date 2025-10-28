@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PropType } from 'vue';
+import { computed, PropType } from 'vue';
 import { Tire } from '../../types/tire';
 
   const {label, tire} = defineProps({
@@ -11,6 +11,29 @@ import { Tire } from '../../types/tire';
     return str.substring(0,1).toUpperCase() + str.substring(1)
   }
 
+  function zeroPad(num: number): string {
+    if ( num < 10 ) {
+      return "0" + num
+    }
+
+    return `${num}`
+  }
+
+  const age = computed(() => {
+    const d = new Date(Date.parse(tire.updated))
+    let out = ""
+    let h = d.getHours()
+    if ( h === 0 ) {
+      h = 12
+    } else if ( h > 12 ) {
+      h -= 12;
+    }
+    const m = d.getMinutes()
+    const s = d.getSeconds()
+
+    return `${zeroPad(h)}:${zeroPad(m)}:${zeroPad(s)}`
+ })
+
 </script>
 
 <template>
@@ -21,6 +44,7 @@ import { Tire } from '../../types/tire';
     <div>{{tire.battery}}%</div>
     <div>{{ucFirst(tire.inflation)}}</div>
     <div>{{ucFirst(tire.rotation)}}</div>
+    <div>{{age}}</div>
   </div>
   <div v-else>
       ???
