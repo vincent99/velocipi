@@ -80,12 +80,12 @@ func NewLightSensorWithOptions(opt *Config) (*LightSensor, error) {
 
 	iface, err := i2c.New(opt.Device, address)
 
-	if err != nil {
-		return nil, err
-	}
-
 	v := &LightSensor{
 		iface,
+	}
+
+	if err != nil {
+		return v, err
 	}
 
 	return v, v.Init()

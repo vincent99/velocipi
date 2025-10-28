@@ -187,6 +187,6 @@ func (v *Brightness) set(brightness int) error {
 
 	err := os.WriteFile(path.Join(v.device, DESIRED), []byte(strconv.Itoa(brightness)), 0600)
 	v.current = brightness
-	fmt.Printf("Set", brightness)
+	fmt.Print("Set", brightness)
 	return err
 }
