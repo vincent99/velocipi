@@ -105,7 +105,7 @@ func (v *Brightness) Init() error {
 				brightness := 0
 				ambient, _ := v.sensor.GetAmbientLux()
 
-				fmt.Println("Params: ", v.minBrightness, v.maxBrightness, v.minLux, v.maxLux)
+				//fmt.Println("Params: ", v.minBrightness, v.maxBrightness, v.minLux, v.maxLux)
 				if ambient <= v.minLux {
 					brightness = v.minBrightness
 				} else if ambient >= v.maxLux {
@@ -152,7 +152,7 @@ func (v *Brightness) update(target int) {
 		return
 	}
 
-	fmt.Println("Updating", v.speed, STEPS, step, time.Duration(v.speed)*time.Second/STEPS)
+	//fmt.Println("Updating", v.speed, STEPS, step, time.Duration(v.speed)*time.Second/STEPS)
 	v.changer = time.NewTicker(time.Duration(v.speed) * time.Second / STEPS)
 
 	quit := make(chan struct{})
@@ -187,6 +187,6 @@ func (v *Brightness) set(brightness int) error {
 
 	err := os.WriteFile(path.Join(v.device, DESIRED), []byte(strconv.Itoa(brightness)), 0600)
 	v.current = brightness
-	fmt.Print("Set", brightness)
+	//fmt.Print("Set", brightness)
 	return err
 }

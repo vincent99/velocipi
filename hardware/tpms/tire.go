@@ -65,7 +65,7 @@ func (t *Tire) String() string {
 
 	out += fmt.Sprintf("Bat: %3.0f%%", t.Battery) +
 		fmt.Sprintf(", Temp: %.1f°F", t.TempF) +
-		fmt.Sprintf(", Pres: %3.1f PSI", t.PressurePsi) +
+		fmt.Sprintf(", Pres: %3.1f PSI (%3.1f)", t.PressurePsi, t.PressureKpa) +
 		fmt.Sprintf(", Inflation: %10s", string(t.Inflation)) +
 		fmt.Sprintf(", Rotation: %10s", string(t.Rotation)) +
 		fmt.Sprintf(", Age: %.1fs", t.Age().Seconds())

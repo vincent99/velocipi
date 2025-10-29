@@ -2,6 +2,7 @@ package tpms
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/sigurn/crc16"
 	"tinygo.org/x/bluetooth"
@@ -47,7 +48,7 @@ func (t *TPMS) scan(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
 		return
 	}
 
-	address := device.Address.String()
+	address := strings.ToLower(device.Address.String())
 	company := mfr[0].CompanyID
 	bytes := mfr[0].Data
 
@@ -55,12 +56,16 @@ func (t *TPMS) scan(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
 	position := "??"
 	switch address {
 		case "24237bb2-4496-36b6-a755-64e9de75ac6c": // RL
+		case "4a:88:00:00:72:70":
 			position = "RL"
 		case "99633f0c-d627-5f15-7d5d-f171b5a745e7": // RR
+		case "4a:85:00:00:d7:38":
 			position = "RR"
 		case "bc7ac313-2870-3c1f-c2bc-6047a80b58c2": // FR
+		case "4a:85:00:00:3a:50":
 			position = "FR"
 		case "ae3806cb-ea50-2187-4d1d-10010147721a": // FL
+		case "4a:a0:00:00:eb:02":
 			position = "FL"
 	}
 

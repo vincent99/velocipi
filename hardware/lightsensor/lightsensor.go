@@ -431,7 +431,7 @@ func (v *LightSensor) ReadInterrupt() (status Interrupt, err error) {
 func (v *LightSensor) GetAmbientLux() (lux int, err error) {
 	bits, err := v.readRegister(AMBIENT_LIGHT_DATA_REG)
 	if err != nil {
-		return 0, err
+		return 1000, err
 	}
 
 	return v.bitsToLuxCompensated(bits)
@@ -440,7 +440,7 @@ func (v *LightSensor) GetAmbientLux() (lux int, err error) {
 func (v *LightSensor) GetWhiteLux() (lux int, err error) {
 	bits, err := v.readRegister(WHITE_LIGHT_DATA_REG)
 	if err != nil {
-		return 0, err
+		return 1000, err
 	}
 
 	return v.bitsToLuxCompensated(bits)
