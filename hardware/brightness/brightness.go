@@ -1,7 +1,6 @@
 package brightness
 
 import (
-	"fmt"
 	"math"
 	"os"
 	"path"

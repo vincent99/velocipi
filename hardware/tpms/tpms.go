@@ -3,6 +3,7 @@ package tpms
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/sigurn/crc16"
 	"tinygo.org/x/bluetooth"
@@ -55,18 +56,14 @@ func (t *TPMS) scan(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
 	// @TODO Should be the client's problem
 	position := "??"
 	switch address {
-		case "24237bb2-4496-36b6-a755-64e9de75ac6c": // RL
-		case "4a:88:00:00:72:70":
-			position = "RL"
-		case "99633f0c-d627-5f15-7d5d-f171b5a745e7": // RR
-		case "4a:85:00:00:d7:38":
-			position = "RR"
-		case "bc7ac313-2870-3c1f-c2bc-6047a80b58c2": // FR
-		case "4a:85:00:00:3a:50":
-			position = "FR"
-		case "ae3806cb-ea50-2187-4d1d-10010147721a": // FL
-		case "4a:a0:00:00:eb:02":
+		case "4a:a0:00:00:eb:02", "ae3806cb-ea50-2187-4d1d-10010147721a": // FL
 			position = "FL"
+		case "4a:85:00:00:3a:50", "bc7ac313-2870-3c1f-c2bc-6047a80b58c2": // FR
+			position = "FR"
+		case "4a:88:00:00:72:70", "24237bb2-4496-36b6-a755-64e9de75ac6c": // RL
+			position = "RL"
+		case "4a:85:00:00:d7:38", "99633f0c-d627-5f15-7d5d-f171b5a745e7": // RR
+			position = "RR"
 	}
 
 	var data = []byte{
@@ -88,11 +85,15 @@ func (t *TPMS) scan(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
 	}
 
 	tire.Update(data[0], data[1], data[2], uint16(uint16(data[3])<<8 | uint16(data[4])))
-	fmt.Printf("Update Tire %s\n", tire.String())
+
+	now := time.Now()
+
+	fmt.Printf("[%s] Update Tire %s\n", now.Format("15:04:05"), tire.String())
 
 	go t.onUpdate(tire)
 }
 
+// Shenanigans extracted from sytpms android app
 var auchCRCHi = []byte{
 	0x8D, 0x71, 0xA7, 0x00, 0xD5, 0x76, 0x36, 0xB6, 0x6C, 0x7E, 0x5E, 0xF1, 0x56, 0x5B, 0x85, 0xB5,
 	0xB8, 0xA4, 0x01, 0xC5, 0x35, 0xEC, 0xA6, 0x0A, 0xEA, 0x6B, 0x75, 0xA6, 0x4F, 0x96, 0x52, 0xC7,
