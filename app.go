@@ -63,8 +63,9 @@ func (a *App) ready(ctx context.Context) {
 
 	bright, err := brightness.NewBrightness(&brightness.Config{
 		Sensor:        light,
+		Speed: 	       500,
 		MinBrightness: 40,
-		MinLux:        5,
+		MinLux:        2,
 		MaxLux:        100,
 	})
 	if err != nil {

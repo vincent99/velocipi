@@ -52,7 +52,7 @@ func NewBrightness(opt *Config) (*Brightness, error) {
 
 	speed := opt.Speed
 	if speed == 0 {
-		speed = 5
+		speed = 1000
 	}
 
 	minBrightness := opt.MinBrightness
@@ -95,7 +95,7 @@ func NewBrightness(opt *Config) (*Brightness, error) {
 }
 
 func (v *Brightness) Init() error {
-	v.ticker = time.NewTicker(time.Duration(v.speed) * time.Second)
+	v.ticker = time.NewTicker(time.Duration(v.speed) * time.Millisecond)
 	quit := make(chan struct{})
 
 	go func() {
@@ -143,6 +143,11 @@ func (v *Brightness) update(target int) {
 
 	v.target = target
 	step := float64(target-v.current) / STEPS
+	if step > 0 {
+		step = math.Ceil(step)
+	} else {
+		step = math.Floor(step)
+	}
 
 	if v.changer != nil {
 		v.changer.Stop()
@@ -153,7 +158,7 @@ func (v *Brightness) update(target int) {
 	}
 
 	//fmt.Println("Updating", v.speed, STEPS, step, time.Duration(v.speed)*time.Second/STEPS)
-	v.changer = time.NewTicker(time.Duration(v.speed) * time.Second / STEPS)
+	v.changer = time.NewTicker(time.Duration(v.speed) * time.Millisecond / STEPS)
 
 	quit := make(chan struct{})
 	go func() {
@@ -163,7 +168,7 @@ func (v *Brightness) update(target int) {
 			case <-v.changer.C:
 				neu := int(math.Round(float64(v.current) + step))
 
-				fmt.Println("Update", step, v.current, neu, v.target)
+				//fmt.Println("Update", step, v.current, neu, v.target)
 				v.set(neu)
 
 				if (step > 0 && neu >= v.target) || (step < 0 && neu <= v.target) {
