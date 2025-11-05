@@ -17,14 +17,17 @@ const (
 	STEPS          = 10
 )
 
+type Handler func(*Brightness, Result)
+
 type Brightness struct {
-	device string
-	sensor *lightsensor.LightSensor
+	device    string
+	sensor    *lightsensor.LightSensor
+	listeners []Handler
 
 	minBrightness int
 	maxBrightness int
-	minLux        int
-	maxLux        int
+	minLux        float64
+	maxLux        float64
 
 	ticker  *time.Ticker
 	changer *time.Ticker
@@ -39,8 +42,14 @@ type Config struct {
 	Speed         int
 	MinBrightness int
 	MaxBrightness int
-	MinLux        int
-	MaxLux        int
+	MinLux        float64
+	MaxLux        float64
+}
+
+type Result struct {
+	Brightness int     `json:"brightness"`
+	Percent    float64 `json:"percent"`
+	Lux        float64 `json:"lux"`
 }
 
 func NewBrightness(opt *Config) (*Brightness, error) {
@@ -93,30 +102,19 @@ func NewBrightness(opt *Config) (*Brightness, error) {
 	return v, v.Init()
 }
 
-func (v *Brightness) Init() error {
-	v.ticker = time.NewTicker(time.Duration(v.speed) * time.Millisecond)
+func (b *Brightness) Init() error {
+	b.ticker = time.NewTicker(time.Duration(b.speed) * time.Millisecond)
 	quit := make(chan struct{})
 
 	go func() {
 		for {
 			select {
-			case <-v.ticker.C:
-				brightness := 0
-				ambient, _ := v.sensor.GetAmbientLux()
+			case <-b.ticker.C:
+				val := b.Read()
 
-				//fmt.Println("Params: ", v.minBrightness, v.maxBrightness, v.minLux, v.maxLux)
-				if ambient <= v.minLux {
-					brightness = v.minBrightness
-				} else if ambient >= v.maxLux {
-					brightness = v.maxBrightness
-				} else {
-					percent := float64(ambient-v.minLux) / float64(v.maxLux-v.minLux)
-					brightness = v.minBrightness + int(math.Round(float64(v.maxBrightness-v.minBrightness)*percent))
-				}
-
-				v.update(brightness)
+				b.update(val)
 			case <-quit:
-				v.ticker.Stop()
+				b.ticker.Stop()
 				return
 			}
 		}
@@ -125,72 +123,112 @@ func (v *Brightness) Init() error {
 	return nil
 }
 
-func (v *Brightness) Stop() {
-	if v.ticker != nil {
-		v.ticker.Stop()
+func (b *Brightness) Read() Result {
+	brightness := 0
+	percent := 0.0
+	ambient, _ := b.sensor.GetAmbientLux()
+
+	//fmt.Println("Params: ", v.minBrightness, v.maxBrightness, v.minLux, v.maxLux)
+	if ambient <= b.minLux {
+		brightness = b.minBrightness
+		percent = 0
+	} else if ambient >= b.maxLux {
+		brightness = b.maxBrightness
+		percent = 1
+	} else {
+		percent = float64(ambient-b.minLux) / float64(b.maxLux-b.minLux)
+		brightness = b.minBrightness + int(math.Round(float64(b.maxBrightness-b.minBrightness)*percent))
 	}
 
-	if v.changer != nil {
-		v.changer.Stop()
+	return Result{
+		Brightness: brightness,
+		Percent:    100 * percent,
+		Lux:        ambient,
 	}
 }
 
-func (v *Brightness) update(target int) {
-	if v.target == target {
+func (b *Brightness) Listen(h Handler) {
+	b.listeners = append(b.listeners, h)
+	val := b.Read()
+	h(b, val)
+}
+
+func (b *Brightness) Stop() {
+	if b.ticker != nil {
+		b.ticker.Stop()
+	}
+
+	if b.changer != nil {
+		b.changer.Stop()
+	}
+
+	b.listeners = nil
+}
+
+func (b *Brightness) update(val Result) {
+	if b.target == val.Brightness {
 		return
 	}
 
-	v.target = target
-	step := float64(target-v.current) / STEPS
+	b.target = val.Brightness
+	step := float64(val.Brightness-b.current) / STEPS
 	if step > 0 {
 		step = math.Ceil(step)
 	} else {
 		step = math.Floor(step)
 	}
 
-	if v.changer != nil {
-		v.changer.Stop()
+	if b.changer != nil {
+		b.changer.Stop()
 	}
 
-	if step == 0 || v.current == v.target {
+	if step == 0 || b.current == b.target {
 		return
 	}
 
+	for i := range b.listeners {
+		b.listeners[i](b, val)
+	}
+
 	//fmt.Println("Updating", v.speed, STEPS, step, time.Duration(v.speed)*time.Second/STEPS)
-	v.changer = time.NewTicker(time.Duration(v.speed) * time.Millisecond / STEPS)
+	b.changer = time.NewTicker(time.Duration(b.speed) * time.Millisecond / STEPS)
 
 	quit := make(chan struct{})
 	go func() {
 
 		for {
 			select {
-			case <-v.changer.C:
-				neu := int(math.Round(float64(v.current) + step))
+			case <-b.changer.C:
+				neu := int(math.Round(float64(b.current) + step))
+				if (step > 0 && neu >= b.target) || (step < 0 && neu <= b.target) {
+					neu = b.target
+				}
 
 				//fmt.Println("Update", step, v.current, neu, v.target)
-				v.set(neu)
+				b.set(neu)
 
-				if (step > 0 && neu >= v.target) || (step < 0 && neu <= v.target) {
+				if neu == b.target {
 					<-quit
 				}
 
 			case <-quit:
-				v.changer.Stop()
+				b.changer.Stop()
 				return
 			}
 		}
 	}()
 }
 
-func (v *Brightness) set(brightness int) error {
-	if brightness < v.minBrightness {
-		brightness = v.minBrightness
-	} else if brightness > v.maxBrightness {
-		brightness = v.maxBrightness
+func (b *Brightness) set(brightness int) error {
+	if brightness < b.minBrightness {
+		brightness = b.minBrightness
+	} else if brightness > b.maxBrightness {
+		brightness = b.maxBrightness
 	}
 
-	err := os.WriteFile(path.Join(v.device, DESIRED), []byte(strconv.Itoa(brightness)), 0600)
-	v.current = brightness
+	err := os.WriteFile(path.Join(b.device, DESIRED), []byte(strconv.Itoa(brightness)), 0600)
+	b.current = brightness
+
 	//fmt.Print("Set", brightness)
 	return err
 }

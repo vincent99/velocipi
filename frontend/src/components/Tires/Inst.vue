@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, PropType } from 'vue';
+import { computed, onBeforeUnmount, PropType, ref } from 'vue';
 import { Tire } from '../../types/tire';
 
   const {label, tire} = defineProps({
@@ -34,25 +34,47 @@ import { Tire } from '../../types/tire';
     return `${zeroPad(h)}:${zeroPad(m)}:${zeroPad(s)}`
  })
 
+
+ function formatter(val: number): string {
+  if ( !tire?.position ) {
+    return '???'
+  }
+
+  return `${val}`
+ }
+
+const now = ref<number>(new Date().getTime())
+const timer = setInterval(() => {
+  now.value = new Date().getTime()
+}, 1000)
+
+onBeforeUnmount(() => {
+  clearInterval(timer)
+})
+
+ const style = computed(() => {
+  if (!tire?.position ) {
+    return 'background-color: red'
+  }
+
+  if ( tire.pressurePsi < 10 ) {
+    return 'background-color: red'
+  } else if ( tire.pressurePsi < 20 ) {
+    return 'background-color: orange'
+  }
+
+  const age = now.value - Date.parse(tire.updated)
+  if ( age > 5 * 60 * 1000 ) {
+    return 'background-color: red'
+  }
+
+  return ''
+ })
+
 </script>
 
 <template>
-  <div class="label">{{label}}</div>
-  <div v-if="tire.position">
-    <div>{{tire.pressurePsi}} PSI</div>
-    <div>{{tire.tempF}}°F</div>
-    <div>{{tire.battery}}%</div>
-    <div>{{ucFirst(tire.inflation)}}</div>
-    <div>{{ucFirst(tire.rotation)}}</div>
-    <div>{{age}}</div>
-  </div>
-  <div v-else>
-      ???
-  </div>
+  <el-col :span="3" class="text-center mb-4">
+    <el-statistic :title="label" :value="tire.pressurePsi" :formatter="formatter" suffix="psi" :style="style"/>
+  </el-col>
 </template>
-
-<style type="css" scoped>
-  .label {
-    font-weight: italic;
-  };
-</style>

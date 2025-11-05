@@ -4,9 +4,15 @@ import { EventsOff, EventsOn } from '../../../wailsjs/runtime/runtime'
 import Inst from './Inst.vue'
 import { Tire } from '../../types/tire'
 
-function loadTire(name: string): Tire {
+type TireName = "nose"|"left"|"right"
+const PREFIX = 'tire-'
+const NOSE: TireName = 'nose'
+const LEFT: TireName = 'left'
+const RIGHT: TireName = 'right'
+
+function loadTire(name: TireName): Tire {
   try {
-    const str = localStorage.getItem(name)
+    const str = localStorage.getItem(`${PREFIX}${name}`)
     if ( str ) {
       const t: Tire = JSON.parse(str)
       if ( t ) {
@@ -18,24 +24,24 @@ function loadTire(name: string): Tire {
   }
 }
 
-const nose = ref<Tire>(loadTire('nose'))
-const left = ref<Tire>(loadTire('left'))
-const right = ref<Tire>(loadTire('right'))
+const nose = ref<Tire>(loadTire(NOSE))
+const left = ref<Tire>(loadTire(LEFT))
+const right = ref<Tire>(loadTire(RIGHT))
 
 function updateTire(t: Tire) {
   switch ( t.position ) {
     case 'FL':
     case 'FR':
       nose.value = t
-      localStorage.setItem('nose', JSON.stringify(t))
+      localStorage.setItem(`${PREFIX}${NOSE}`, JSON.stringify(t))
       break
     case 'RL':
       left.value = t
-      localStorage.setItem('left', JSON.stringify(t))
+      localStorage.setItem(`${PREFIX}${LEFT}`, JSON.stringify(t))
       break
     case 'RR':
       right.value = t
-      localStorage.setItem('right', JSON.stringify(t))
+      localStorage.setItem(`${PREFIX}${RIGHT}`, JSON.stringify(t))
       break
   }
 }
@@ -74,19 +80,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="result">
-    <div class="tire"><Inst :tire="left" label="Left"/></div>
-    <div class="tire"><Inst :tire="nose" label="Nose"/></div>
-    <div class="tire"><Inst :tire="right" label="Right"/></div>
-  </div>
+  <Inst label="Left" :tire="left"/>
+  <Inst label="Nose" :tire="nose"/>
+  <Inst label="Right" :tire="right"/>
 </template>
-
-<style scoped>
-.result {
-  display: flex;
-}
-
-.tire {
-  flex: 1;
-}
-</style>

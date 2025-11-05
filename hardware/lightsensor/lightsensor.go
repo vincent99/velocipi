@@ -100,7 +100,7 @@ func (v *LightSensor) Init() error {
 		return errors.New("light sensor could not be powered on: " + err.Error())
 	}
 
-	if err := v.SetGain(3); err != nil {
+	if err := v.SetGain(4); err != nil {
 		return errors.New("light sensor could not be set gain: " + err.Error())
 	}
 
@@ -108,7 +108,7 @@ func (v *LightSensor) Init() error {
 		return errors.New("light sensor could not be set integration: " + err.Error())
 	}
 
-	if err := v.SetPersistenceProtect(1); err != nil {
+	if err := v.SetPersistenceProtect(8); err != nil {
 		return errors.New("light sensor could not be set persistence: " + err.Error())
 	}
 
@@ -428,7 +428,7 @@ func (v *LightSensor) ReadInterrupt() (status Interrupt, err error) {
 	}
 }
 
-func (v *LightSensor) GetAmbientLux() (lux int, err error) {
+func (v *LightSensor) GetAmbientLux() (lux float64, err error) {
 	bits, err := v.readRegister(AMBIENT_LIGHT_DATA_REG)
 	if err != nil {
 		return 1000, err
@@ -437,7 +437,7 @@ func (v *LightSensor) GetAmbientLux() (lux int, err error) {
 	return v.bitsToLuxCompensated(bits)
 }
 
-func (v *LightSensor) GetWhiteLux() (lux int, err error) {
+func (v *LightSensor) GetWhiteLux() (lux float64, err error) {
 	bits, err := v.readRegister(WHITE_LIGHT_DATA_REG)
 	if err != nil {
 		return 1000, err
@@ -535,18 +535,19 @@ func (v *LightSensor) bitsToLux(bits uint16) (lux int, err error) {
 	return lux, nil
 }
 
-func (v *LightSensor) bitsToLuxCompensated(bits uint16) (lux int, err error) {
-	lux, err = v.bitsToLux(bits)
+func (v *LightSensor) bitsToLuxCompensated(bits uint16) (lux float64, err error) {
+	val, err := v.bitsToLux(bits)
+	flux := float64(val)
+
 	if err != nil {
 		return 0, err
 	}
 
-	if lux <= 1000 {
-		return lux, nil
+	if val <= 1000 {
+		return flux, nil
 	}
 
-	flux := float64(lux)
 	compensated := (0.00000000000060135*math.Pow(flux, 4) - 0.0000000093924*math.Pow(flux, 3) + 0.000081488*math.Pow(flux, 2) + 1.0023*flux)
 
-	return int(compensated), nil
+	return compensated, nil
 }
