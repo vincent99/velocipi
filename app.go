@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"velocity/hardware/airsensor"
 	"velocity/hardware/brightness"
 	"velocity/hardware/lightsensor"
 	"velocity/hardware/tpms"
@@ -17,14 +18,14 @@ type App struct {
 	ctx    context.Context
 	light  *lightsensor.LightSensor
 	bright *brightness.Brightness
+	air    *airsensor.AirSensor
 
 	stopTick chan bool
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{
-	}
+	return &App{}
 }
 
 // startup is called when the app starts. The context is saved
@@ -38,7 +39,7 @@ func (a *App) ready(ctx context.Context) {
 	fmt.Println("Ready")
 	ticker := time.NewTicker(1 * time.Second)
 
-	_, err := tpms.Listen(func (t *tpms.Tire) {
+	_, err := tpms.Listen(func(t *tpms.Tire) {
 		runtime.EventsEmit(ctx, "tire", t)
 	})
 
@@ -63,17 +64,28 @@ func (a *App) ready(ctx context.Context) {
 
 	bright, err := brightness.NewBrightness(&brightness.Config{
 		Sensor:        light,
-		Speed: 	       500,
-		MinBrightness: 40,
-		MinLux:        2,
-		MaxLux:        100,
+		Speed:         500,
+		MinBrightness: 45,
+		MinLux:        2,  // Minimum brightness below this many lux
+		MaxLux:        50, // Maximum brightness above this many
 	})
+
+	bright.Listen(func(b *brightness.Brightness, val brightness.Result) {
+		runtime.EventsEmit(ctx, "brightness", val)
+	})
+
 	if err != nil {
 		fmt.Println("Failed to find brightness control", err)
 	}
 
+	air, err := airsensor.NewAirSensor()
+	if err != nil {
+		fmt.Println("Failed to find air sensor", err)
+	}
+
 	a.light = light
 	a.bright = bright
+	a.air = air
 
 	quit := make(chan bool)
 	a.stopTick = quit
@@ -84,6 +96,11 @@ func (a *App) ready(ctx context.Context) {
 			case <-ticker.C:
 				t := time.Now()
 				runtime.EventsEmit(ctx, "ticker", t)
+
+				reading, err := a.air.Read()
+				if err == nil {
+					runtime.EventsEmit(ctx, "air", reading)
+				}
 			case <-quit:
 				ticker.Stop()
 				return
@@ -103,9 +120,7 @@ func (a *App) shutdown(ctx context.Context) {
 	fmt.Println("Shutdown")
 }
 
-/*
-// Greet returns a greeting for the given name
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s, It's show time!", name)
+func (a *App) ReadBrightness() brightness.Result {
+	val := a.bright.Read()
+	return val
 }
-*/
