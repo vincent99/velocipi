@@ -68,6 +68,7 @@ export default class OLED {
   private flip: boolean
   private mainCanvas: Canvas;
   private overlayCanvas: Canvas;
+  private frameCanvas: Canvas;
   private framebuf: Buffer;
   private oddFrame: boolean;
   private profile: boolean;
@@ -87,8 +88,17 @@ export default class OLED {
     this.resetPin = new RIO(OLED.PIN_RESET, "output", {value: 1, bias: 'pull-up'})
     this.mainCanvas = new Canvas(this.width, this.height)
     this.overlayCanvas = new Canvas(this.width, this.height)
+    this.frameCanvas = new Canvas(this.width, this.height)
     this.framebuf = Buffer.alloc(this.width/2 * this.height)
     this.oddFrame = false
+  }
+
+  getWidth() {
+    return this.width
+  }
+
+  getHeight() {
+    return this.height
   }
 
   close() {
@@ -148,6 +158,56 @@ export default class OLED {
     this.profile = on
   }
 
+  setBrightness(byte: number) {
+    this.writeCmd(OLED.SET_CONTRAST_CURRENT, byte & 0xFF)
+    // this.writeCmd(OLED.MASTER_CURRENT_CONTROL, 15)
+  }
+
+  blit() {
+    this.render()
+
+    const start = millitime()
+
+    let yStart = 0
+    let displayOffset = 0
+
+    if ( this.oddFrame ) {
+      yStart = this.height
+      displayOffset = this.height
+    }
+
+    this.setAddress(0, yStart, this.width/4 - 1, yStart + this.height-1)
+
+    const step = 4096
+    for ( let i = 0 ; i < this.framebuf.byteLength/step ; i++ ) {
+      this.writeData(this.framebuf.subarray(step*i, step*(i+1)))
+    }
+
+    this.writeCmd(OLED.SET_DISPLAY_START_LINE, displayOffset)
+
+    if ( this.profile ) {
+      logger.debug(`Sent in ${millitime(start)}, ${yStart} ${displayOffset}`)
+    }
+
+    this.oddFrame = !this.oddFrame
+  }
+
+  toPng(scale=1) {
+    const c = new Canvas(this.width*scale, this.height*scale)
+    const ctx = c.getContext('2d')
+
+    ctx.scale(scale, scale)
+    ctx.drawCanvas(this.frameCanvas, 0, 0)
+    const png =  c.toBufferSync('png')
+
+    return png
+
+  }
+
+  // -------------------------------------
+  // Private
+  // -------------------------------------
+
   private async wait(ms: number): Promise<true> {
     return new Promise((resolve, _) => {
       setTimeout(resolve, ms)
@@ -206,8 +266,16 @@ export default class OLED {
     let framePtr = this.flip ? end : 0
     let inc = this.flip ? -1 : 1
 
-    let base = this.getContext().getImageData(0, 0, this.width, this.height).data
-    const overlay = this.getOverlayContext().getImageData(0, 0, this.width, this.height).data
+    let base= this.getContext().getImageData(0, 0, this.width, this.height)
+    const overlay = this.getOverlayContext().getImageData(0, 0, this.width, this.height)
+    let baseData = base.data
+    const overlayData = overlay.data
+
+    let frame = this.frameCanvas.getContext('2d')
+    frame.imageSmoothingEnabled = false
+    frame.clearRect(0, 0, this.width, this.height)
+    frame.drawImage(base, 0, 0)
+    frame.drawImage(overlay, 0, 0)
 
     function gray(r: number, g: number, b: number) {
       return (r+g+b)/3
@@ -222,21 +290,21 @@ export default class OLED {
     }
 
     function colorForPixel(ptr: number) {
-      const lower = gray(base[ptr], base[ptr+1], base[ptr+2])
-      const lowerAlpha = base[ptr+3]/255
-      const upperAlpha  = overlay[ptr+3]/255
+      const lower = gray(baseData[ptr], baseData[ptr+1], baseData[ptr+2])
+      const lowerAlpha = baseData[ptr+3]/255
+      const upperAlpha  = overlayData[ptr+3]/255
 
       const a = alpha(0, lower, lowerAlpha)
 
       if ( upperAlpha === 0 ) {
         return quantize(a)
       } else {
-        const upper = gray(overlay[ptr], overlay[ptr+1], overlay[ptr+2])
+        const upper = gray(overlayData[ptr], overlayData[ptr+1], overlayData[ptr+2])
         return quantize(alpha(a, upper, upperAlpha))
       }
     }
 
-    for ( let imgPtr = 0 ; imgPtr < base.byteLength ; imgPtr += 8 ) {
+    for ( let imgPtr = 0 ; imgPtr < baseData.byteLength ; imgPtr += 8 ) {
       this.framebuf[framePtr] = colorForPixel(imgPtr) << 4 | colorForPixel(imgPtr+4)
       framePtr += inc
     }
@@ -246,39 +314,6 @@ export default class OLED {
     }
   }
 
-  blit() {
-    this.render()
-
-    const start = millitime()
-
-    let yStart = 0
-    let displayOffset = 0
-
-    if ( this.oddFrame ) {
-      yStart = this.height
-      displayOffset = this.height
-    }
-
-    this.setAddress(0, yStart, this.width/4 - 1, yStart + this.height-1)
-
-    const step = 4096
-    for ( let i = 0 ; i < this.framebuf.byteLength/step ; i++ ) {
-      this.writeData(this.framebuf.subarray(step*i, step*(i+1)))
-    }
-
-    this.writeCmd(OLED.SET_DISPLAY_START_LINE, displayOffset)
-
-    if ( this.profile ) {
-      logger.debug(`Sent in ${millitime(start)}, ${yStart} ${displayOffset}`)
-    }
-
-    this.oddFrame = !this.oddFrame
-  }
-
-  setBrightness(byte: number) {
-    this.writeCmd(OLED.SET_CONTRAST_CURRENT, byte & 0xFF)
-    // this.writeCmd(OLED.MASTER_CURRENT_CONTROL, 15)
-  }
 }
 
 function millitime(then?: number) {

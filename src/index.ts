@@ -3,20 +3,42 @@ console.log('Starting...');
 import express, {json, urlencoded} from 'express'
 import cors from 'cors'
 import { Server as WSS } from 'ws'
-import { logger } from "./logger"
-import i2c from './hardware/i2c';
-import oled from './hardware/oled';
 
+import I2C from './hardware/i2c';
+import { AirSensor } from './hardware/air-sensor';
+import { LightSensor } from './hardware/light-sensor';
+import OLED from './hardware/oled';
+
+import { logger } from "./logger"
 import config from './config'
 
-const port = config.get('port')
-const app = express();
+import AirRoute from './routes/air'
+import OledRoute from './routes/oled';
+import LightRoute from './routes/light';
 
-app.use(cors({
-  origin: `http://localhost:${port}`
-}))
+
+const bus = new I2C();
+const air = new AirSensor(bus)
+const light = new LightSensor(bus)
+const disp = new OLED(256, 64, true)
+
+const port = config.get('port')
+const app = express()
+
+app.use(cors({origin: `http://localhost:${port}`}))
 app.use(json());
 app.use(urlencoded({ extended: true }));
+app.use((_, res, next) => {
+  res.locals.disp = disp
+  res.locals.i2c = bus
+  res.locals.air = air
+  res.locals.light = light
+  next()
+})
+
+app.use('/air', AirRoute)
+app.use('/light', LightRoute)
+app.use('/oled', OledRoute)
 
 const server = app.listen(port, "0.0.0.0", () => {
   logger.info(`Listening on port ${port}.`);
@@ -79,43 +101,17 @@ process.on('SIGINT', function() {
 
 
 
-const bus = new i2c();
 const als = bus.wrap(0x48)
-const disp = new oled(256, 64, true)
-const ctx = disp.getContext()
-const overlay = disp.getOverlayContext()
+const ctx = disp.getContext();
+
+// const overlay = disp.getOverlayContext()
 let timer: NodeJS.Timeout
 
 (async function(){
-  await disp.init()
-  // disp.setProfile(true)
-
-  for ( let i = 0 ; i < 256 ; i++ ){
-    let color = i.toString(16)
-    if ( color.length < 2 ) {
-      color = '0' + color
-    }
-
-    ctx.strokeStyle = `#${color}${color}${color}`
-    ctx.strokeRect(i, 0, 1, 64)
-  }
-
-  let i = 0
-  timer = setInterval(() => {
-    disp.clearOverlay()
-    overlay.fillStyle=`rgba(255,255,255,1)`
-    overlay.fillRect(i % (256+64) - 64, 16, 64, 32)
-    overlay.fillStyle=`rgba(0,0,0,0.5)`
-    overlay.fillRect(0, 48, 256, 16)
-    i+=2
-    // disp.setBrightness(i%256)
-    disp.blit()
-  }, 1000/30)
-
-})();
-
-(async function(){
   await bus.waitReady()
+  await air.init()
+  await light.init()
+  await disp.init()
 
   console.log('ALS connected', await als.isConnected())
   try {
@@ -124,4 +120,41 @@ let timer: NodeJS.Timeout
   } catch (e) {
     console.error(e)
   }
+
+  // for ( let i = 0 ; i < 256 ; i++ ){
+  //   let color = i.toString(16)
+  //   if ( color.length < 2 ) {
+  //     color = '0' + color
+  //   }
+
+  //   ctx.strokeStyle = `#${color}${color}${color}`
+  //   ctx.strokeRect(i, 0, 1, 64)
+  // }
+
+  // let i = 0
+  timer = setInterval(() => {
+    // disp.clearOverlay()
+    // overlay.fillStyle=`rgba(255,255,255,1)`
+    // overlay.fillRect(i % (256+64) - 64, 16, 64, 32)
+    // overlay.fillStyle=`rgba(0,0,0,0.5)`
+    // overlay.fillRect(0, 48, 256, 16)
+    // i+=2
+    // disp.setBrightness(i%256)
+
+    ctx.font = '16px Helvetica'
+    ctx.fillStyle = 'rgba(255,0,0,1)'
+    ctx.textAlign = 'center'
+    ctx.fillText('Hello World', 128, 32, 256)
+
+    ctx.strokeStyle='rgba(255,0,0,1)'
+    for ( let x = 0 ; x < 128 ; x += 3 ) {
+      for ( let y = 0 ; y < 32 ; y+= 3 ) {
+        ctx.rect(x, y, 255-x, 63-y)
+        ctx.stroke()
+      }
+    }
+
+    disp.blit()
+  }, 1000/30)
+
 })();

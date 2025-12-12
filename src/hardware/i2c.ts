@@ -14,7 +14,7 @@ interface WriteResult {
 	buffer: Buffer
 }
 
-export default class i2c {
+export default class I2C {
   ready: boolean
   device: number;
   bus: PromisifiedBus;
@@ -356,10 +356,10 @@ func ioctl(fd, cmd, arg uintptr) error {
 */
 
 export class Peripheral {
-	i: i2c
+	i: I2C
 	address: number
 
-  constructor(bus: i2c, address: number) {
+  constructor(bus: I2C, address: number) {
 		this.i = bus
 		this.address = address
 	}
