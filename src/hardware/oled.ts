@@ -69,7 +69,7 @@ export default class OLED {
   private mainCanvas: Canvas;
   private overlayCanvas: Canvas;
   private frameCanvas: Canvas;
-  private framebuf: Buffer;
+  private frameBuf: Buffer;
   private oddFrame: boolean;
   private profile: boolean;
 
@@ -89,7 +89,7 @@ export default class OLED {
     this.mainCanvas = new Canvas(this.width, this.height)
     this.overlayCanvas = new Canvas(this.width, this.height)
     this.frameCanvas = new Canvas(this.width, this.height)
-    this.framebuf = Buffer.alloc(this.width/2 * this.height)
+    this.frameBuf = Buffer.alloc(this.width/2 * this.height)
     this.oddFrame = false
   }
 
@@ -103,6 +103,8 @@ export default class OLED {
 
   close() {
     this.spi.closeSync()
+    this.dcPin.close()
+    this.resetPin.close()
   }
 
   async init() {
@@ -179,8 +181,8 @@ export default class OLED {
     this.setAddress(0, yStart, this.width/4 - 1, yStart + this.height-1)
 
     const step = 4096
-    for ( let i = 0 ; i < this.framebuf.byteLength/step ; i++ ) {
-      this.writeData(this.framebuf.subarray(step*i, step*(i+1)))
+    for ( let i = 0 ; i < this.frameBuf.byteLength/step ; i++ ) {
+      this.writeData(this.frameBuf.subarray(step*i, step*(i+1)))
     }
 
     this.writeCmd(OLED.SET_DISPLAY_START_LINE, displayOffset)
@@ -192,16 +194,18 @@ export default class OLED {
     this.oddFrame = !this.oddFrame
   }
 
-  toPng(scale=1) {
-    const c = new Canvas(this.width*scale, this.height*scale)
-    const ctx = c.getContext('2d')
+  private pngCanvas: Canvas;
+  async toPng(): Promise<Buffer> {
+    if ( !this.pngCanvas ) {
+      this.pngCanvas = new Canvas(this.width, this.height)
+    }
 
-    ctx.scale(scale, scale)
+    const ctx = this.pngCanvas.getContext('2d')
     ctx.drawCanvas(this.frameCanvas, 0, 0)
-    const png =  c.toBufferSync('png')
+    const png = await this.pngCanvas.toBuffer('png')
+    ctx.reset()
 
     return png
-
   }
 
   // -------------------------------------
@@ -305,7 +309,7 @@ export default class OLED {
     }
 
     for ( let imgPtr = 0 ; imgPtr < baseData.byteLength ; imgPtr += 8 ) {
-      this.framebuf[framePtr] = colorForPixel(imgPtr) << 4 | colorForPixel(imgPtr+4)
+      this.frameBuf[framePtr] = colorForPixel(imgPtr) | colorForPixel(imgPtr+4) << 4
       framePtr += inc
     }
 

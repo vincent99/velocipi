@@ -19,5 +19,6 @@ declare module 'rpi-io' {
     monitoringStop(): void;
     pwmStop(): void;
     pwmDUty(percent: number): void;
-    closeAll(): void;
+
+    static closeAll(): void;
   }

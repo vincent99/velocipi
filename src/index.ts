@@ -4,6 +4,7 @@ import express, {json, urlencoded} from 'express'
 import cors from 'cors'
 import { Server as WSS } from 'ws'
 
+import { RIO } from 'rpi-io';
 import I2C from './hardware/i2c';
 import { AirSensor } from './hardware/air-sensor';
 import { LightSensor } from './hardware/light-sensor';
@@ -16,6 +17,15 @@ import AirRoute from './routes/air'
 import OledRoute from './routes/oled';
 import LightRoute from './routes/light';
 
+process.on('SIGTERM', function() {
+  logger.warn('SIGTERM Received')
+  exit()
+})
+
+process.on('SIGINT', function() {
+  logger.debug('SIGINT Received')
+  exit()
+})
 
 const bus = new I2C();
 const air = new AirSensor(bus)
@@ -63,21 +73,20 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
-process.on('SIGINT', function() {
-  logger.debug('Ctrl-C')
+function exit() {
   clearInterval(timer)
 
   server.close(() => {
-    console.log('Exiting')
+    logger.info('Cleaning Up…')
     disp.clearOverlay()
     disp.clear()
     disp.blit()
     disp.close()
-    console.log('Exiting for reals')
+    RIO.closeAll()
+    logger.info('Bye')
     process.exit(0)
   })
-})
-
+}
 
 // import chromedriver from 'chromedriver'
 // import {Builder, Browser} from 'selenium-webdriver'
@@ -101,10 +110,8 @@ process.on('SIGINT', function() {
 
 
 
-const als = bus.wrap(0x48)
 const ctx = disp.getContext();
-
-// const overlay = disp.getOverlayContext()
+const overlay = disp.getOverlayContext()
 let timer: NodeJS.Timeout
 
 (async function(){
@@ -113,48 +120,51 @@ let timer: NodeJS.Timeout
   await light.init()
   await disp.init()
 
-  console.log('ALS connected', await als.isConnected())
-  try {
-    const d = await als.readRegister(1,6)
-    console.log('ALS:', d)
-  } catch (e) {
-    console.error(e)
+  for ( let i = 0 ; i < 256 ; i++ ){
+    let color = i.toString(16)
+    if ( color.length < 2 ) {
+      color = '0' + color
+    }
+
+    ctx.strokeStyle = `#${color}${color}${color}`
+    ctx.strokeRect(i, 0, 1, 64)
   }
 
-  // for ( let i = 0 ; i < 256 ; i++ ){
-  //   let color = i.toString(16)
-  //   if ( color.length < 2 ) {
-  //     color = '0' + color
-  //   }
-
-  //   ctx.strokeStyle = `#${color}${color}${color}`
-  //   ctx.strokeRect(i, 0, 1, 64)
-  // }
-
-  // let i = 0
+  let i = 0
   timer = setInterval(() => {
-    // disp.clearOverlay()
-    // overlay.fillStyle=`rgba(255,255,255,1)`
-    // overlay.fillRect(i % (256+64) - 64, 16, 64, 32)
-    // overlay.fillStyle=`rgba(0,0,0,0.5)`
-    // overlay.fillRect(0, 48, 256, 16)
-    // i+=2
-    // disp.setBrightness(i%256)
+    ctx.clearRect(0,0,256,64)
+    for ( let j = 0 ; j < 256 ; j++ ){
 
-    ctx.font = '16px Helvetica'
-    ctx.fillStyle = 'rgba(255,0,0,1)'
+      let color = ((j+i)%256).toString(16)
+      if ( color.length < 2 ) {
+        color = '0' + color
+      }
+
+      ctx.strokeStyle = `#${color}${color}${color}`
+      ctx.strokeRect(j, 0, 1, 64)
+    }
+
+    disp.clearOverlay()
+
+    ctx.font = '32px serif'
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'
     ctx.textAlign = 'center'
     ctx.fillText('Hello World', 128, 32, 256)
 
-    ctx.strokeStyle='rgba(255,0,0,1)'
-    for ( let x = 0 ; x < 128 ; x += 3 ) {
-      for ( let y = 0 ; y < 32 ; y+= 3 ) {
-        ctx.rect(x, y, 255-x, 63-y)
-        ctx.stroke()
-      }
-    }
+    overlay.fillStyle=`rgba(255,255,255,0.5)`
+    overlay.fillRect(i % (256+64) - 64, 16, 64, 32)
+    i+=2
+    // disp.setBrightness(i%256)
+
+    // ctx.strokeStyle='rgba(255,0,0,1)'
+    // for ( let x = 0 ; x < 128 ; x += 3 ) {
+    //   for ( let y = 0 ; y < 32 ; y+= 3 ) {
+    //     ctx.rect(x, y, 255- (2*x), 63-(2*y))
+    //     ctx.stroke()
+    //   }
+    // }
 
     disp.blit()
-  }, 1000/30)
+  }, 1000/60)
 
 })();

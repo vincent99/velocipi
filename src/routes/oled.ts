@@ -3,16 +3,13 @@ import { logger } from '../logger'
 
 const router = Router()
 
-router.get("/", (req, res) => {
-  const scale = parseInt(`${req.query.scale}`, 10) || 1
-
+router.get("/", async (_, res) => {
   res.setHeader('Content-Type', 'image/png')
-  res.end(res.locals.disp.toPng(scale))
+  res.end(await res.locals.disp.toPng())
 })
 
 router.get('/stream', (req, res) => {
   let timer: NodeJS.Timeout
-  const scale = parseInt(`${req.query.scale}`, 10) || 1
   const rate = parseInt(`${req.query.rate}`, 10) || 10
   const boundary = '--pngstream';
 
@@ -44,8 +41,8 @@ router.get('/stream', (req, res) => {
     }
 
     logger.info('Started streaming display')
-    timer = setInterval(() => {
-      write(res.locals.disp.toPng(scale))
+    timer = setInterval(async () => {
+      write(await res.locals.disp.toPng())
     }, 1000/Math.max(1, rate))
 
     req.on('close', end)
