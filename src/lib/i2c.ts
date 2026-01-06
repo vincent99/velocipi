@@ -368,7 +368,7 @@ export class Peripheral {
 		try {
 			await this.writeBytes(Buffer.from([]))
 			return true
-		} catch (e) {
+		} catch {
 			return false
 		}
 	}

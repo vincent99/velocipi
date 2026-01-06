@@ -125,13 +125,13 @@ export class AirSensor {
 
   public async init() {
     if (!this.iface?.isConnected()) {
-      throw new Error("air sensor not found");
+      throw new Error("Air sensor not found");
     }
 
     const chipId = await this.iface.readRegisterU8(CHIP_ID_REG);
 
     if (chipId !== 0x58 && chipId !== 0x60) {
-      throw new Error(`air sensor has unrecognized chip id: 0x${chipId.toString(16)}`);
+      throw new Error(`Air sensor has unrecognized chip id: 0x${chipId.toString(16)}`);
     }
 
     // Read calibration registers

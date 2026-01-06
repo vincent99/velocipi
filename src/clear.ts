@@ -1,5 +1,5 @@
-import oled from './hardware/oled';
-const disp = new oled(256, 64, true)
-disp.clear()
-disp.clearOverlay()
-disp.blit()
+import { Canvas } from 'skia-canvas/lib';
+import oled from './lib/oled';
+const canvas = new Canvas(256, 64)
+const disp = new oled(canvas, true)
+disp.close()
