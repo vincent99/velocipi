@@ -207,14 +207,16 @@ export default class OLED {
   public async blit(num: number) {
     // 1. Save current frame
     const image = this.frameCtx.getImageData(0, 0, this.width, this.height)
+    const buf = this.frameBuf
 
     // 2. Convert to 4-bit gray in frameBuff
     let framePtr = this.flip ? this.width / 2 * this.height - 1 : 0
     const inc = this.flip ? -1 : 1
     const px = image.data
+    let limit = px.byteLength
 
-    for (let p = 0; p < px.byteLength; p += 8) {
-      this.frameBuf[ framePtr ] = toGray(px[ p ], px[ p + 1 ], px[ p + 2 ], px[ p + 3 ]) | (toGray(px[ p + 4 ], px[ p + 5 ], px[ p + 6 ], px[ p + 7 ]) << 4)
+    for (let p = 0; p < limit; p += 8) {
+      buf[ framePtr ] = toGray(px[ p ], px[ p + 1 ], px[ p + 2 ], px[ p + 3 ]) | (toGray(px[ p + 4 ], px[ p + 5 ], px[ p + 6 ], px[ p + 7 ]) << 4)
       framePtr += inc
     }
 
@@ -226,8 +228,9 @@ export default class OLED {
     this.setAddress(0, yStart, this.width / 4 - 1, yStart + this.height - 1)
 
     // Write pixels there
-    for (let i = 0; i < this.frameBuf.byteLength / step; i++) {
-      this.writeData(this.frameBuf.subarray(step * i, step * (i + 1)))
+    limit = buf.byteLength / step
+    for (let i = 0; i < limit; i++) {
+      this.writeData(buf.subarray(step * i, step * (i + 1)))
     }
 
     // 4. Move the active screen to the new pixels
@@ -236,5 +239,5 @@ export default class OLED {
 }
 
 function toGray(r: number, g: number, b: number, a: number) {
-  return Math.round(((r + g + b) / 3) * a / 255) >> 4
+  return Math.round((0.30*r + 0.59*g + 0.11*b) * a/255) >> 4
 }

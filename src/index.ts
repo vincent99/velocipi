@@ -20,7 +20,6 @@ import ScreenRoute from './routes/screen';
 import LightRoute from './routes/light';
 import { Startup } from './page/startup';
 import { Page } from './lib/page';
-import { sleep } from './util/time';
 
 process.on('SIGTERM', function () {
   logger.warn('SIGTERM Received');
@@ -98,36 +97,40 @@ function exit() {
   await disp.init();
   await air.init();
   await light.init();
-  await expander.init();
+  await expander.init(0xffff - 0x4000);
 
-  expander.setDirection(0xffff - 0x4000);
-  // Blink
-  setImmediate(async () => {
-    expander.write(0x4000);
-    await sleep(1000);
-    expander.write(0);
-    await sleep(1000);
-    expander.write(0x4000);
-    await sleep(1000);
-    expander.write(0);
-  });
-
-  expander;
+  // TUrn on the LED to show it works
+  expander.write(0x4000);
 
   const startup = new Startup(window);
   window.addPage(startup);
   window.activatePage(startup);
-  window.init();
-  // window.on('blit', disp.blit.bind(disp))
-  window.blit = disp.blit.bind(disp);
+  window.init(expander);
+  window.on('blit', (num) => disp.blit(num));
+  window.on('keydown', (key) => {
+    logger.debug(`Key Down: ${key}`);
+  });
+  window.on('keyheld', (key) => {
+    logger.debug(`Key Held: ${key}`);
+  });
+  window.on('key', (key, dur) => {
+    logger.debug(`Key     : ${key} (${dur})`);
+  });
+  window.on('keyup', (key) => {
+    logger.debug(`Key Up  : ${key}`);
+  });
+  window.on('knob', (knob, dir) => {
+    logger.debug(`Knob: ${knob} -> ${dir}`);
+  });
 
   startup.on('done', () => {
+    expander.write(0);
     console.log('Startup done');
     const overlay = window.getLayer(Layer.ALERT);
     const page = new Page(window, 'Gradient');
     window.addPage(page);
 
-    page.frame = function(i: number) {
+    page.frame = function (i: number) {
       // console.log('Page frame', i)
 
       const ctx = page.ctx;
