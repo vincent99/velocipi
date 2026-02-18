@@ -1,0 +1,107 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"net"
+	"net/http"
+
+	"github.com/gorilla/websocket"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+var hub *Hub
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func wsHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("websocket upgrade error:", err)
+		return
+	}
+
+	c := &client{conn: conn, send: make(chan []byte, 2)}
+	hub.register(c)
+	log.Println("websocket client connected:", r.RemoteAddr)
+
+	// Write pump: drains c.send and writes to the WebSocket connection.
+	go func() {
+		defer hub.unregister(c)
+		defer conn.Close()
+		for msg := range c.send {
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				log.Println("websocket write error:", err)
+				return
+			}
+		}
+	}()
+
+	// Read pump: handles incoming messages and detects disconnect.
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			log.Println("websocket client disconnected:", r.RemoteAddr)
+			hub.unregister(c)
+			return
+		}
+		var msg wsMessage
+		if err := json.Unmarshal(data, &msg); err == nil && msg.Type == "screenshots" {
+			c.enableScreenshots()
+			log.Println("websocket client requested screenshots:", r.RemoteAddr)
+		}
+	}
+}
+
+func main() {
+	ctx := context.Background()
+
+	// Initialize hub immediately so wsHandler is never called with a nil hub.
+	// browserCtx is set after the browser starts up below.
+	hub = newHub(nil)
+
+	// Start HTTP server first so the browser can reach /app when it navigates.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", wsHandler)
+	mux.Handle("/", http.FileServer(http.Dir("frontend")))
+	handler := corsMiddleware(mux)
+
+	addr := "0.0.0.0:8080"
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println("listening on", addr)
+
+	go func() {
+		if err := http.Serve(ln, handler); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	// Init the global browser instance (navigates to /app fire-and-forget).
+	browserCtx, cancelBrowser := initBrowser(ctx)
+	defer cancelBrowser()
+
+	hub.mu.Lock()
+	hub.browserCtx = browserCtx
+	hub.mu.Unlock()
+
+	// Run the screenshot+ping loop on the main goroutine.
+	hub.runScreenshotLoop(ctx)
+}

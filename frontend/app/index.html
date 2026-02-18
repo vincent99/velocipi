@@ -1,0 +1,77 @@
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      h1 {
+        font-size: 16px;
+      }
+      body {
+        -webkit-font-smoothing: none;
+        background: #111;
+        color: white;
+        overflow: hidden;
+        width: 100vw;
+        height: 100vh;
+        font-family: sans-serif;
+      }
+      #ball {
+        position: absolute;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, #ff6, #f40);
+        box-shadow: 0 0 12px #f804;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Velocipi</h1>
+    <div id="ball"></div>
+    <script defer>
+      const ball = document.getElementById("ball");
+      const r = 5; // radius
+
+      let x = 160,
+        y = 120;
+      let vx = 3.7,
+        vy = 2.3;
+
+      function step() {
+        const W = window.innerWidth;
+        const H = window.innerHeight;
+
+        x += vx;
+        y += vy;
+
+        if (x - r < 0) {
+          x = r;
+          vx = Math.abs(vx);
+        }
+        if (x + r > W) {
+          x = W - r;
+          vx = -Math.abs(vx);
+        }
+        if (y - r < 0) {
+          y = r;
+          vy = Math.abs(vy);
+        }
+        if (y + r > H) {
+          y = H - r;
+          vy = -Math.abs(vy);
+        }
+
+        ball.style.left = x - r + "px";
+        ball.style.top = y - r + "px";
+
+        requestAnimationFrame(step);
+      }
+
+      requestAnimationFrame(step);
+    </script>
+  </body>
+</html>

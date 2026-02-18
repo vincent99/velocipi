@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Velocipi</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 1rem;
+        background: #111;
+        color: #eee;
+      }
+      #last-ping {
+        font-size: 0.9rem;
+        color: #aaa;
+        margin-bottom: 0.5rem;
+      }
+
+      /* Frame image is 2409x704. The transparent window is:
+         x: 621–1803 (width 1182), y: 167–480 (height 313).
+         Express as percentages of the frame dimensions so the
+         layout scales correctly at any display size. */
+      #frame-wrap {
+        position: relative;
+        display: inline-block;
+        max-width: 100%;
+      }
+      #frame-img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+      /* Window hole: left=621/2409 right=(2409-1803)/2409 top=167/704 bottom=(704-480)/704 */
+      #screen-window {
+        position: absolute;
+        left: 25.78%; /* 621/2409   */
+        right: 25.11%; /* 606/2409   */
+        top: 23.72%; /* 167/704    */
+        bottom: 31.82%; /* 224/704    */
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      /* Keep screenshot at 4:1 aspect ratio, as wide as the window allows */
+      #screenshot {
+        width: 100%;
+        aspect-ratio: 4 / 1;
+        object-fit: contain;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="last-ping">Waiting for ping...</div>
+    <div id="frame-wrap">
+      <img id="frame-img" src="/img/frame.png" alt="frame" />
+      <div id="screen-window">
+        <img id="screenshot" alt="screenshot" />
+      </div>
+    </div>
+    <script>
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+      const pingEl = document.getElementById("last-ping");
+      const imgEl = document.getElementById("screenshot");
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: "screenshots" }));
+      };
+
+      ws.onmessage = (e) => {
+        let msg;
+        try {
+          msg = JSON.parse(e.data);
+        } catch {
+          return;
+        }
+        if (msg.type === "ping") pingEl.textContent = "Last ping: " + msg.time;
+        if (msg.type === "screenshot")
+          imgEl.src = "data:image/png;base64," + msg.data;
+      };
+
+      ws.onerror = (e) => console.error("ws error", e);
+      ws.onclose = () => {
+        pingEl.textContent = "Disconnected";
+      };
+    </script>
+  </body>
+</html>

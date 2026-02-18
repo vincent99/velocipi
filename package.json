@@ -1,0 +1,21 @@
+{
+  "name": "velocipi",
+  "version": "1.0.0",
+  "description": "This runs on a Raspberry Pi 5 to control the screens, cameras, joysticks, audio, and various other toys in my Velocity V-Twin-6 N711ME.  I don't know why you're here, but good luck.",
+  "homepage": "https://github.com/vincent99/velocipi#readme",
+  "bugs": {
+    "url": "https://github.com/vincent99/velocipi/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vincent99/velocipi.git"
+  },
+  "license": "Apache-2.0",
+  "author": "",
+  "type": "commonjs",
+  "main": "frontend/src/main.ts",
+  "scripts": {
+    "dev": "air",
+    "build": "go build -o velocipi-go ."
+  }
+}
