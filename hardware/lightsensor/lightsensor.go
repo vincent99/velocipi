@@ -7,7 +7,8 @@ package lightsensor
 import (
 	"errors"
 	"math"
-	"velocity/hardware/i2c"
+
+	"github.com/vincent99/velocipi-go/hardware/i2c"
 )
 
 const (

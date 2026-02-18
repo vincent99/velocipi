@@ -7,7 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"velocity/hardware/lightsensor"
+
+	"github.com/vincent99/velocipi-go/hardware/lightsensor"
 )
 
 const (

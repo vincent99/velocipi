@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"github.com/vincent99/velocipi-go/config"
 )
 
 var upgrader = websocket.Upgrader{
@@ -39,6 +40,9 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	c := &client{conn: conn, send: make(chan []byte, 2)}
 	hub.register(c)
 	log.Println("websocket client connected:", r.RemoteAddr)
+	go hub.sendReading(c)
+	go hub.sendLux(c)
+	go hub.sendTpms(c)
 
 	// Write pump: drains c.send and writes to the WebSocket connection.
 	go func() {
@@ -60,20 +64,26 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			hub.unregister(c)
 			return
 		}
-		var msg wsMessage
-		if err := json.Unmarshal(data, &msg); err == nil && msg.Type == "screenshots" {
-			c.enableScreenshots()
-			log.Println("websocket client requested screenshots:", r.RemoteAddr)
+		var msg inboundMsg
+		if err := json.Unmarshal(data, &msg); err == nil {
+			switch msg.Type {
+			case "screenshots":
+				c.enableScreenshots()
+				log.Println("websocket client requested screenshots:", r.RemoteAddr)
+			case "reload":
+				go hub.reload()
+			}
 		}
 	}
 }
 
 func main() {
+	cfg := config.Load()
 	ctx := context.Background()
 
 	// Initialize hub immediately so wsHandler is never called with a nil hub.
 	// browserCtx is set after the browser starts up below.
-	hub = newHub(nil)
+	hub = newHub(nil, cfg)
 
 	// Start HTTP server first so the browser can reach /app when it navigates.
 	mux := http.NewServeMux()
@@ -81,7 +91,7 @@ func main() {
 	mux.Handle("/", http.FileServer(http.Dir("frontend")))
 	handler := corsMiddleware(mux)
 
-	addr := "0.0.0.0:8080"
+	addr := cfg.Addr
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
@@ -101,6 +111,11 @@ func main() {
 	hub.mu.Lock()
 	hub.browserCtx = browserCtx
 	hub.mu.Unlock()
+
+	// Start the air sensor, light sensor, and TPMS loops.
+	go hub.runAirSensorLoop(ctx)
+	go hub.runLightSensorLoop(ctx)
+	go hub.runTpmsLoop(ctx)
 
 	// Run the screenshot+ping loop on the main goroutine.
 	hub.runScreenshotLoop(ctx)

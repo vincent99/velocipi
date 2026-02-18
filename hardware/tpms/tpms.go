@@ -6,23 +6,39 @@ import (
 	"time"
 
 	"github.com/sigurn/crc16"
+	"github.com/vincent99/velocipi-go/config"
 	"tinygo.org/x/bluetooth"
 )
 
 type TPMS struct {
-	adapter *bluetooth.Adapter
-	tires map[string]*Tire
-
-	onUpdate func(tire *Tire)
+	adapter   *bluetooth.Adapter
+	tires     map[string]*Tire
+	updates   chan *Tire
+	positions map[string]string // BT address (lowercase) → position label
 }
 
-type Handler func(*Tire)
+// Listen starts scanning for TPMS sensors and returns the TPMS instance.
+// Tire updates are delivered on the Updates() channel.
+func Listen(addrs *config.TireAddresses) (*TPMS, error) {
+	positions := make(map[string]string)
+	for _, addr := range addrs.FL {
+		positions[strings.ToLower(addr)] = "FL"
+	}
+	for _, addr := range addrs.FR {
+		positions[strings.ToLower(addr)] = "FR"
+	}
+	for _, addr := range addrs.RL {
+		positions[strings.ToLower(addr)] = "RL"
+	}
+	for _, addr := range addrs.RR {
+		positions[strings.ToLower(addr)] = "RR"
+	}
 
-func Listen(h Handler) (*TPMS, error) {
 	tpms := &TPMS{
-		adapter: bluetooth.DefaultAdapter,
-		tires: make(map[string]*Tire),
-		onUpdate: h,
+		adapter:   bluetooth.DefaultAdapter,
+		tires:     make(map[string]*Tire),
+		updates:   make(chan *Tire, 8),
+		positions: positions,
 	}
 
 	err := tpms.adapter.Enable()
@@ -31,7 +47,7 @@ func Listen(h Handler) (*TPMS, error) {
 	}
 
 	fmt.Printf("Listening for TPMS devices...\n")
-	go func() {	
+	go func() {
 		err = tpms.adapter.Scan(tpms.scan)
 		if err != nil {
 			fmt.Printf("Error scanning bluetooth: %s", err)
@@ -41,11 +57,25 @@ func Listen(h Handler) (*TPMS, error) {
 	return tpms, nil
 }
 
+// Updates returns a channel that receives a *Tire each time any tire is updated.
+func (t *TPMS) Updates() <-chan *Tire {
+	return t.updates
+}
+
+// Tires returns a snapshot of all currently known tires.
+func (t *TPMS) Tires() []*Tire {
+	out := make([]*Tire, 0, len(t.tires))
+	for _, tire := range t.tires {
+		out = append(out, tire)
+	}
+	return out
+}
+
 func (t *TPMS) scan(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
 	name := device.LocalName()
 	mfr := device.ManufacturerData()
 
-	if ( name != "BR" || mfr == nil || len(mfr) != 1 ) {
+	if name != "BR" || mfr == nil || len(mfr) != 1 {
 		return
 	}
 
@@ -53,26 +83,18 @@ func (t *TPMS) scan(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
 	company := mfr[0].CompanyID
 	bytes := mfr[0].Data
 
-	// @TODO Should be the client's problem
-	position := "??"
-	switch address {
-		case "4a:a0:00:00:eb:02", "ae3806cb-ea50-2187-4d1d-10010147721a": // FL
-			position = "FL"
-		case "4a:85:00:00:3a:50", "bc7ac313-2870-3c1f-c2bc-6047a80b58c2": // FR
-			position = "FR"
-		case "4a:88:00:00:72:70", "24237bb2-4496-36b6-a755-64e9de75ac6c": // RL
-			position = "RL"
-		case "4a:85:00:00:d7:38", "99633f0c-d627-5f15-7d5d-f171b5a745e7": // RR
-			position = "RR"
+	position := t.positions[address]
+	if position == "" {
+		position = "??"
 	}
 
 	var data = []byte{
-		byte(company&0xFF),
-		byte(company>>8),
+		byte(company & 0xFF),
+		byte(company >> 8),
 		bytes[0], bytes[1], bytes[2], bytes[3], bytes[4],
 	}
 
-	if ( !checkCrc(data) ) {
+	if !checkCrc(data) {
 		fmt.Printf("Received data with invalid CRC from %s: %x\n", address, data)
 		return
 	}
@@ -84,13 +106,14 @@ func (t *TPMS) scan(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
 		fmt.Printf("Found Tire (%s) %s\n", address, position)
 	}
 
-	tire.Update(data[0], data[1], data[2], uint16(uint16(data[3])<<8 | uint16(data[4])))
+	tire.Update(data[0], data[1], data[2], uint16(uint16(data[3])<<8|uint16(data[4])))
 
-	now := time.Now()
+	fmt.Printf("[%s] Update Tire %s\n", time.Now().Format("15:04:05"), tire.String())
 
-	fmt.Printf("[%s] Update Tire %s\n", now.Format("15:04:05"), tire.String())
-
-	go t.onUpdate(tire)
+	select {
+	case t.updates <- tire:
+	default:
+	}
 }
 
 // Shenanigans extracted from sytpms android app
@@ -113,7 +136,7 @@ var auchCRCHi = []byte{
 	0x7F, 0xA4, 0xDF, 0x0A, 0xE0, 0x08, 0x4C, 0xCB, 0xA3, 0x4C, 0x63, 0x20, 0x8D, 0xC0, 0x9A, 0x3B,
 }
 
-var	auchCRCLo = []byte{
+var auchCRCLo = []byte{
 	0x20, 0xC0, 0xC1, 0x11, 0xC3, 0x03, 0x02, 0xC2, 0xC6, 0x7E, 0x7F, 0xBF, 0x7D, 0xBD, 0xBC, 0x7C,
 	0xCC, 0x0C, 0x0D, 0xCD, 0x0F, 0xCF, 0xCE, 0x0E, 0x0A, 0xCA, 0xCB, 0x0B, 0xC9, 0x09, 0x08, 0xC8,
 	0x9C, 0x5C, 0x5D, 0x9D, 0x5F, 0x9F, 0x9E, 0x5E, 0x5A, 0x9A, 0x9B, 0x5B, 0x99, 0x59, 0x58, 0x98,
@@ -144,6 +167,6 @@ var table *crc16.Table = crc16.MakeTable(crc16.Params{
 func checkCrc(data []byte) bool {
 	sum := crc16.Checksum(data[0:len(data)-2], table)
 	expect := uint16(uint16(data[len(data)-2])<<8 | uint16(data[len(data)-1]))
-	got := uint16(uint16(auchCRCHi[sum>>8])<<8 | uint16(auchCRCLo[sum&0xff]) )
+	got := uint16(uint16(auchCRCHi[sum>>8])<<8 | uint16(auchCRCLo[sum&0xff]))
 	return expect == got
 }
