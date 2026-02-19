@@ -55,8 +55,9 @@ type Config struct {
 	LightSensorInterval time.Duration `envconfig:"LIGHT_SENSOR_INTERVAL" default:"1s"`
 
 	// Screenshot / ping loop
-	ScreenshotFPS int           `envconfig:"SCREENSHOT_FPS" default:"30"`
-	PingInterval  time.Duration `envconfig:"PING_INTERVAL" default:"1s"`
+	ScreenshotFPS  int           `envconfig:"SCREENSHOT_FPS" default:"30"`
+	PingInterval   time.Duration `envconfig:"PING_INTERVAL" default:"1s"`
+	SplashDuration time.Duration `envconfig:"SPLASH_DURATION" default:"2s"`
 
 	// OLED display
 	OLEDSPIPort  string           `envconfig:"OLED_SPI_PORT"   default:"/dev/spidev0.0"`

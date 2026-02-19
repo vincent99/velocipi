@@ -6,9 +6,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/vincent99/velocipi-go/config"
+	"github.com/vincent99/velocipi-go/hardware"
 	"github.com/vincent99/velocipi-go/hardware/oled"
 )
 
@@ -123,6 +125,12 @@ func screenHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	cfg := config.Load()
 	ctx := context.Background()
+
+	// Start LED blinking immediately as a startup indicator.
+	// It will be turned off once the first frame blits to the OLED.
+	if e := hardware.Expander(); e != nil {
+		hardware.LED().Blink(e, 250*time.Millisecond)
+	}
 
 	// Initialise the OLED display. Non-fatal if the hardware isn't present.
 	var display *oled.OLED

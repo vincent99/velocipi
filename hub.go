@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"image"
 	"image/png"
 	"io"
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -88,13 +90,18 @@ type Hub struct {
 }
 
 func newHub(browserCtx context.Context, cfg *config.Config, o *oled.OLED) *Hub {
-	return &Hub{
+	h := &Hub{
 		clients:       make(map[*client]struct{}),
 		screenClients: make(map[*client]struct{}),
 		browserCtx:    browserCtx,
 		cfg:           cfg,
 		oled:          o,
 	}
+	// Broadcast LED state to all clients whenever it changes.
+	hardware.LED().OnChange(func(s led.State) {
+		h.broadcastAll(ledStateMsg(s))
+	})
+	return h
 }
 
 func (h *Hub) register(c *client) {
@@ -325,6 +332,16 @@ func (h *Hub) runTpmsLoop(ctx context.Context) {
 	}
 }
 
+// pngToImage opens a PNG file and returns it as an image.
+func pngToImage(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return png.Decode(f)
+}
+
 // runScreencastLoop uses Page.startScreencast to receive frames pushed by
 // Chromium, forwarding each to screen clients and the OLED display.
 // Ping messages are sent on a separate ticker.
@@ -363,6 +380,10 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 	minInterval := time.Second / time.Duration(h.cfg.ScreenshotFPS)
 	var lastFrame time.Time
 
+	// splashDone is closed once the splash screen has finished displaying.
+	// Until then, screencast frames are acked but not blitted to the OLED.
+	splashDone := make(chan struct{})
+
 	// Listen for screencast frames pushed by Chromium.
 	chromedp.ListenTarget(bctx, func(ev any) {
 		frame, ok := ev.(*page.EventScreencastFrame)
@@ -388,6 +409,16 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 			return
 		}
 
+		// Forward to browser clients regardless of splash state.
+		h.broadcastScreen(buf)
+
+		// Don't blit to OLED until the splash is done.
+		select {
+		case <-splashDone:
+		default:
+			return
+		}
+
 		if h.oled != nil {
 			if img, err := png.Decode(bytes.NewReader(buf)); err == nil {
 				h.oled.Blit(img)
@@ -395,8 +426,6 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 				log.Println("oled: png decode error:", err)
 			}
 		}
-
-		h.broadcastScreen(buf)
 	})
 
 	// Start the screencast — Chromium will now push frames as they change.
@@ -409,6 +438,29 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 		return
 	}
 	log.Println("screencast: started")
+
+	// Show the splash screen on the OLED for 5 seconds, then hand off to
+	// the live screencast and turn the LED off.
+	go func() {
+		if h.oled != nil {
+			if img, err := pngToImage("frontend/img/logo.png"); err != nil {
+				log.Println("splash: load error:", err)
+			} else {
+				h.oled.Blit(img)
+				log.Println("splash: showing logo")
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(h.cfg.SplashDuration):
+		}
+		close(splashDone)
+		log.Println("splash: done, switching to screencast")
+		if e := hardware.Expander(); e != nil {
+			hardware.LED().Off(e)
+		}
+	}()
 
 	<-ctx.Done()
 
@@ -529,10 +581,6 @@ func (h *Hub) handleLEDMsg(state string, rateMs int) {
 		return
 	}
 	l := hardware.LED()
-	// Register broadcast callback once (idempotent — same fn each time).
-	l.OnChange(func(s led.State) {
-		h.broadcastAll(ledStateMsg(s))
-	})
 	switch state {
 	case "on":
 		l.On(e)
