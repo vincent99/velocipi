@@ -110,6 +110,26 @@
         margin-top: 0.15rem;
       }
 
+      #led-status {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin: 0.5rem 0;
+        font-size: 0.9rem;
+      }
+      #led-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #333;
+        border: 1px solid #555;
+        flex-shrink: 0;
+      }
+      #led-dot.on  { background: #f5c518; border-color: #f5c518; }
+      #led-dot.blink { background: #f5c518; border-color: #f5c518; animation: led-blink var(--blink-rate, 500ms) step-start infinite; }
+      @keyframes led-blink { 50% { background: #333; border-color: #555; } }
+      #led-label { color: #aaa; }
+
       #screen-window {
         position: absolute;
         left: 25.78%;
@@ -167,6 +187,10 @@
         <span class="label">Ambient Light</span>
         <span class="value" id="ar-lux">--</span>
       </div>
+    </div>
+    <div id="led-status">
+      <div id="led-dot"></div>
+      <span id="led-label">LED: --</span>
     </div>
     <div id="tpms">
       <div class="tire-card stale" id="tire-FL">
@@ -257,6 +281,25 @@
         airEl.classList.remove("stale");
       }
 
+      const ledDot = document.getElementById("led-dot");
+      const ledLabel = document.getElementById("led-label");
+
+      function updateLEDState(msg) {
+        ledDot.className = "";
+        ledDot.style.removeProperty("--blink-rate");
+        if (msg.mode === "on") {
+          ledDot.classList.add("on");
+          ledLabel.textContent = "LED: on";
+        } else if (msg.mode === "blink") {
+          const rate = msg.rate || 500;
+          ledDot.style.setProperty("--blink-rate", (rate*2) + "ms");
+          ledDot.classList.add("blink");
+          ledLabel.textContent = "LED: blink (" + rate + "ms)";
+        } else {
+          ledLabel.textContent = "LED: off";
+        }
+      }
+
       function updateTire(t) {
         const pos = t.position || "??";
         const card = document.getElementById("tire-" + pos);
@@ -293,6 +336,7 @@
           document.getElementById("ar-lux").textContent =
             fmt(msg.lux, 1) + " lux";
         if (msg.type === "tpms" && msg.tire) updateTire(msg.tire);
+        if (msg.type === "ledState") updateLEDState(msg);
       };
 
       ws.onerror = (e) => console.error("ws error", e);

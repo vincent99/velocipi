@@ -44,6 +44,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	go hub.sendReading(c)
 	go hub.sendLux(c)
 	go hub.sendTpms(c)
+	go hub.sendLEDState(c)
 
 	// Write pump: drains c.send and writes to the WebSocket connection.
 	go func() {
@@ -76,6 +77,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			var km inboundKeyMsg
 			if err := json.Unmarshal(data, &km); err == nil {
 				go hub.handleKeyMsg(km.EventType, km.Key)
+			}
+		case "led":
+			var lm inboundLEDMsg
+			if err := json.Unmarshal(data, &lm); err == nil {
+				go hub.handleLEDMsg(lm.State, lm.Rate)
 			}
 		}
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/vincent99/velocipi-go/hardware"
 	"github.com/vincent99/velocipi-go/hardware/airsensor"
 	"github.com/vincent99/velocipi-go/hardware/expander"
+	"github.com/vincent99/velocipi-go/hardware/led"
 	"github.com/vincent99/velocipi-go/hardware/oled"
 	"github.com/vincent99/velocipi-go/hardware/tpms"
 )
@@ -50,6 +51,12 @@ type TpmsMsg struct {
 	Tire *tpms.Tire `json:"tire"`
 }
 
+type LEDStateMsg struct {
+	Type string `json:"type"`           // always "ledState"
+	Mode string `json:"mode"`           // "off", "on", "blink"
+	Rate int    `json:"rate,omitempty"` // blink rate in ms, only set when mode == "blink"
+}
+
 // Inbound message types from websocket clients.
 
 type inboundMsg struct {
@@ -59,6 +66,11 @@ type inboundMsg struct {
 type inboundKeyMsg struct {
 	EventType string `json:"eventType"` // "keydown" or "keyup"
 	Key       string `json:"key"`
+}
+
+type inboundLEDMsg struct {
+	State string `json:"state"`          // "off", "on", "blink"
+	Rate  int    `json:"rate,omitempty"` // blink rate in ms, default 500
 }
 
 type client struct {
@@ -485,6 +497,52 @@ func (h *Hub) dispatchKey(typ input.KeyType, key string) {
 		return p.Do(ctx)
 	})); err != nil {
 		log.Println("hub: key dispatch error:", err)
+	}
+}
+
+// ledStateMsg builds a LEDStateMsg from a led.State.
+func ledStateMsg(s led.State) LEDStateMsg {
+	msg := LEDStateMsg{Type: "ledState", Mode: s.Mode}
+	if s.Mode == "blink" {
+		msg.Rate = int(s.Rate.Milliseconds())
+	}
+	return msg
+}
+
+// sendLEDState sends the current LED state to a single client.
+func (h *Hub) sendLEDState(c *client) {
+	l := hardware.LED()
+	data, err := json.Marshal(ledStateMsg(l.CurrentState()))
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
+	}
+}
+
+// handleLEDMsg controls the expander LED from a websocket message.
+func (h *Hub) handleLEDMsg(state string, rateMs int) {
+	e := hardware.Expander()
+	if e == nil {
+		return
+	}
+	l := hardware.LED()
+	// Register broadcast callback once (idempotent — same fn each time).
+	l.OnChange(func(s led.State) {
+		h.broadcastAll(ledStateMsg(s))
+	})
+	switch state {
+	case "on":
+		l.On(e)
+	case "off":
+		l.Off(e)
+	case "blink":
+		if rateMs <= 0 {
+			rateMs = 500
+		}
+		l.Blink(e, time.Duration(rateMs)*time.Millisecond)
 	}
 }
 

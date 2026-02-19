@@ -7,6 +7,7 @@ import (
 	"github.com/vincent99/velocipi-go/config"
 	"github.com/vincent99/velocipi-go/hardware/airsensor"
 	"github.com/vincent99/velocipi-go/hardware/expander"
+	"github.com/vincent99/velocipi-go/hardware/led"
 	"github.com/vincent99/velocipi-go/hardware/lightsensor"
 	"github.com/vincent99/velocipi-go/hardware/tpms"
 )
@@ -23,6 +24,9 @@ var (
 
 	expanderOnce sync.Once
 	expanderUnit *expander.Expander
+
+	ledOnce sync.Once
+	ledUnit *led.Controller
 )
 
 func AirSensor() *airsensor.AirSensor {
@@ -76,4 +80,13 @@ func Expander() *expander.Expander {
 		expanderUnit = e
 	})
 	return expanderUnit
+}
+
+// LED returns the singleton LED controller for the expander's LED pin.
+func LED() *led.Controller {
+	ledOnce.Do(func() {
+		cfg := config.Load()
+		ledUnit = led.New(cfg.BitLED)
+	})
+	return ledUnit
 }
