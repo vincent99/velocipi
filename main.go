@@ -6,6 +6,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -124,7 +127,8 @@ func screenHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	cfg := config.Load()
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
 
 	// Start LED blinking immediately as a startup indicator.
 	// It will be turned off once the first frame blits to the OLED.
@@ -145,7 +149,6 @@ func main() {
 		log.Println("oled: init error (continuing without display):", err)
 	} else {
 		display = o
-		defer display.Close()
 	}
 
 	// Initialize hub immediately so wsHandler is never called with a nil hub.
@@ -172,13 +175,20 @@ func main() {
 		}
 	}()
 
-	// Init the global browser instance (navigates to /app fire-and-forget).
+	// Init the headless browser (process starts but no page loaded yet).
 	browserCtx, cancelBrowser := initBrowser(ctx)
 	defer cancelBrowser()
 
 	hub.mu.Lock()
 	hub.browserCtx = browserCtx
 	hub.mu.Unlock()
+
+	// Navigate to the app now that the HTTP server is listening.
+	if err := navigateTo(browserCtx, "http://localhost:8080/app/"); err != nil {
+		log.Println("browser: initial navigate error:", err)
+	} else {
+		log.Println("browser: app loaded")
+	}
 
 	// Start background loops.
 	go hub.runAirSensorLoop(ctx)
@@ -187,6 +197,15 @@ func main() {
 	go hub.runInputLoop(ctx)
 	go hub.runScreencastLoop(ctx)
 
-	// Block until context is cancelled.
+	// Block until signal.
 	<-ctx.Done()
+	log.Println("shutting down...")
+
+	// Turn off LED and clear OLED on exit.
+	if e := hardware.Expander(); e != nil {
+		hardware.LED().Off(e)
+	}
+	if display != nil {
+		display.Close()
+	}
 }

@@ -5,14 +5,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/png"
-	"io"
 	"log"
 	"math"
-	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -412,9 +410,11 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 		// Forward to browser clients regardless of splash state.
 		h.broadcastScreen(buf)
 
-		// Don't blit to OLED until the splash is done.
+		// Don't blit to OLED until splash is done, and stop on shutdown.
 		select {
 		case <-splashDone:
+		case <-ctx.Done():
+			return
 		default:
 			return
 		}
@@ -725,32 +725,42 @@ func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, inner, outer,
 	}
 }
 
-// loadAppPage fetches app/index.html from the live server, injects a <base href>,
-// and navigates the given browser context to a data: URL containing the HTML.
-func loadAppPage(browserCtx context.Context) error {
-	resp, err := http.Get("http://localhost:8080/app/")
-	if err != nil {
-		return err
-	}
-	htmlBytes, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+// navigateTo navigates the browser to url, waiting for the load event.
+//
+// On this platform (chromium-headless-shell on Raspberry Pi), page.Navigate
+// never returns a CDP response for HTTP/HTTPS URLs, but the load event fires
+// correctly. We fire the navigate in a goroutine and wait for the event.
+func navigateTo(browserCtx context.Context, url string) error {
+	// On this platform (chromium-headless-shell on Raspberry Pi), page.Navigate
+	// never returns a CDP response for HTTP URLs. The lifecycle events do fire,
+	// so we listen on browserCtx (not a derived context — events are missed on
+	// child contexts) and wait for networkIdle before returning.
+	ready := make(chan struct{}, 1)
+	chromedp.ListenTarget(browserCtx, func(ev any) {
+		if v, ok := ev.(*page.EventLifecycleEvent); ok && v.Name == "networkIdle" {
+			select {
+			case ready <- struct{}{}:
+			default:
+			}
+		}
+	})
 
-	html := string(htmlBytes)
-	const baseTag = `<base href="http://localhost:8080/app/">`
-	if idx := strings.Index(html, "<head>"); idx >= 0 {
-		html = html[:idx+6] + baseTag + html[idx+6:]
-	} else {
-		html = baseTag + html
-	}
-
-	dataURL := "data:text/html;base64," + base64.StdEncoding.EncodeToString([]byte(html))
-	return chromedp.Run(browserCtx, chromedp.ActionFunc(func(ctx context.Context) error {
-		_, _, _, _, err := page.Navigate(dataURL).Do(ctx)
-		return err
+	go chromedp.Run(browserCtx, chromedp.ActionFunc(func(ctx context.Context) error {
+		_, _, _, _, _ = page.Navigate(url).Do(ctx)
+		return nil
 	}))
+
+	select {
+	case <-ready:
+		return nil
+	case <-time.After(15 * time.Second):
+		return fmt.Errorf("navigateTo %s: timed out waiting for networkIdle", url)
+	case <-browserCtx.Done():
+		return browserCtx.Err()
+	}
 }
 
-// reload re-fetches and re-injects the app HTML into the existing browser instance.
+// reload navigates the browser back to the app page.
 func (h *Hub) reload() {
 	h.mu.RLock()
 	bctx := h.browserCtx
@@ -760,26 +770,16 @@ func (h *Hub) reload() {
 		return
 	}
 	log.Println("reload: reloading app...")
-	if err := loadAppPage(bctx); err != nil {
+	if err := navigateTo(bctx, "http://localhost:8080/app/"); err != nil {
 		log.Println("reload error:", err)
 	} else {
 		log.Println("reload: done")
 	}
 }
 
-// initBrowser starts the headless browser and loads the app page.
-//
-// On this platform (Raspberry Pi + chromium-headless-shell), Page.navigate to
-// HTTP URLs never returns a CDP response, so the page is loaded by:
-//  1. Fetching the HTML from the live server via Go's HTTP client.
-//  2. Injecting a <base href> so relative URLs resolve to the real server.
-//  3. Navigating to a data: URL containing the HTML — data: navigation works
-//     reliably, and the <base href> ensures sub-resources and WebSocket
-//     connections resolve against http://localhost:8080.
-//
-// Note: render-blocking external sub-resources (scripts without defer/async,
-// external stylesheets) will still stall CaptureScreenshot. Keep app/index.html
-// self-contained or use defer/async on scripts.
+// initBrowser starts the headless Chromium instance.
+// The app page is not loaded here — the caller must call hub.reload() or
+// navigateTo() once the HTTP server is ready.
 func initBrowser(ctx context.Context) (context.Context, context.CancelFunc) {
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx,
 		chromedp.NoFirstRun,
@@ -793,13 +793,13 @@ func initBrowser(ctx context.Context) (context.Context, context.CancelFunc) {
 
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
 
-	if err := loadAppPage(browserCtx); err != nil {
-		log.Println("browser: load error:", err)
+	// Trigger browser process creation with a no-op action.
+	if err := chromedp.Run(browserCtx); err != nil {
+		log.Println("browser: init error:", err)
 		cancelBrowser()
 		cancelAlloc()
 		return ctx, func() {}
 	}
-	log.Println("browser: app loaded via data: URL")
 
 	return browserCtx, func() {
 		cancelBrowser()
