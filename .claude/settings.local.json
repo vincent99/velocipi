@@ -8,7 +8,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:cdn.sparkfun.com)",
       "WebFetch(domain:www.bosch-sensortec.com)",
-      "WebFetch(domain:community.bosch-sensortec.com)"
+      "WebFetch(domain:community.bosch-sensortec.com)",
+      "WebFetch(domain:www.mouser.com)",
+      "WebFetch(domain:tech.alpsalpine.com)"
     ]
   }
 }

@@ -27,6 +27,19 @@
         background: radial-gradient(circle at 35% 35%, #ff6, #f40);
         box-shadow: 0 0 12px #f804;
       }
+      #knobs {
+        position: absolute;
+        top: 18px;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        font-size: 9px;
+        color: #888;
+      }
+      #knobs span { font-variant-numeric: tabular-nums; }
+      #knobs b { color: #ccc; }
       #keys {
         position: absolute;
         bottom: 2px;
@@ -59,6 +72,11 @@
   <body>
     <h1>Velocipi</h1>
     <div id="ball"></div>
+    <div id="knobs">
+      <span>out:<b id="kc-outer">0</b></span>
+      <span>in:<b id="kc-inner">0</b></span>
+      <span>joy:<b id="kc-joy">0</b></span>
+    </div>
     <div id="keys"></div>
     <script defer>
       // Key display
@@ -111,6 +129,23 @@
       });
 
       renderKeys();
+
+      // Knob counters
+      const knobVals = { "kc-outer": 0, "kc-inner": 0, "kc-joy": 0 };
+      const knobCounters = {
+        "[": { id: "kc-outer", dir: -1 },
+        "]": { id: "kc-outer", dir: +1 },
+        ";": { id: "kc-inner", dir: -1 },
+        "'": { id: "kc-inner", dir: +1 },
+        ",": { id: "kc-joy",   dir: -1 },
+        ".": { id: "kc-joy",   dir: +1 },
+      };
+      document.addEventListener("keydown", e => {
+        const k = knobCounters[e.key];
+        if (!k) return;
+        knobVals[k.id] += k.dir;
+        document.getElementById(k.id).textContent = knobVals[k.id];
+      });
 
       const ball = document.getElementById("ball");
       const r = 5; // radius

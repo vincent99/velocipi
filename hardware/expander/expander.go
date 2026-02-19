@@ -78,10 +78,6 @@ func (e *Expander) Init(inputs uint16) error {
 	}
 	e.previous = val
 
-	if err := e.SetInterrupts(inputs, 0x0000, e.previous); err != nil {
-		return err
-	}
-
 	go e.poll()
 	return nil
 }
@@ -96,7 +92,7 @@ func (e *Expander) Close() {
 	close(e.stop)
 }
 
-// poll reads the interrupt register on each tick and sends to the updates channel on change.
+// poll reads the input register on each tick and sends to the updates channel on change.
 func (e *Expander) poll() {
 	ticker := time.NewTicker(e.interval)
 	defer ticker.Stop()
@@ -106,17 +102,15 @@ func (e *Expander) poll() {
 		case <-e.stop:
 			return
 		case <-ticker.C:
-			intr, err := e.iface.ReadRegisterU16LE(INTERRUPT)
-			if err != nil || intr == 0 {
-				continue
-			}
-
-			value, err := e.iface.ReadRegisterU16LE(INTERRUPT_VALUE)
+			value, err := e.iface.ReadRegisterU16LE(INPUT_VALUE)
 			if err != nil {
 				continue
 			}
 
 			previous := e.previous
+			if value == previous {
+				continue
+			}
 			e.previous = value
 
 			select {

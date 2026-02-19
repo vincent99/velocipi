@@ -420,8 +420,9 @@ func (h *Hub) runInputLoop(ctx context.Context) {
 
 	cfg := config.Load()
 
-	// Track previous quadrature state for each encoder.
-	var prevInner, prevOuter, prevJoyKnob uint8
+	inner := &knobState{prev: 0b11}
+	outer := &knobState{prev: 0b11}
+	joyKnob := &knobState{prev: 0b11}
 
 	for {
 		select {
@@ -431,7 +432,7 @@ func (h *Hub) runInputLoop(ctx context.Context) {
 			if !ok {
 				return
 			}
-			h.handleChange(ch, cfg, &prevInner, &prevOuter, &prevJoyKnob)
+			h.handleChange(ch, cfg, inner, outer, joyKnob)
 		}
 	}
 }
@@ -519,25 +520,43 @@ func (h *Hub) sendKeyEvent(key string) {
 	}
 }
 
-// encoderKey returns the key to fire for a 2-bit quadrature encoder step,
-// or "" if no step is detected. leftKey/rightKey are the keys for each direction.
-func encoderKey(prev, cur uint8, leftKey, rightKey string) string {
-	if prev == cur {
-		return ""
-	}
-	// Only fire on rising clock edge (clk bit = 1).
-	clk := cur & 1
-	if clk != 1 {
-		return ""
-	}
-	dir := (cur >> 1) & 1
-	if clk == dir {
-		return leftKey
-	}
-	return rightKey
+// quadTable maps (prev<<2)|cur to a step direction for all 16 possible
+// 2-bit quadrature transitions. Valid single steps are ±1; invalid
+// transitions (same state or 2-step jumps) are 0.
+//
+// Observed sequence for one right detent: 11→10→00→01→11 (+4 steps)
+// Observed sequence for one left detent:  11→01→00→10→11 (-4 steps)
+var quadTable = [16]int{
+	//        cur: 00  01  10  11
+	/* prev 00 */ 0, +1, -1, 0,
+	/* prev 01 */ -1, 0, 0, +1,
+	/* prev 10 */ +1, 0, 0, -1,
+	/* prev 11 */ 0, -1, +1, 0,
 }
 
-func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, prevInner, prevOuter, prevJoyKnob *uint8) {
+// knobState accumulates quadrature steps and emits once per detent (2 steps).
+type knobState struct {
+	prev        uint8
+	accumulated int
+}
+
+// update takes a new 2-bit quadrature sample and returns -1, 0, or +1 when
+// a full detent (2 steps) is reached.
+func (k *knobState) update(cur uint8) int {
+	k.accumulated += quadTable[(k.prev<<2)|cur]
+	k.prev = cur
+	if k.accumulated >= 2 {
+		k.accumulated = 0
+		return +1
+	}
+	if k.accumulated <= -2 {
+		k.accumulated = 0
+		return -1
+	}
+	return 0
+}
+
+func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, inner, outer, joyKnob *knobState) {
 	v := ch.Value
 	p := ch.Previous
 
@@ -545,9 +564,10 @@ func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, prevInner, pr
 	pressed := func(n uint) bool { return !bit(p, n) && bit(v, n) }
 	released := func(n uint) bool { return bit(p, n) && !bit(v, n) }
 
-	// Joystick directions: keydown on press, keyup on release.
-	// Direction bits only count when joyCenter is held.
-	for _, d := range []struct {
+	// Joystick directions: center bit drives press/release.
+	// keydown fires when center is pressed, for each direction bit currently held.
+	// keyup fires when center is released, for each direction bit that was held.
+	dirs := []struct {
 		bit uint
 		key string
 	}{
@@ -555,12 +575,19 @@ func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, prevInner, pr
 		{cfg.BitJoyRight, kb.ArrowRight},
 		{cfg.BitJoyUp, kb.ArrowUp},
 		{cfg.BitJoyDown, kb.ArrowDown},
-	} {
-		if pressed(d.bit) && bit(v, cfg.BitJoyCenter) {
-			h.dispatchKey(input.KeyDown, d.key)
+	}
+	if pressed(cfg.BitJoyCenter) {
+		for _, d := range dirs {
+			if bit(v, d.bit) {
+				h.dispatchKey(input.KeyDown, d.key)
+			}
 		}
-		if released(d.bit) || (pressed(d.bit) && !bit(v, cfg.BitJoyCenter)) {
-			h.dispatchKey(input.KeyUp, d.key)
+	}
+	if released(cfg.BitJoyCenter) {
+		for _, d := range dirs {
+			if bit(p, d.bit) {
+				h.dispatchKey(input.KeyUp, d.key)
+			}
 		}
 	}
 
@@ -572,26 +599,24 @@ func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, prevInner, pr
 		h.dispatchKey(input.KeyUp, kb.Enter)
 	}
 
-	// Outer rotary encoder (bits BitKnobOuter and BitKnobOuter+1): '[' / ']'.
-	curOuter := uint8(v>>cfg.BitKnobOuter) & 0x3
-	if key := encoderKey(*prevOuter, curOuter, "[", "]"); key != "" {
-		h.sendKeyEvent(key)
+	// Rotary encoders: update returns -1 (left), 0 (none), or 1 (right).
+	if d := outer.update(uint8(v>>cfg.BitKnobOuter) & 0x3); d == -1 {
+		h.sendKeyEvent("[")
+	} else if d == 1 {
+		h.sendKeyEvent("]")
 	}
-	*prevOuter = curOuter
 
-	// Inner rotary encoder (bits BitKnobInner and BitKnobInner+1): ';' / '\''.
-	curInner := uint8(v>>cfg.BitKnobInner) & 0x3
-	if key := encoderKey(*prevInner, curInner, ";", "'"); key != "" {
-		h.sendKeyEvent(key)
+	if d := inner.update(uint8(v>>cfg.BitKnobInner) & 0x3); d == -1 {
+		h.sendKeyEvent(";")
+	} else if d == 1 {
+		h.sendKeyEvent("'")
 	}
-	*prevInner = curInner
 
-	// Joy knob rotary encoder (bits BitJoyKnob and BitJoyKnob+1): ',' / '.'.
-	curJoyKnob := uint8(v>>cfg.BitJoyKnob) & 0x3
-	if key := encoderKey(*prevJoyKnob, curJoyKnob, ",", "."); key != "" {
-		h.sendKeyEvent(key)
+	if d := joyKnob.update(uint8(v>>cfg.BitJoyKnob) & 0x3); d == -1 {
+		h.sendKeyEvent(",")
+	} else if d == 1 {
+		h.sendKeyEvent(".")
 	}
-	*prevJoyKnob = curJoyKnob
 }
 
 // loadAppPage fetches app/index.html from the live server, injects a <base href>,
