@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"image/png"
 	"io"
 	"log"
 	"math"
@@ -18,6 +20,7 @@ import (
 	"github.com/vincent99/velocipi-go/config"
 	"github.com/vincent99/velocipi-go/hardware"
 	"github.com/vincent99/velocipi-go/hardware/airsensor"
+	"github.com/vincent99/velocipi-go/hardware/oled"
 	"github.com/vincent99/velocipi-go/hardware/tpms"
 )
 
@@ -78,13 +81,15 @@ type Hub struct {
 	clients    map[*client]struct{}
 	browserCtx context.Context
 	cfg        *config.Config
+	oled       *oled.OLED
 }
 
-func newHub(browserCtx context.Context, cfg *config.Config) *Hub {
+func newHub(browserCtx context.Context, cfg *config.Config, o *oled.OLED) *Hub {
 	return &Hub{
 		clients:    make(map[*client]struct{}),
 		browserCtx: browserCtx,
 		cfg:        cfg,
+		oled:       o,
 	}
 }
 
@@ -157,7 +162,7 @@ func (h *Hub) broadcastAll(msg any) {
 
 // sendReading sends the current air sensor reading to a single client.
 func (h *Hub) sendReading(c *client) {
-	s := hardware.AirSensor(h.cfg)
+	s := hardware.AirSensor()
 	if s == nil {
 		return
 	}
@@ -179,7 +184,7 @@ func (h *Hub) sendReading(c *client) {
 // runAirSensorLoop polls the air sensor and broadcasts any changed reading
 // to all connected clients.
 func (h *Hub) runAirSensorLoop(ctx context.Context) {
-	s := hardware.AirSensor(h.cfg)
+	s := hardware.AirSensor()
 	if s == nil {
 		log.Println("hub: airsensor unavailable, skipping poll loop")
 		return
@@ -215,7 +220,7 @@ func (h *Hub) runAirSensorLoop(ctx context.Context) {
 
 // sendLux sends the current ambient lux reading to a single client.
 func (h *Hub) sendLux(c *client) {
-	s := hardware.LightSensor(h.cfg)
+	s := hardware.LightSensor()
 	if s == nil {
 		return
 	}
@@ -237,7 +242,7 @@ func (h *Hub) sendLux(c *client) {
 // runLightSensorLoop polls the light sensor and broadcasts any changed lux
 // value to all connected clients.
 func (h *Hub) runLightSensorLoop(ctx context.Context) {
-	s := hardware.LightSensor(h.cfg)
+	s := hardware.LightSensor()
 	if s == nil {
 		log.Println("hub: lightsensor unavailable, skipping poll loop")
 		return
@@ -274,7 +279,7 @@ func (h *Hub) runLightSensorLoop(ctx context.Context) {
 
 // sendTpms sends the current state of all known tires to a single client.
 func (h *Hub) sendTpms(c *client) {
-	t := hardware.TPMS(h.cfg)
+	t := hardware.TPMS()
 	if t == nil {
 		return
 	}
@@ -292,7 +297,7 @@ func (h *Hub) sendTpms(c *client) {
 
 // runTpmsLoop listens for tire updates and broadcasts each change to all clients.
 func (h *Hub) runTpmsLoop(ctx context.Context) {
-	t := hardware.TPMS(h.cfg)
+	t := hardware.TPMS()
 	if t == nil {
 		log.Println("hub: tpms unavailable, skipping loop")
 		return
@@ -334,7 +339,10 @@ func (h *Hub) runScreenshotLoop(ctx context.Context) {
 		bctx := h.browserCtx
 		h.mu.RUnlock()
 
-		if h.screenshotClientCount() == 0 || bctx == nil {
+		hasWSClients := h.screenshotClientCount() > 0
+		hasOLED := h.oled != nil
+
+		if (!hasWSClients && !hasOLED) || bctx == nil {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
@@ -346,7 +354,18 @@ func (h *Hub) runScreenshotLoop(ctx context.Context) {
 			time.Sleep(interval)
 			continue
 		}
-		h.broadcast(ScreenshotMsg{Type: "screenshot", Data: base64.StdEncoding.EncodeToString(buf)})
+
+		if hasOLED {
+			if img, err := png.Decode(bytes.NewReader(buf)); err == nil {
+				h.oled.Blit(img)
+			} else {
+				log.Println("oled: png decode error:", err)
+			}
+		}
+
+		if hasWSClients {
+			h.broadcast(ScreenshotMsg{Type: "screenshot", Data: base64.StdEncoding.EncodeToString(buf)})
+		}
 
 		if elapsed := time.Since(start); elapsed < interval {
 			time.Sleep(interval - elapsed)

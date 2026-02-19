@@ -16,20 +16,28 @@ This runs on a Raspberry Pi 5 to control the screens, cameras, joysticks, audio,
 
 Configuration is read from environment variables. A `.env` file in the working directory is loaded automatically if present.
 
-| Env var                 | Default        | Description                                                  |
-| ----------------------- | -------------- | ------------------------------------------------------------ |
-| `ADDR`                  | `0.0.0.0:8080` | HTTP listen address                                          |
-| `I2C_DEVICE`            | `/dev/i2c-1`   | I2C bus device used by all sensors                           |
-| `AIR_SENSOR_ADDRESS`    | `0x77`         | I2C address of the BME280 air sensor                         |
-| `AIR_SENSOR_INTERVAL`   | `1s`           | How often to poll the air sensor                             |
-| `LIGHT_SENSOR_ADDRESS`  | `0x48`         | I2C address of the VEML6030 light sensor                     |
-| `LIGHT_SENSOR_INTERVAL` | `1s`           | How often to poll the light sensor                           |
-| `SCREENSHOT_FPS`        | `30`           | Screenshot capture rate (frames per second)                  |
-| `PING_INTERVAL`         | `1s`           | WebSocket ping interval                                      |
-| `TIRE_FL_ADDRS`         | _(see below)_  | Comma-separated BT addresses for the front-left TPMS sensor  |
-| `TIRE_FR_ADDRS`         | _(see below)_  | Comma-separated BT addresses for the front-right TPMS sensor |
-| `TIRE_RL_ADDRS`         | _(see below)_  | Comma-separated BT addresses for the rear-left TPMS sensor   |
-| `TIRE_RR_ADDRS`         | _(see below)_  | Comma-separated BT addresses for the rear-right TPMS sensor  |
+| Env var                 | Default          | Description                                                  |
+| ----------------------- | ---------------- | ------------------------------------------------------------ |
+| `ADDR`                  | `0.0.0.0:8080`   | HTTP listen address                                          |
+| `I2C_DEVICE`            | `/dev/i2c-1`     | I2C bus device used by all sensors                           |
+| `AIR_SENSOR_ADDRESS`    | `0x77`           | I2C address of the BME280 air sensor                         |
+| `AIR_SENSOR_INTERVAL`   | `1s`             | How often to poll the air sensor                             |
+| `LIGHT_SENSOR_ADDRESS`  | `0x48`           | I2C address of the VEML6030 light sensor                     |
+| `LIGHT_SENSOR_INTERVAL` | `1s`             | How often to poll the light sensor                           |
+| `SCREENSHOT_FPS`        | `30`             | Screenshot capture rate (frames per second)                  |
+| `PING_INTERVAL`         | `1s`             | WebSocket ping interval                                      |
+| `OLED_SPI_PORT`         | `/dev/spidev0.0` | SPI device for the OLED display                              |
+| `OLED_SPI_SPEED`        | `10MHz`          | SPI clock frequency (e.g. `10MHz`, `5MHz`)                   |
+| `OLED_GPIO_CHIP`        | `gpiochip0`      | GPIO chip device                                             |
+| `OLED_DC_PIN`           | `24`             | BCM GPIO pin number for data/command (DC)                    |
+| `OLED_RESET_PIN`        | `25`             | BCM GPIO pin number for reset                                |
+| `OLED_WIDTH`            | `256`            | Display width in pixels                                      |
+| `OLED_HEIGHT`           | `64`             | Display height in pixels                                     |
+| `OLED_FLIP`             | `false`          | Flip the frame buffer 180°                                   |
+| `TIRE_FL_ADDRS`         | _(see below)_    | Comma-separated BT addresses for the front-left TPMS sensor  |
+| `TIRE_FR_ADDRS`         | _(see below)_    | Comma-separated BT addresses for the front-right TPMS sensor |
+| `TIRE_RL_ADDRS`         | _(see below)_    | Comma-separated BT addresses for the rear-left TPMS sensor   |
+| `TIRE_RR_ADDRS`         | _(see below)_    | Comma-separated BT addresses for the rear-right TPMS sensor  |
 
 ### Default TPMS addresses
 

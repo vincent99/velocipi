@@ -9,6 +9,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/vincent99/velocipi-go/config"
+	"github.com/vincent99/velocipi-go/hardware/oled"
 )
 
 var upgrader = websocket.Upgrader{
@@ -81,9 +82,25 @@ func main() {
 	cfg := config.Load()
 	ctx := context.Background()
 
+	// Initialise the OLED display. Non-fatal if the hardware isn't present.
+	var display *oled.OLED
+	if o, err := oled.New(oled.Config{
+		SPIPort:  cfg.OLEDSPIPort,
+		SPISpeed: cfg.OLEDSPISpeed,
+		GPIOChip: cfg.OLEDGPIOChip,
+		DCPin:    cfg.OLEDDCPin,
+		ResetPin: cfg.OLEDResetPin,
+		Flip:     cfg.OLEDFlip,
+	}, cfg.OLEDWidth, cfg.OLEDHeight); err != nil {
+		log.Println("oled: init error (continuing without display):", err)
+	} else {
+		display = o
+		defer display.Close()
+	}
+
 	// Initialize hub immediately so wsHandler is never called with a nil hub.
 	// browserCtx is set after the browser starts up below.
-	hub = newHub(nil, cfg)
+	hub = newHub(nil, cfg, display)
 
 	// Start HTTP server first so the browser can reach /app when it navigates.
 	mux := http.NewServeMux()

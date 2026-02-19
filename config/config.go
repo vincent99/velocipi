@@ -6,6 +6,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
+	"periph.io/x/conn/v3/physic"
 )
 
 // TireAddress maps one or more BT addresses (comma-separated in env) to a
@@ -26,6 +27,10 @@ type Config struct {
 	// I2C
 	I2CDevice string `envconfig:"I2C_DEVICE" default:"/dev/i2c-1"`
 
+	// Expander (SX1509)
+	ExpanderAddress  uint8         `envconfig:"EXPANDER_ADDRESS" default:"0x3E"`
+	ExpanderInterval time.Duration `envconfig:"EXPANDER_INTERVAL" default:"10ms"`
+
 	// AirSensor (BME280)
 	AirSensorAddress  uint8         `envconfig:"AIR_SENSOR_ADDRESS" default:"0x77"`
 	AirSensorInterval time.Duration `envconfig:"AIR_SENSOR_INTERVAL" default:"1s"`
@@ -35,8 +40,18 @@ type Config struct {
 	LightSensorInterval time.Duration `envconfig:"LIGHT_SENSOR_INTERVAL" default:"1s"`
 
 	// Screenshot / ping loop
-	ScreenshotFPS int           `envconfig:"SCREENSHOT_FPS" default:"30"`
+	ScreenshotFPS int           `envconfig:"SCREENSHOT_FPS" default:"15"`
 	PingInterval  time.Duration `envconfig:"PING_INTERVAL" default:"1s"`
+
+	// OLED display
+	OLEDSPIPort  string           `envconfig:"OLED_SPI_PORT"   default:"/dev/spidev0.0"`
+	OLEDSPISpeed physic.Frequency `envconfig:"OLED_SPI_SPEED"  default:"2.40MHz"`
+	OLEDGPIOChip string           `envconfig:"OLED_GPIO_CHIP"  default:"gpiochip0"`
+	OLEDDCPin    int              `envconfig:"OLED_DC_PIN"     default:"5"`
+	OLEDResetPin int              `envconfig:"OLED_RESET_PIN"  default:"6"`
+	OLEDWidth    int              `envconfig:"OLED_WIDTH"      default:"256"`
+	OLEDHeight   int              `envconfig:"OLED_HEIGHT"     default:"64"`
+	OLEDFlip     bool             `envconfig:"OLED_FLIP"       default:"true"`
 
 	// TPMS tire address mapping
 	Tires TireAddresses

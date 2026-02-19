@@ -1,210 +1,194 @@
-// Sparkfun ??
-// https://www.sparkfun.com/??
-// https://cdn.sparkfun.com/??
+// Sparkfun SX1509 16-bit I2C GPIO expander
+// https://www.sparkfun.com/sparkfun-16-output-i-o-expander-breakout-sx1509.html
 
 package expander
 
 import (
-	"errors"
 	"time"
 
+	"github.com/vincent99/velocipi-go/config"
 	"github.com/vincent99/velocipi-go/hardware/i2c"
 )
 
 const (
-	DEFAULT_ADDRESS = 0x20
+	DEFAULT_ADDRESS = 0x3E
 
-	// Configuration 8-bit register
-	CONFIG = 0x0A // General config, only 0x00 supported here.  [bank, mirror, sequential, slew, hw address, int pin open drain, int pin polarity, unused]
-
-	// Pin configuration, 16-bits, [A7 ... A0 B7 ... B0]
 	DIRECTION_CONF    = 0x00 // 0 = output, 1 = input
-	POLARITY_CONF     = 0x02 // 0 = normal, 1 = reverse
-	PULL_UP_CONF      = 0x0C // 0 = disabled, 1 = pull-up resistor enabled
-	INTERRUPT_ENABLE  = 0x04 // 0 = disabled, 1 = enabled interrupt on change
-	INTERRUPT_MODE    = 0x08 // 0 = compare previous value, 1 = compare against INTERRUPT_COMPARE
-	INTERRUPT_COMPARE = 0x06 // Comparison value used when INTERRUPT_MODE on pin=1
-
-	// Read-Only Interrupt status, 16-bits
-	INTERRUPT       = 0x0E // 0 = no change, 1 = pin changed
-	INTERRUPT_VALUE = 0x10 // Value of all pins at time of interrupt, value will not change until interrupt cleared via read of this or INPUT_VALUE
-
-	// Read-Write Pin status, 16-bits
-	INPUT_VALUE  = 0x12 // Read: Current value of all pins, Write: Sets OUTPUT_VALUE register
-	OUTPUT_VALUE = 0x14 // Read: Current status of outputs, Write: Sets value for configured DIRECTION_CONF=output pins
+	POLARITY_CONF     = 0x02
+	PULL_UP_CONF      = 0x0C
+	INTERRUPT_ENABLE  = 0x04
+	INTERRUPT_MODE    = 0x08
+	INTERRUPT_COMPARE = 0x06
+	INTERRUPT         = 0x0E
+	INTERRUPT_VALUE   = 0x10
+	INPUT_VALUE       = 0x12
+	OUTPUT_VALUE      = 0x14
 )
 
 type Expander struct {
-	iface *i2c.I2C
+	iface    *i2c.I2C
+	interval time.Duration
+	previous uint16
+	updates  chan Change
+	stop     chan struct{}
 }
 
-type Config struct {
-	Address uint8
-	Device  string
+type Change struct {
+	Value    uint16
+	Previous uint16
 }
 
-func NewExpander() (*Expander, error) {
-	return NewExpanderWithOptions(&Config{})
-}
-
-func NewExpanderWithOptions(opt *Config) (*Expander, error) {
-	address := opt.Address
+func New() (*Expander, error) {
+	cfg := config.Load()
+	address := cfg.ExpanderAddress
 	if address == 0 {
 		address = DEFAULT_ADDRESS
 	}
 
-	iface, err := i2c.New(opt.Device, address)
-
+	iface, err := i2c.New(cfg.I2CDevice, address)
 	if err != nil {
 		return nil, err
 	}
 
-	v := &Expander{
-		iface,
-	}
-
-	return v, v.Init()
+	return &Expander{
+		iface:    iface,
+		interval: cfg.ExpanderInterval,
+		updates:  make(chan Change, 16),
+		stop:     make(chan struct{}),
+	}, nil
 }
 
-func (v *Expander) Init() error {
-	if !v.IsConnected() {
-		return errors.New("expander not found")
+// Init configures the expander. inputs is a bitmask where 1 = input pin, 0 = output pin.
+func (e *Expander) Init(inputs uint16) error {
+	if err := e.SetDirection(inputs); err != nil {
+		return err
 	}
 
-	if err := v.SetDirection(0xffbf); err != nil {
-		return errors.New("expander could not set input direction: " + err.Error())
+	if err := e.SetPolarity(0xFFFF); err != nil {
+		return err
 	}
 
-	if err := v.SetPolarity(0xffbf); err != nil {
-		return errors.New("expander could not be set polarity: " + err.Error())
+	if err := e.SetPullUp(inputs); err != nil {
+		return err
 	}
 
-	if err := v.SetPullUp(0xffbf); err != nil {
-		return errors.New("expander could not be set pull-up resistors: " + err.Error())
+	val, err := e.Read()
+	if err != nil {
+		return err
+	}
+	e.previous = val
+
+	if err := e.SetInterrupts(inputs, 0x0000, e.previous); err != nil {
+		return err
 	}
 
-	if err := v.SetInterrupts(0xffbf, 0x0000, 0x0000); err != nil {
-		return errors.New("expander could set interrupt: " + err.Error())
-	}
-
+	go e.poll()
 	return nil
 }
 
-func (v *Expander) IsConnected() bool {
-	var buf []byte
-	_, err := v.iface.WriteBytes(buf)
-	return err == nil
+// Updates returns the channel that receives a Change whenever the input state changes.
+func (e *Expander) Updates() <-chan Change {
+	return e.updates
 }
 
-// --------
-
-func (v *Expander) SetDirection(pins uint16) error {
-	return v.iface.WriteRegisterU16LE(DIRECTION_CONF, pins)
+// Close stops the polling goroutine.
+func (e *Expander) Close() {
+	close(e.stop)
 }
 
-func (v *Expander) GetDirection() (uint16, error) {
-	return v.iface.ReadRegisterU16LE(DIRECTION_CONF)
-}
+// poll reads the interrupt register on each tick and sends to the updates channel on change.
+func (e *Expander) poll() {
+	ticker := time.NewTicker(e.interval)
+	defer ticker.Stop()
 
-func (v *Expander) SetPolarity(pins uint16) error {
-	return v.iface.WriteRegisterU16LE(POLARITY_CONF, pins)
-}
+	for {
+		select {
+		case <-e.stop:
+			return
+		case <-ticker.C:
+			intr, err := e.iface.ReadRegisterU16LE(INTERRUPT)
+			if err != nil || intr == 0 {
+				continue
+			}
 
-func (v *Expander) GetPolarity() (uint16, error) {
-	return v.iface.ReadRegisterU16LE(POLARITY_CONF)
-}
+			value, err := e.iface.ReadRegisterU16LE(INTERRUPT_VALUE)
+			if err != nil {
+				continue
+			}
 
-func (v *Expander) SetPullUp(pins uint16) error {
-	return v.iface.WriteRegisterU16LE(PULL_UP_CONF, pins)
-}
+			previous := e.previous
+			e.previous = value
 
-func (v *Expander) GetPullUp() (uint16, error) {
-	return v.iface.ReadRegisterU16LE(PULL_UP_CONF)
-}
-
-func (v *Expander) SetInterrupts(enabled uint16, mode uint16, value uint16) error {
-	err := v.iface.WriteRegisterU16LE(INTERRUPT_ENABLE, enabled)
-	if err != nil {
-		return err
-	}
-
-	err = v.iface.WriteRegisterU16LE(INTERRUPT_MODE, mode)
-	if err != nil {
-		return err
-	}
-
-	return v.iface.WriteRegisterU16LE(INTERRUPT_COMPARE, value)
-}
-
-func (v *Expander) GetInterruptConfig() (enabled uint16, mode uint16, value uint16, err error) {
-	enabled, err = v.iface.ReadRegisterU16LE(INTERRUPT_ENABLE)
-	if err != nil {
-		return enabled, mode, value, err
-	}
-
-	mode, err = v.iface.ReadRegisterU16LE(INTERRUPT_MODE)
-	if err != nil {
-		return enabled, mode, value, err
-	}
-
-	value, err = v.iface.ReadRegisterU16LE(INTERRUPT_COMPARE)
-	return enabled, mode, value, err
-}
-
-func (v *Expander) Read() (uint16, error) {
-	return v.iface.ReadRegisterU16LE(INPUT_VALUE)
-}
-
-func (v *Expander) Write(value uint16) error {
-	return v.iface.WriteRegisterU16LE(OUTPUT_VALUE, value)
-}
-
-func (v *Expander) readInterrupt() (bool, uint16, error) {
-	intr, err := v.iface.ReadRegisterU16LE(INTERRUPT)
-	if err != nil {
-		return false, 0, err
-	}
-
-	if intr == 0 {
-		return false, 0, nil
-	}
-
-	val, err := v.iface.ReadRegisterU16LE(INTERRUPT_VALUE)
-	if err != nil {
-		return false, 0, err
-	}
-
-	return true, val, nil
-}
-
-func (v *Expander) Watch() (chan uint16, chan bool) {
-	quit := make(chan bool)
-	event := make(chan uint16)
-
-	go func(event chan uint16) {
-		ticker := time.NewTicker(10 * time.Millisecond)
-		for {
 			select {
-			case <-ticker.C:
-				changed, data, err := v.readInterrupt()
-				if err != nil {
-					close(event)
-					close(quit)
-				}
-
-				if changed {
-					event <- data
-				}
-
-			case <-quit:
-				ticker.Stop()
-				close(event)
-				close(quit)
-				return
+			case e.updates <- Change{Value: value, Previous: previous}:
+			default:
 			}
 		}
+	}
+}
 
-	}(event)
+// --- Configuration ---
 
-	return event, quit
+func (e *Expander) SetDirection(pins uint16) error {
+	return e.iface.WriteRegisterU16LE(DIRECTION_CONF, pins)
+}
+
+func (e *Expander) GetDirection() (uint16, error) {
+	return e.iface.ReadRegisterU16LE(DIRECTION_CONF)
+}
+
+func (e *Expander) SetPolarity(pins uint16) error {
+	return e.iface.WriteRegisterU16LE(POLARITY_CONF, pins)
+}
+
+func (e *Expander) GetPolarity() (uint16, error) {
+	return e.iface.ReadRegisterU16LE(POLARITY_CONF)
+}
+
+func (e *Expander) SetPullUp(pins uint16) error {
+	return e.iface.WriteRegisterU16LE(PULL_UP_CONF, pins)
+}
+
+func (e *Expander) GetPullUp() (uint16, error) {
+	return e.iface.ReadRegisterU16LE(PULL_UP_CONF)
+}
+
+func (e *Expander) SetInterrupts(enabled, mode, value uint16) error {
+	if err := e.iface.WriteRegisterU16LE(INTERRUPT_ENABLE, enabled); err != nil {
+		return err
+	}
+	if err := e.iface.WriteRegisterU16LE(INTERRUPT_MODE, mode); err != nil {
+		return err
+	}
+	return e.iface.WriteRegisterU16LE(INTERRUPT_COMPARE, value)
+}
+
+func (e *Expander) GetInterruptConfig() (enabled, mode, value uint16, err error) {
+	if enabled, err = e.iface.ReadRegisterU16LE(INTERRUPT_ENABLE); err != nil {
+		return
+	}
+	if mode, err = e.iface.ReadRegisterU16LE(INTERRUPT_MODE); err != nil {
+		return
+	}
+	value, err = e.iface.ReadRegisterU16LE(INTERRUPT_COMPARE)
+	return
+}
+
+// --- I/O ---
+
+func (e *Expander) Read() (uint16, error) {
+	return e.iface.ReadRegisterU16LE(INPUT_VALUE)
+}
+
+// Write sets output pins. If mask is 0xFFFF all pins are written directly.
+// Otherwise only the masked bits are changed.
+func (e *Expander) Write(value, mask uint16) error {
+	if mask != 0xFFFF {
+		cur, err := e.Read()
+		if err != nil {
+			return err
+		}
+		value = (cur &^ mask) | (value & mask)
+	}
+	return e.iface.WriteRegisterU16LE(OUTPUT_VALUE, value)
 }

@@ -21,12 +21,9 @@ var (
 	tpmsUnit *tpms.TPMS
 )
 
-func AirSensor(cfg *config.Config) *airsensor.AirSensor {
+func AirSensor() *airsensor.AirSensor {
 	airOnce.Do(func() {
-		s, err := airsensor.NewAirSensorWithOptions(&airsensor.Config{
-			Address: cfg.AirSensorAddress,
-			Device:  cfg.I2CDevice,
-		})
+		s, err := airsensor.NewAirSensor()
 		if err != nil {
 			log.Println("hardware: airsensor init error:", err)
 		}
@@ -35,12 +32,9 @@ func AirSensor(cfg *config.Config) *airsensor.AirSensor {
 	return airSensor
 }
 
-func LightSensor(cfg *config.Config) *lightsensor.LightSensor {
+func LightSensor() *lightsensor.LightSensor {
 	lightOnce.Do(func() {
-		s, err := lightsensor.NewLightSensorWithOptions(&lightsensor.Config{
-			Address: cfg.LightSensorAddress,
-			Device:  cfg.I2CDevice,
-		})
+		s, err := lightsensor.NewLightSensor()
 		if err != nil {
 			log.Println("hardware: lightsensor init error:", err)
 		}
@@ -49,8 +43,9 @@ func LightSensor(cfg *config.Config) *lightsensor.LightSensor {
 	return lightSensor
 }
 
-func TPMS(cfg *config.Config) *tpms.TPMS {
+func TPMS() *tpms.TPMS {
 	tpmsOnce.Do(func() {
+		cfg := config.Load()
 		t, err := tpms.Listen(&cfg.Tires)
 		if err != nil {
 			log.Println("hardware: tpms init error:", err)

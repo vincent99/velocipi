@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math"
 
+	"github.com/vincent99/velocipi-go/config"
 	"github.com/vincent99/velocipi-go/hardware/i2c"
 )
 
@@ -120,7 +121,10 @@ type Reading struct {
 }
 
 func NewAirSensor() (*AirSensor, error) {
+	cfg := config.Load()
 	return NewAirSensorWithOptions(&Config{
+		Address:            cfg.AirSensorAddress,
+		Device:             cfg.I2CDevice,
 		Mode:               NORMAL,
 		Standby:            SB_1,
 		Filter:             FILTER_2,
@@ -201,14 +205,10 @@ func (v *AirSensor) Init() error {
 		H1: h1,
 		H2: int16(int16(b[1])<<8 | int16(b[0])),
 		H3: uint8(b[2]),
-		H4: int16(int16(b[3])<<4 | (int16(b[4]) & 0x0F)),
-		H5: int16(int16(b[5])<<4 | (int16(b[4]) >> 4 & 0x0F)),
+		H4: int16(uint16(b[3])<<4 | uint16(b[4]&0x0F)),
+		H5: int16(uint16(b[5])<<4 | uint16(b[4]>>4)),
 		H6: int8(b[6]),
 	}
-
-	//fmt.Printf("Calibration A: %x\n", a)
-	//fmt.Printf("Calibration B: %x\n", b)
-	//fmt.Println(v.calibration)
 
 	return v.WriteConfig()
 }
@@ -240,19 +240,16 @@ func (v *AirSensor) WriteConfig() error {
 	cfg := byte(v.config.Standby)<<5 | byte(v.config.Filter)<<2
 	meas := byte(v.config.TempOversample)<<5 | byte(v.config.PressureOversample)<<2 | byte(v.config.Mode)
 
-	//fmt.Printf("Write %x: %08b\n", CONFIG_HUM_RES, hum)
 	err = v.iface.WriteRegisterU8(CONFIG_HUM_RES, hum)
 	if err != nil {
 		return err
 	}
 
-	//fmt.Printf("Write %x: %08b\n", CONFIG_RES, cfg)
 	err = v.iface.WriteRegisterU8(CONFIG_RES, cfg)
 	if err != nil {
 		return err
 	}
 
-	//fmt.Printf("Write %x: %08b\n", CONFIG_MEAS_RES, meas)
 	return v.iface.WriteRegisterU8(CONFIG_MEAS_RES, meas)
 }
 
@@ -271,7 +268,7 @@ func (v *AirSensor) SetMode(val RunMode) error {
 		return err
 	}
 
-	cfg = (cfg & 0b11111100) | (byte(val) << 2)
+	cfg = (cfg & 0b11111100) | byte(val)
 	return v.iface.WriteRegisterU8(CONFIG_MEAS_RES, cfg)
 }
 
@@ -291,14 +288,14 @@ func (v *AirSensor) Read() (r *Reading, err error) {
 	t := int32(raw[3])<<12 | int32(raw[4])<<4 | (int32(raw[5]) >> 4 & 0x0F)
 	h := uint16(raw[6])<<8 | uint16(raw[7])
 
-	t1 := (((t >> 3) - int32(v.calibration.T1<<1)) * int32(v.calibration.T2)) >> 11
+	t1 := (((t >> 3) - (int32(v.calibration.T1) << 1)) * int32(v.calibration.T2)) >> 11
 	t2 := (((((t >> 4) - int32(v.calibration.T1)) * ((t >> 4) - int32(v.calibration.T1))) >> 12) * int32(v.calibration.T3)) >> 14
 	v.tFine = t1 + t2
 
 	celsius := float32((v.tFine*5+128)>>8)/100 + v.config.TempCorrectionC
 	fahrenheit := (celsius*9)/5 + 32
 
-	//fmt.Printf("Temp: %f / %f\n", celsius, fahrenheit)
+	//fmt.Printf("Raw p=%d t=%d h=%d tFine=%d Temp: %f / %f\n", p, t, h, v.tFine, celsius, fahrenheit)
 
 	press := float32(0)
 
@@ -307,7 +304,7 @@ func (v *AirSensor) Read() (r *Reading, err error) {
 	p2 = p2 + (int64(p1*int64(v.calibration.P5)) << 17)
 	p2 = p2 + (int64(v.calibration.P4) << 35)
 	p1 = ((p1 * p1 * int64(v.calibration.P3)) >> 8) + ((p1 * int64(v.calibration.P2)) << 12)
-	p1 = ((1 << 47) + p1) * (int64(v.calibration.P1)) >> 33
+	p1 = (((1 << 47) + p1) * int64(v.calibration.P1)) >> 33
 
 	if p1 != 0 {
 		var pA int64 = 1048576 - int64(p)
@@ -322,7 +319,7 @@ func (v *AirSensor) Read() (r *Reading, err error) {
 	meters := (-44330.77) * float32(math.Pow(float64(press/v.referencePressure), 0.190263)-1.0)
 	feet := meters * 3.28084
 
-	//fmt.Printf("Pressure: %f\" %fm / %fft\n", inches, meters, feet)
+	//fmt.Printf("Pressure: %fPa / %f\" / %fm / %fft\n", press, inches, meters, feet)
 
 	var h1 int32 = (v.tFine - 76800)
 	h1 = ((((int32(h) << 14) - (int32(v.calibration.H4) << 20) - (int32(v.calibration.H5) * h1)) + (16384)) >> 15) * (((((((h1*int32(v.calibration.H6))>>10)*(((h1*int32(v.calibration.H3))>>11)+(32768)))>>10)+(2097152))*int32(v.calibration.H2) + 8192) >> 14)
@@ -330,7 +327,6 @@ func (v *AirSensor) Read() (r *Reading, err error) {
 	h1 = min(max(h1, 0), 419430400)
 
 	humidity := float32(h1>>12) / 1024.0
-	//fmt.Printf("Humidity: %f%%\n", humidity)
 
 	ratio := 373.15 / (273.15 + float64(celsius))
 	rhs := -7.90298 * (ratio - 1)
