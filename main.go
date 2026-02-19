@@ -92,12 +92,12 @@ func screenHandler(w http.ResponseWriter, r *http.Request) {
 	hub.registerScreen(c)
 	log.Println("screen client connected:", r.RemoteAddr)
 
-	// Write pump: drains c.send and writes frames to the client.
+	// Write pump: drains c.send and writes binary PNG frames to the client.
 	go func() {
 		defer hub.unregisterScreen(c)
 		defer conn.Close()
 		for msg := range c.send {
-			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+			if err := conn.WriteMessage(websocket.BinaryMessage, msg); err != nil {
 				log.Println("screen write error:", err)
 				return
 			}
@@ -166,12 +166,13 @@ func main() {
 	hub.browserCtx = browserCtx
 	hub.mu.Unlock()
 
-	// Start the air sensor, light sensor, TPMS, and input loops.
+	// Start background loops.
 	go hub.runAirSensorLoop(ctx)
 	go hub.runLightSensorLoop(ctx)
 	go hub.runTpmsLoop(ctx)
 	go hub.runInputLoop(ctx)
+	go hub.runScreencastLoop(ctx)
 
-	// Run the screenshot+ping loop on the main goroutine.
-	hub.runScreenshotLoop(ctx)
+	// Block until context is cancelled.
+	<-ctx.Done()
 }

@@ -35,11 +35,6 @@ type PingMsg struct {
 	Time string `json:"time"`
 }
 
-type ScreenshotMsg struct {
-	Type string `json:"type"` // always "screenshot"
-	Data string `json:"data"`
-}
-
 type AirReadingMsg struct {
 	Type    string            `json:"type"` // always "airReading"
 	Reading airsensor.Reading `json:"reading"`
@@ -146,14 +141,9 @@ func (h *Hub) sendToClients(data []byte, clients map[*client]struct{}) {
 	}
 }
 
-// broadcast sends a screenshot message to all /screen clients.
-func (h *Hub) broadcast(msg any) {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		log.Println("hub marshal error:", err)
-		return
-	}
-	h.sendToClients(data, h.screenClients)
+// broadcastScreen sends raw PNG bytes as a binary frame to all /screen clients.
+func (h *Hub) broadcastScreen(buf []byte) {
+	h.sendToClients(buf, h.screenClients)
 }
 
 // broadcastAll sends to every /ws client.
@@ -323,45 +313,70 @@ func (h *Hub) runTpmsLoop(ctx context.Context) {
 	}
 }
 
-// runScreenshotLoop takes screenshots of the global browser instance and
-// broadcasts them to all connected clients. It only captures when at least
-// one client is connected.
-func (h *Hub) runScreenshotLoop(ctx context.Context) {
-	interval := time.Second / time.Duration(h.cfg.ScreenshotFPS)
-
+// runScreencastLoop uses Page.startScreencast to receive frames pushed by
+// Chromium, forwarding each to screen clients and the OLED display.
+// Ping messages are sent on a separate ticker.
+func (h *Hub) runScreencastLoop(ctx context.Context) {
 	pingTicker := time.NewTicker(h.cfg.PingInterval)
 	defer pingTicker.Stop()
 
+	// Send pings independently of the screencast.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case ts := <-pingTicker.C:
+				h.broadcastAll(PingMsg{Type: "ping", Time: ts.Format(time.RFC3339)})
+			}
+		}
+	}()
+
+	// Wait for the browser context to be ready.
+	var bctx context.Context
 	for {
+		h.mu.RLock()
+		bctx = h.browserCtx
+		h.mu.RUnlock()
+		if bctx != nil {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			return
-		case ts := <-pingTicker.C:
-			h.broadcastAll(PingMsg{Type: "ping", Time: ts.Format(time.RFC3339)})
-		default:
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	minInterval := time.Second / time.Duration(h.cfg.ScreenshotFPS)
+	var lastFrame time.Time
+
+	// Listen for screencast frames pushed by Chromium.
+	chromedp.ListenTarget(bctx, func(ev any) {
+		frame, ok := ev.(*page.EventScreencastFrame)
+		if !ok {
+			return
 		}
 
-		h.mu.RLock()
-		bctx := h.browserCtx
-		h.mu.RUnlock()
+		// Ack immediately so Chromium keeps sending frames regardless of throttle.
+		go func() {
+			_ = chromedp.Run(bctx, page.ScreencastFrameAck(frame.SessionID))
+		}()
 
-		hasWSClients := h.screenshotClientCount() > 0
-		hasOLED := h.oled != nil
+		// Throttle output to the configured FPS.
+		now := time.Now()
+		if now.Sub(lastFrame) < minInterval {
+			return
+		}
+		lastFrame = now
 
-		if (!hasWSClients && !hasOLED) || bctx == nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
+		buf, err := base64.StdEncoding.DecodeString(frame.Data)
+		if err != nil {
+			log.Println("screencast: base64 decode error:", err)
+			return
 		}
 
-		start := time.Now()
-		var buf []byte
-		if err := chromedp.Run(bctx, chromedp.CaptureScreenshot(&buf)); err != nil {
-			log.Println("screenshot error:", err)
-			time.Sleep(interval)
-			continue
-		}
-
-		if hasOLED {
+		if h.oled != nil {
 			if img, err := png.Decode(bytes.NewReader(buf)); err == nil {
 				h.oled.Blit(img)
 			} else {
@@ -369,14 +384,23 @@ func (h *Hub) runScreenshotLoop(ctx context.Context) {
 			}
 		}
 
-		if hasWSClients {
-			h.broadcast(ScreenshotMsg{Type: "screenshot", Data: base64.StdEncoding.EncodeToString(buf)})
-		}
+		h.broadcastScreen(buf)
+	})
 
-		if elapsed := time.Since(start); elapsed < interval {
-			time.Sleep(interval - elapsed)
-		}
+	// Start the screencast — Chromium will now push frames as they change.
+	if err := chromedp.Run(bctx, page.StartScreencast().
+		WithFormat(page.ScreencastFormatPng).
+		WithMaxWidth(int64(h.cfg.OLEDWidth)).
+		WithMaxHeight(int64(h.cfg.OLEDHeight)),
+	); err != nil {
+		log.Println("screencast: start error:", err)
+		return
 	}
+	log.Println("screencast: started")
+
+	<-ctx.Done()
+
+	_ = chromedp.Run(bctx, page.StopScreencast())
 }
 
 // runInputLoop reads changes from the expander and fires chromedp keyboard events.
@@ -412,6 +436,16 @@ func (h *Hub) runInputLoop(ctx context.Context) {
 	}
 }
 
+// jsKeyToKb maps JavaScript e.key values to their chromedp/kb rune constants.
+// kb uses private Unicode codepoints for non-printable keys.
+var jsKeyToKb = map[string]string{
+	"ArrowLeft":  kb.ArrowLeft,
+	"ArrowRight": kb.ArrowRight,
+	"ArrowUp":    kb.ArrowUp,
+	"ArrowDown":  kb.ArrowDown,
+	"Enter":      kb.Enter,
+}
+
 func (h *Hub) dispatchKey(typ input.KeyType, key string) {
 	h.mu.RLock()
 	bctx := h.browserCtx
@@ -420,7 +454,11 @@ func (h *Hub) dispatchKey(typ input.KeyType, key string) {
 		return
 	}
 
-	// Build params from kb.Encode so Key/Code/virtualKeyCode are all correct.
+	// Translate JS key name to kb rune constant if needed.
+	if mapped, ok := jsKeyToKb[key]; ok {
+		key = mapped
+	}
+
 	runes := []rune(key)
 	if len(runes) == 0 {
 		return
@@ -430,12 +468,16 @@ func (h *Hub) dispatchKey(typ input.KeyType, key string) {
 		return
 	}
 
-	// Find the keyDown params entry (first one) and override the type.
-	p := *params[0]
-	p.Type = typ
-	if typ == input.KeyUp {
-		p.Text = ""
-		p.UnmodifiedText = ""
+	// Find the matching event type entry (keyDown is first, keyUp is last).
+	var p *input.DispatchKeyEventParams
+	for _, candidate := range params {
+		if candidate.Type == typ {
+			p = candidate
+			break
+		}
+	}
+	if p == nil {
+		return
 	}
 
 	if err := chromedp.Run(bctx, chromedp.ActionFunc(func(ctx context.Context) error {

@@ -52,7 +52,7 @@ type Config struct {
 	LightSensorInterval time.Duration `envconfig:"LIGHT_SENSOR_INTERVAL" default:"1s"`
 
 	// Screenshot / ping loop
-	ScreenshotFPS int           `envconfig:"SCREENSHOT_FPS" default:"15"`
+	ScreenshotFPS int           `envconfig:"SCREENSHOT_FPS" default:"30"`
 	PingInterval  time.Duration `envconfig:"PING_INTERVAL" default:"1s"`
 
 	// OLED display

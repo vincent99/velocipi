@@ -227,11 +227,15 @@
       const imgEl = document.getElementById("screenshot");
       const airEl = document.getElementById("air-reading");
 
+      let prevScreenURL = null;
+      wsScreen.binaryType = "blob";
       wsScreen.onmessage = (e) => {
-        let msg;
-        try { msg = JSON.parse(e.data); } catch { return; }
-        if (msg.type === "screenshot")
-          imgEl.src = "data:image/png;base64," + msg.data;
+        const url = URL.createObjectURL(e.data);
+        imgEl.src = url;
+        if (prevScreenURL) {
+          URL.revokeObjectURL(prevScreenURL);
+        }
+        prevScreenURL = url;
       };
       wsScreen.onerror = (e) => console.error("screen ws error", e);
 
@@ -302,6 +306,9 @@
         "Enter", "[", "]", ";", "'", ",", ".",
       ]);
 
+      // Knob keys can't be held; treat OS key-repeat as individual presses.
+      const KNOB_KEYS = new Set(["[", "]", ";", "'", ",", "."]);
+
       function relayKey(eventType, key) {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "key", eventType, key }));
@@ -311,11 +318,18 @@
       document.addEventListener("keydown", (e) => {
         if (RELAY_KEYS.has(e.key)) {
           e.preventDefault();
-          relayKey("keydown", e.key);
+          if (KNOB_KEYS.has(e.key)) {
+            // Each repeat is a separate press: send keydown + keyup pair.
+            relayKey("keydown", e.key);
+            relayKey("keyup", e.key);
+          } else if (!e.repeat) {
+            relayKey("keydown", e.key);
+          }
         }
       });
+
       document.addEventListener("keyup", (e) => {
-        if (RELAY_KEYS.has(e.key)) {
+        if (RELAY_KEYS.has(e.key) && !KNOB_KEYS.has(e.key)) {
           e.preventDefault();
           relayKey("keyup", e.key);
         }
