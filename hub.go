@@ -14,12 +14,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+	"github.com/chromedp/chromedp/kb"
 	"github.com/gorilla/websocket"
 	"github.com/vincent99/velocipi-go/config"
 	"github.com/vincent99/velocipi-go/hardware"
 	"github.com/vincent99/velocipi-go/hardware/airsensor"
+	"github.com/vincent99/velocipi-go/hardware/expander"
 	"github.com/vincent99/velocipi-go/hardware/oled"
 	"github.com/vincent99/velocipi-go/hardware/tpms"
 )
@@ -52,44 +55,38 @@ type TpmsMsg struct {
 	Tire *tpms.Tire `json:"tire"`
 }
 
-// inboundMsg is used only for parsing the "type" field of client messages.
+// Inbound message types from websocket clients.
+
 type inboundMsg struct {
 	Type string `json:"type"`
 }
 
+type inboundKeyMsg struct {
+	EventType string `json:"eventType"` // "keydown" or "keyup"
+	Key       string `json:"key"`
+}
+
 type client struct {
-	conn        *websocket.Conn
-	send        chan []byte
-	mu          sync.Mutex
-	screenshots bool
-}
-
-func (c *client) enableScreenshots() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.screenshots = true
-}
-
-func (c *client) isScreenshotsEnabled() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.screenshots
+	conn *websocket.Conn
+	send chan []byte
 }
 
 type Hub struct {
-	mu         sync.RWMutex
-	clients    map[*client]struct{}
-	browserCtx context.Context
-	cfg        *config.Config
-	oled       *oled.OLED
+	mu            sync.RWMutex
+	clients       map[*client]struct{}
+	screenClients map[*client]struct{}
+	browserCtx    context.Context
+	cfg           *config.Config
+	oled          *oled.OLED
 }
 
 func newHub(browserCtx context.Context, cfg *config.Config, o *oled.OLED) *Hub {
 	return &Hub{
-		clients:    make(map[*client]struct{}),
-		browserCtx: browserCtx,
-		cfg:        cfg,
-		oled:       o,
+		clients:       make(map[*client]struct{}),
+		screenClients: make(map[*client]struct{}),
+		browserCtx:    browserCtx,
+		cfg:           cfg,
+		oled:          o,
 	}
 }
 
@@ -110,25 +107,34 @@ func (h *Hub) unregister(c *client) {
 	}
 }
 
+func (h *Hub) registerScreen(c *client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.screenClients[c] = struct{}{}
+	log.Println("hub: screen client registered, total:", len(h.screenClients))
+}
+
+func (h *Hub) unregisterScreen(c *client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.screenClients[c]; ok {
+		delete(h.screenClients, c)
+		close(c.send)
+		log.Println("hub: screen client unregistered, total:", len(h.screenClients))
+	}
+}
+
 func (h *Hub) screenshotClientCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	n := 0
-	for c := range h.clients {
-		if c.isScreenshotsEnabled() {
-			n++
-		}
-	}
-	return n
+	return len(h.screenClients)
 }
 
-func (h *Hub) marshalAndSend(data []byte, filter func(*client) bool) {
+func (h *Hub) sendToClients(data []byte, clients map[*client]struct{}) {
 	h.mu.RLock()
-	snapshot := make([]*client, 0, len(h.clients))
-	for c := range h.clients {
-		if filter(c) {
-			snapshot = append(snapshot, c)
-		}
+	snapshot := make([]*client, 0, len(clients))
+	for c := range clients {
+		snapshot = append(snapshot, c)
 	}
 	h.mu.RUnlock()
 
@@ -140,24 +146,24 @@ func (h *Hub) marshalAndSend(data []byte, filter func(*client) bool) {
 	}
 }
 
-// broadcast sends to clients that have requested screenshots.
+// broadcast sends a screenshot message to all /screen clients.
 func (h *Hub) broadcast(msg any) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Println("hub marshal error:", err)
 		return
 	}
-	h.marshalAndSend(data, func(c *client) bool { return c.isScreenshotsEnabled() })
+	h.sendToClients(data, h.screenClients)
 }
 
-// broadcastAll sends to every connected client.
+// broadcastAll sends to every /ws client.
 func (h *Hub) broadcastAll(msg any) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Println("hub marshal error:", err)
 		return
 	}
-	h.marshalAndSend(data, func(*client) bool { return true })
+	h.sendToClients(data, h.clients)
 }
 
 // sendReading sends the current air sensor reading to a single client.
@@ -213,7 +219,7 @@ func (h *Hub) runAirSensorLoop(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			h.marshalAndSend(data, func(*client) bool { return true })
+			h.sendToClients(data, h.clients)
 		}
 	}
 }
@@ -272,7 +278,7 @@ func (h *Hub) runLightSensorLoop(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			h.marshalAndSend(data, func(*client) bool { return true })
+			h.sendToClients(data, h.clients)
 		}
 	}
 }
@@ -312,7 +318,7 @@ func (h *Hub) runTpmsLoop(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			h.marshalAndSend(data, func(*client) bool { return true })
+			h.sendToClients(data, h.clients)
 		}
 	}
 }
@@ -371,6 +377,179 @@ func (h *Hub) runScreenshotLoop(ctx context.Context) {
 			time.Sleep(interval - elapsed)
 		}
 	}
+}
+
+// runInputLoop reads changes from the expander and fires chromedp keyboard events.
+//
+// Held inputs (joystick directions, knobCenter): keydown on press, keyup on release.
+// Rotary encoders (outer, inner, joyKnob): single KeyEvent per detected step.
+//
+//	Outer knob:  '[' (left)  / ']' (right)
+//	Inner knob:  ';' (left)  / '\'' (right)
+//	Joy knob:    ',' (left)  / '.' (right)
+func (h *Hub) runInputLoop(ctx context.Context) {
+	e := hardware.Expander()
+	if e == nil {
+		log.Println("hub: expander unavailable, skipping input loop")
+		return
+	}
+
+	cfg := config.Load()
+
+	// Track previous quadrature state for each encoder.
+	var prevInner, prevOuter, prevJoyKnob uint8
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ch, ok := <-e.Updates():
+			if !ok {
+				return
+			}
+			h.handleChange(ch, cfg, &prevInner, &prevOuter, &prevJoyKnob)
+		}
+	}
+}
+
+func (h *Hub) dispatchKey(typ input.KeyType, key string) {
+	h.mu.RLock()
+	bctx := h.browserCtx
+	h.mu.RUnlock()
+	if bctx == nil {
+		return
+	}
+
+	// Build params from kb.Encode so Key/Code/virtualKeyCode are all correct.
+	runes := []rune(key)
+	if len(runes) == 0 {
+		return
+	}
+	params := kb.Encode(runes[0])
+	if len(params) == 0 {
+		return
+	}
+
+	// Find the keyDown params entry (first one) and override the type.
+	p := *params[0]
+	p.Type = typ
+	if typ == input.KeyUp {
+		p.Text = ""
+		p.UnmodifiedText = ""
+	}
+
+	if err := chromedp.Run(bctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		return p.Do(ctx)
+	})); err != nil {
+		log.Println("hub: key dispatch error:", err)
+	}
+}
+
+// handleKeyMsg is called when a browser client sends a "key" websocket message.
+// It forwards the event into the chromedp browser instance.
+func (h *Hub) handleKeyMsg(eventType, key string) {
+	allowed := map[string]bool{
+		"ArrowLeft": true, "ArrowRight": true, "ArrowUp": true, "ArrowDown": true,
+		"Enter": true, "[": true, "]": true, ";": true, "'": true, ",": true, ".": true,
+	}
+	if !allowed[key] {
+		return
+	}
+	switch eventType {
+	case "keydown":
+		h.dispatchKey(input.KeyDown, key)
+	case "keyup":
+		h.dispatchKey(input.KeyUp, key)
+	case "keypress":
+		h.sendKeyEvent(key)
+	}
+}
+
+func (h *Hub) sendKeyEvent(key string) {
+	h.mu.RLock()
+	bctx := h.browserCtx
+	h.mu.RUnlock()
+	if bctx == nil {
+		return
+	}
+	if err := chromedp.Run(bctx, chromedp.KeyEvent(key)); err != nil {
+		log.Println("hub: key event error:", err)
+	}
+}
+
+// encoderKey returns the key to fire for a 2-bit quadrature encoder step,
+// or "" if no step is detected. leftKey/rightKey are the keys for each direction.
+func encoderKey(prev, cur uint8, leftKey, rightKey string) string {
+	if prev == cur {
+		return ""
+	}
+	// Only fire on rising clock edge (clk bit = 1).
+	clk := cur & 1
+	if clk != 1 {
+		return ""
+	}
+	dir := (cur >> 1) & 1
+	if clk == dir {
+		return leftKey
+	}
+	return rightKey
+}
+
+func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, prevInner, prevOuter, prevJoyKnob *uint8) {
+	v := ch.Value
+	p := ch.Previous
+
+	bit := func(val uint16, n uint) bool { return val>>n&1 == 1 }
+	pressed := func(n uint) bool { return !bit(p, n) && bit(v, n) }
+	released := func(n uint) bool { return bit(p, n) && !bit(v, n) }
+
+	// Joystick directions: keydown on press, keyup on release.
+	// Direction bits only count when joyCenter is held.
+	for _, d := range []struct {
+		bit uint
+		key string
+	}{
+		{cfg.BitJoyLeft, kb.ArrowLeft},
+		{cfg.BitJoyRight, kb.ArrowRight},
+		{cfg.BitJoyUp, kb.ArrowUp},
+		{cfg.BitJoyDown, kb.ArrowDown},
+	} {
+		if pressed(d.bit) && bit(v, cfg.BitJoyCenter) {
+			h.dispatchKey(input.KeyDown, d.key)
+		}
+		if released(d.bit) || (pressed(d.bit) && !bit(v, cfg.BitJoyCenter)) {
+			h.dispatchKey(input.KeyUp, d.key)
+		}
+	}
+
+	// Knob center: keydown on press, keyup on release.
+	if pressed(cfg.BitKnobCenter) {
+		h.dispatchKey(input.KeyDown, kb.Enter)
+	}
+	if released(cfg.BitKnobCenter) {
+		h.dispatchKey(input.KeyUp, kb.Enter)
+	}
+
+	// Outer rotary encoder (bits BitKnobOuter and BitKnobOuter+1): '[' / ']'.
+	curOuter := uint8(v>>cfg.BitKnobOuter) & 0x3
+	if key := encoderKey(*prevOuter, curOuter, "[", "]"); key != "" {
+		h.sendKeyEvent(key)
+	}
+	*prevOuter = curOuter
+
+	// Inner rotary encoder (bits BitKnobInner and BitKnobInner+1): ';' / '\''.
+	curInner := uint8(v>>cfg.BitKnobInner) & 0x3
+	if key := encoderKey(*prevInner, curInner, ";", "'"); key != "" {
+		h.sendKeyEvent(key)
+	}
+	*prevInner = curInner
+
+	// Joy knob rotary encoder (bits BitJoyKnob and BitJoyKnob+1): ',' / '.'.
+	curJoyKnob := uint8(v>>cfg.BitJoyKnob) & 0x3
+	if key := encoderKey(*prevJoyKnob, curJoyKnob, ",", "."); key != "" {
+		h.sendKeyEvent(key)
+	}
+	*prevJoyKnob = curJoyKnob
 }
 
 // loadAppPage fetches app/index.html from the live server, injects a <base href>,

@@ -28,8 +28,20 @@ type Config struct {
 	I2CDevice string `envconfig:"I2C_DEVICE" default:"/dev/i2c-1"`
 
 	// Expander (SX1509)
-	ExpanderAddress  uint8         `envconfig:"EXPANDER_ADDRESS" default:"0x3E"`
+	ExpanderAddress  uint8         `envconfig:"EXPANDER_ADDRESS" default:"0x20"`
 	ExpanderInterval time.Duration `envconfig:"EXPANDER_INTERVAL" default:"10ms"`
+
+	// Expander bit assignments
+	BitKnobCenter uint `envconfig:"BIT_KNOB_CENTER" default:"0"`
+	BitKnobInner  uint `envconfig:"BIT_KNOB_INNER"  default:"1"` // and bit+1
+	BitKnobOuter  uint `envconfig:"BIT_KNOB_OUTER"  default:"3"` // and bit+1
+	BitLED        uint `envconfig:"BIT_LED"         default:"6"`
+	BitJoyCenter  uint `envconfig:"BIT_JOY_CENTER"  default:"8"`
+	BitJoyDown    uint `envconfig:"BIT_JOY_DOWN"    default:"9"`
+	BitJoyUp      uint `envconfig:"BIT_JOY_UP"      default:"10"`
+	BitJoyRight   uint `envconfig:"BIT_JOY_RIGHT"   default:"11"`
+	BitJoyLeft    uint `envconfig:"BIT_JOY_LEFT"    default:"12"`
+	BitJoyKnob    uint `envconfig:"BIT_JOY_KNOB"    default:"13"` // and bit+1
 
 	// AirSensor (BME280)
 	AirSensorAddress  uint8         `envconfig:"AIR_SENSOR_ADDRESS" default:"0x77"`

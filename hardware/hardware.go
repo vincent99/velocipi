@@ -6,6 +6,7 @@ import (
 
 	"github.com/vincent99/velocipi-go/config"
 	"github.com/vincent99/velocipi-go/hardware/airsensor"
+	"github.com/vincent99/velocipi-go/hardware/expander"
 	"github.com/vincent99/velocipi-go/hardware/lightsensor"
 	"github.com/vincent99/velocipi-go/hardware/tpms"
 )
@@ -19,6 +20,9 @@ var (
 
 	tpmsOnce sync.Once
 	tpmsUnit *tpms.TPMS
+
+	expanderOnce sync.Once
+	expanderUnit *expander.Expander
 )
 
 func AirSensor() *airsensor.AirSensor {
@@ -53,4 +57,23 @@ func TPMS() *tpms.TPMS {
 		tpmsUnit = t
 	})
 	return tpmsUnit
+}
+
+func Expander() *expander.Expander {
+	expanderOnce.Do(func() {
+		cfg := config.Load()
+		e, err := expander.New()
+		if err != nil {
+			log.Println("hardware: expander init error:", err)
+			return
+		}
+		// All pins are inputs except the LED pin.
+		inputs := uint16(0xFFFF) &^ (1 << cfg.BitLED)
+		if err := e.Init(inputs); err != nil {
+			log.Println("hardware: expander init error:", err)
+			return
+		}
+		expanderUnit = e
+	})
+	return expanderUnit
 }

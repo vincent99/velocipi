@@ -222,13 +222,18 @@
       window.addEventListener("resize", resize);
 
       const ws = new WebSocket(`ws://${location.host}/ws`);
+      const wsScreen = new WebSocket(`ws://${location.host}/screen`);
       const pingEl = document.getElementById("last-ping");
       const imgEl = document.getElementById("screenshot");
       const airEl = document.getElementById("air-reading");
 
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: "screenshots" }));
+      wsScreen.onmessage = (e) => {
+        let msg;
+        try { msg = JSON.parse(e.data); } catch { return; }
+        if (msg.type === "screenshot")
+          imgEl.src = "data:image/png;base64," + msg.data;
       };
+      wsScreen.onerror = (e) => console.error("screen ws error", e);
 
       function fmt(n, decimals) {
         return n == null ? "--" : n.toFixed(decimals);
@@ -278,8 +283,6 @@
           return;
         }
         if (msg.type === "ping") pingEl.textContent = "Last ping: " + msg.time;
-        if (msg.type === "screenshot")
-          imgEl.src = "data:image/png;base64," + msg.data;
         if (msg.type === "airReading" && msg.reading)
           updateAirReading(msg.reading);
         if (msg.type === "luxReading" && msg.lux != null)
@@ -292,6 +295,31 @@
       ws.onclose = () => {
         pingEl.textContent = "Disconnected";
       };
+
+      // Forward key events to chromedp via the server.
+      const RELAY_KEYS = new Set([
+        "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+        "Enter", "[", "]", ";", "'", ",", ".",
+      ]);
+
+      function relayKey(eventType, key) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "key", eventType, key }));
+        }
+      }
+
+      document.addEventListener("keydown", (e) => {
+        if (RELAY_KEYS.has(e.key)) {
+          e.preventDefault();
+          relayKey("keydown", e.key);
+        }
+      });
+      document.addEventListener("keyup", (e) => {
+        if (RELAY_KEYS.has(e.key)) {
+          e.preventDefault();
+          relayKey("keyup", e.key);
+        }
+      });
     </script>
   </body>
 </html>

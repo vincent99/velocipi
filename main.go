@@ -66,14 +66,50 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var msg inboundMsg
-		if err := json.Unmarshal(data, &msg); err == nil {
-			switch msg.Type {
-			case "screenshots":
-				c.enableScreenshots()
-				log.Println("websocket client requested screenshots:", r.RemoteAddr)
-			case "reload":
-				go hub.reload()
+		if err := json.Unmarshal(data, &msg); err != nil {
+			continue
+		}
+		switch msg.Type {
+		case "reload":
+			go hub.reload()
+		case "key":
+			var km inboundKeyMsg
+			if err := json.Unmarshal(data, &km); err == nil {
+				go hub.handleKeyMsg(km.EventType, km.Key)
 			}
+		}
+	}
+}
+
+func screenHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("screen websocket upgrade error:", err)
+		return
+	}
+
+	c := &client{conn: conn, send: make(chan []byte, 2)}
+	hub.registerScreen(c)
+	log.Println("screen client connected:", r.RemoteAddr)
+
+	// Write pump: drains c.send and writes frames to the client.
+	go func() {
+		defer hub.unregisterScreen(c)
+		defer conn.Close()
+		for msg := range c.send {
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				log.Println("screen write error:", err)
+				return
+			}
+		}
+	}()
+
+	// Read pump: only used to detect disconnect; screen socket is send-only.
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			log.Println("screen client disconnected:", r.RemoteAddr)
+			hub.unregisterScreen(c)
+			return
 		}
 	}
 }
@@ -105,6 +141,7 @@ func main() {
 	// Start HTTP server first so the browser can reach /app when it navigates.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", wsHandler)
+	mux.HandleFunc("/screen", screenHandler)
 	mux.Handle("/", http.FileServer(http.Dir("frontend")))
 	handler := corsMiddleware(mux)
 
@@ -129,10 +166,11 @@ func main() {
 	hub.browserCtx = browserCtx
 	hub.mu.Unlock()
 
-	// Start the air sensor, light sensor, and TPMS loops.
+	// Start the air sensor, light sensor, TPMS, and input loops.
 	go hub.runAirSensorLoop(ctx)
 	go hub.runLightSensorLoop(ctx)
 	go hub.runTpmsLoop(ctx)
+	go hub.runInputLoop(ctx)
 
 	// Run the screenshot+ping loop on the main goroutine.
 	hub.runScreenshotLoop(ctx)
