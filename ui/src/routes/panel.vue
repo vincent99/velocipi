@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import { RouterView } from 'vue-router';
 import NavMenu from '../components/panel/NavMenu.vue';
+import { useConfig } from '../composables/useConfig';
+
+const { config } = useConfig();
+const panelWidth = computed(() => config.value?.panel.width ?? 256);
+const panelHeight = computed(() => config.value?.panel.height ?? 64);
 
 const appEl = document.getElementById('app')!;
 
 function updateZoom() {
-  const zoom = Math.max(1, Math.floor(window.innerWidth / 256));
+  const zoom = Math.max(1, Math.floor(window.innerWidth / panelWidth.value));
   appEl.style.zoom = String(zoom);
 }
 
@@ -22,14 +27,17 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="panel-root">
+  <div
+    class="panel-root"
+    :style="{ width: panelWidth + 'px', height: panelHeight + 'px' }"
+  >
     <RouterView />
     <NavMenu />
   </div>
 </template>
 
-<style>
-/* Global reset for the OLED panel page — must not be scoped */
+<style lang="scss">
+// Global reset for the OLED panel page — must not be scoped
 @font-face {
   font-family: 'Terminus';
   src: url('/fonts/TerminusTTF-4.49.3.ttf') format('truetype');
@@ -57,7 +65,7 @@ body {
 }
 </style>
 
-<style scoped>
+<style scoped lang="scss">
 .panel-root {
   -webkit-font-smoothing: none;
   -moz-osx-font-smoothing: grayscale;
@@ -65,8 +73,6 @@ body {
   background: #111;
   color: white;
   overflow: hidden;
-  width: 256px;
-  height: 64px;
   font-family: 'Terminus', monospace;
   position: relative;
 }

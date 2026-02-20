@@ -1,6 +1,9 @@
 import { createApp } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
+import './style.scss';
+import '@fontsource/roboto/400.css';
+import '@fontsource/roboto/700.css';
 import '@flaticon/flaticon-uicons/css/solid/rounded.css';
 import App from './App.vue';
 

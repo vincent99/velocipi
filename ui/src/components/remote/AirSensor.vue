@@ -52,13 +52,17 @@ function fmt(n: number | null | undefined, decimals: number): string {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .air-reading {
   display: flex;
   gap: 1.5rem;
   flex-wrap: wrap;
   margin: 0.75rem 0;
   font-size: 0.95rem;
+
+  &.stale .value {
+    color: #555;
+  }
 }
 .reading-group {
   display: flex;
@@ -76,8 +80,5 @@ function fmt(n: number | null | undefined, decimals: number): string {
   font-weight: 600;
   color: #eee;
   font-variant-numeric: tabular-nums;
-}
-.stale .value {
-  color: #555;
 }
 </style>

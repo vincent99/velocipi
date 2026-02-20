@@ -165,7 +165,7 @@ func main() {
 		DCPin:    cfg.OLED.DCPin,
 		ResetPin: cfg.OLED.ResetPin,
 		Flip:     cfg.OLED.Flip,
-	}, cfg.OLED.Width, cfg.OLED.Height); err != nil {
+	}, cfg.UI.Panel.Width, cfg.UI.Panel.Height); err != nil {
 		log.Println("oled: init error (continuing without display):", err)
 	} else {
 		display = o

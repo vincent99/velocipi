@@ -34,7 +34,7 @@ function ledLabel(state: LEDStateMsg | null): string {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .led-status {
   display: flex;
   align-items: center;
@@ -49,15 +49,16 @@ function ledLabel(state: LEDStateMsg | null): string {
   background: #333;
   border: 1px solid #555;
   flex-shrink: 0;
-}
-.led-dot.on {
-  background: #f5c518;
-  border-color: #f5c518;
-}
-.led-dot.blink {
-  background: #f5c518;
-  border-color: #f5c518;
-  animation: led-blink var(--blink-rate, 500ms) step-start infinite;
+
+  &.on {
+    background: #f5c518;
+    border-color: #f5c518;
+  }
+  &.blink {
+    background: #f5c518;
+    border-color: #f5c518;
+    animation: led-blink var(--blink-rate, 500ms) step-start infinite;
+  }
 }
 @keyframes led-blink {
   50% {

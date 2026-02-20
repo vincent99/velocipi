@@ -20,7 +20,7 @@ const POSITIONS = ['FL', 'FR', 'RL', 'RR'];
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .tpms {
   display: grid;
   grid-template-columns: 1fr 1fr;

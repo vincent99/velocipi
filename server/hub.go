@@ -453,8 +453,8 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 	// Start the screencast — Chromium will now push frames as they change.
 	if err := chromedp.Run(bctx, page.StartScreencast().
 		WithFormat(page.ScreencastFormatPng).
-		WithMaxWidth(int64(h.cfg.OLED.Width)).
-		WithMaxHeight(int64(h.cfg.OLED.Height)),
+		WithMaxWidth(int64(h.cfg.UI.Panel.Width)).
+		WithMaxHeight(int64(h.cfg.UI.Panel.Height)),
 	); err != nil {
 		log.Println("screencast: start error:", err)
 		return

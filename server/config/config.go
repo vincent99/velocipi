@@ -30,9 +30,16 @@ type KeyMapConfig struct {
 	OuterRight string `yaml:"outerRight" json:"outerRight"`
 }
 
+// PanelConfig holds the physical dimensions of the OLED panel display.
+type PanelConfig struct {
+	Width  int `yaml:"width"  json:"width"`
+	Height int `yaml:"height" json:"height"`
+}
+
 // UIConfig holds the subset of config sent to the browser UI via /config.
 type UIConfig struct {
 	Tail    string        `yaml:"tail"    json:"tail"`
+	Panel   PanelConfig   `yaml:"panel"   json:"panel"`
 	NavMenu NavMenuConfig `yaml:"navMenu" json:"navMenu"`
 	KeyMap  KeyMapConfig  `yaml:"keyMap"  json:"keyMap"`
 }
@@ -81,8 +88,6 @@ type OLEDConfig struct {
 	GPIOChip string `yaml:"gpioChip" json:"gpioChip"`
 	DCPin    int    `yaml:"dcPin"    json:"dcPin"`
 	ResetPin int    `yaml:"resetPin" json:"resetPin"`
-	Width    int    `yaml:"width"    json:"width"`
-	Height   int    `yaml:"height"   json:"height"`
 	Flip     bool   `yaml:"flip"     json:"flip"`
 }
 

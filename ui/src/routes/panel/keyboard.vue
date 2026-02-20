@@ -129,7 +129,7 @@ onUnmounted(() => {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .kbd-root {
   position: absolute;
   inset: 0;
@@ -137,7 +137,7 @@ onUnmounted(() => {
   flex-direction: column;
 }
 
-/* Top half: 3 encoder columns side by side */
+// Top half: 3 encoder columns side by side
 .encoders {
   height: 32px;
   display: flex;
@@ -174,15 +174,13 @@ onUnmounted(() => {
   border-radius: 2px;
   background: #0e0e0e;
   flex-shrink: 0;
-  transition:
-    background 0.05s,
-    color 0.05s;
-}
+  transition: background 0.05s, color 0.05s;
 
-.enc-btn.active {
-  background: #444;
-  color: #fff;
-  border-color: #888;
+  &.active {
+    background: #444;
+    color: #fff;
+    border-color: #888;
+  }
 }
 
 .enc-label {
@@ -199,7 +197,7 @@ onUnmounted(() => {
   text-align: center;
 }
 
-/* Bottom half: 5 joy buttons */
+// Bottom half: 5 joy buttons
 .joy-row {
   height: 32px;
   display: flex;
@@ -218,14 +216,12 @@ onUnmounted(() => {
   border: 1px solid #2a2a2a;
   border-radius: 3px;
   background: #0e0e0e;
-  transition:
-    background 0.05s,
-    color 0.05s;
-}
+  transition: background 0.05s, color 0.05s;
 
-.key.active {
-  background: #444;
-  color: #fff;
-  border-color: #aaa;
+  &.active {
+    background: #444;
+    color: #fff;
+    border-color: #aaa;
+  }
 }
 </style>

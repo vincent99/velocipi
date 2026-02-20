@@ -30,11 +30,9 @@ oled:
   dcPin: 5
   flip: true
   gpioChip: "gpiochip0"
-  height: 64
   resetPin: 6
   spiPort: "/dev/spidev0.0"
   spiSpeed: "2.40MHz"
-  width: 256
 
 screen:
   fps: 30
@@ -57,6 +55,9 @@ tires:
 
 ui:
   tail: "N711ME"
+  panel:
+    width: 256
+    height: 64
   navMenu:
     hideDelay: 2000
     cellWidth: 64

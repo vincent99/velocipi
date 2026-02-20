@@ -1,3 +1,8 @@
+export interface PanelConfig {
+  width: number;
+  height: number;
+}
+
 export interface NavMenuConfig {
   hideDelay: number; // ms
   cellWidth: number; // px
@@ -19,6 +24,7 @@ export interface KeyMapConfig {
 
 export interface Config {
   tail: string;
+  panel: PanelConfig;
   navMenu: NavMenuConfig;
   keyMap: KeyMapConfig;
 }

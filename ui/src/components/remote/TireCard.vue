@@ -38,15 +38,16 @@ function fmt(n: number | null | undefined, decimals: number): string {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
 .tire-card {
   background: #1e1e1e;
   border: 1px solid #333;
   border-radius: 6px;
   padding: 0.5rem 0.75rem;
-}
-.tire-card.stale {
-  opacity: 0.4;
+
+  &.stale {
+    opacity: 0.4;
+  }
 }
 .tire-position {
   font-size: 0.7rem;
@@ -62,12 +63,9 @@ function fmt(n: number | null | undefined, decimals: number): string {
   font-variant-numeric: tabular-nums;
   color: #eee;
   line-height: 1;
-}
-.tire-psi.warn {
-  color: #f0a500;
-}
-.tire-psi.flat {
-  color: #e05555;
+
+  &.warn { color: #f0a500; }
+  &.flat { color: #e05555; }
 }
 .tire-meta {
   font-size: 0.75rem;
