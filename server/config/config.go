@@ -9,9 +9,16 @@ import (
 	"periph.io/x/conn/v3/physic"
 )
 
+// NavMenuConfig holds display settings for the panel navigation menu.
+type NavMenuConfig struct {
+	HideDelay int `yaml:"hideDelay" json:"hideDelay"` // ms
+	CellWidth int `yaml:"cellWidth" json:"cellWidth"` // px
+}
+
 // UIConfig holds the subset of config sent to the browser UI via /config.
 type UIConfig struct {
-	Tail string `yaml:"tail" json:"tail"`
+	Tail    string        `yaml:"tail"    json:"tail"`
+	NavMenu NavMenuConfig `yaml:"navMenu" json:"navMenu"`
 }
 
 // TireAddresses maps one or more BT addresses to a wheel position label.

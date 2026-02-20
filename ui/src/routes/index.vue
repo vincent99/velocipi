@@ -6,7 +6,7 @@ import ScreenViewer from '../components/remote/ScreenViewer.vue';
 import AirSensor from '../components/remote/AirSensor.vue';
 import TpmsPanel from '../components/remote/TpmsPanel.vue';
 import LedStatus from '../components/remote/LedStatus.vue';
-import KeyRelay from '../components/remote/KeyRelay.vue';
+import KeyRelay from '../components/shared/KeyRelay.vue';
 import type { AirReading, Tire, LEDStateMsg, InboundWsMsg } from '../types/ws';
 
 const { send, onMessage, onClose } = useWebSocket();

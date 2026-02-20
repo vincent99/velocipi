@@ -57,3 +57,6 @@ tires:
 
 ui:
   tail: "N711ME"
+  navMenu:
+    hideDelay: 2000
+    cellWidth: 60
