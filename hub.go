@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/chromedp/cdproto/input"
@@ -378,9 +379,13 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 	minInterval := time.Second / time.Duration(h.cfg.ScreenshotFPS)
 	var lastFrame time.Time
 
-	// splashDone is closed once the splash screen has finished displaying.
+	// splashDone is set to true once the splash screen has finished displaying.
 	// Until then, screencast frames are acked but not blitted to the OLED.
-	splashDone := make(chan struct{})
+	var splashDone atomic.Bool
+
+	// lastBuf holds the most recent decoded frame for the OLED re-blit ticker.
+	var lastBuf []byte
+	var lastBufMu sync.Mutex
 
 	// Listen for screencast frames pushed by Chromium.
 	chromedp.ListenTarget(bctx, func(ev any) {
@@ -410,14 +415,14 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 		// Forward to browser clients regardless of splash state.
 		h.broadcastScreen(buf)
 
-		// Don't blit to OLED until splash is done, and stop on shutdown.
-		select {
-		case <-splashDone:
-		case <-ctx.Done():
-			return
-		default:
+		// Don't blit to OLED until splash is done.
+		if !splashDone.Load() {
 			return
 		}
+
+		lastBufMu.Lock()
+		lastBuf = buf
+		lastBufMu.Unlock()
 
 		if h.oled != nil {
 			if img, err := png.Decode(bytes.NewReader(buf)); err == nil {
@@ -427,6 +432,7 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 			}
 		}
 	})
+
 
 	// Start the screencast — Chromium will now push frames as they change.
 	if err := chromedp.Run(bctx, page.StartScreencast().
@@ -443,7 +449,7 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 	// the live screencast and turn the LED off.
 	go func() {
 		if h.oled != nil {
-			if img, err := pngToImage("frontend/img/logo.png"); err != nil {
+			if img, err := pngToImage(h.cfg.SplashImage); err != nil {
 				log.Println("splash: load error:", err)
 			} else {
 				h.oled.Blit(img)
@@ -455,8 +461,18 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 			return
 		case <-time.After(h.cfg.SplashDuration):
 		}
-		close(splashDone)
+		splashDone.Store(true)
 		log.Println("splash: done, switching to screencast")
+		// Blit the last received frame immediately so the OLED updates
+		// even if Chromium hasn't sent a new frame since the splash started.
+		lastBufMu.Lock()
+		buf := lastBuf
+		lastBufMu.Unlock()
+		if buf != nil && h.oled != nil {
+			if img, err := png.Decode(bytes.NewReader(buf)); err == nil {
+				h.oled.Blit(img)
+			}
+		}
 		if e := hardware.Expander(); e != nil {
 			hardware.LED().Off(e)
 		}
@@ -770,7 +786,7 @@ func (h *Hub) reload() {
 		return
 	}
 	log.Println("reload: reloading app...")
-	if err := navigateTo(bctx, "http://localhost:8080/app/"); err != nil {
+	if err := navigateTo(bctx, h.cfg.AppURL); err != nil {
 		log.Println("reload error:", err)
 	} else {
 		log.Println("reload: done")

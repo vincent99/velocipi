@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -22,6 +23,20 @@ var upgrader = websocket.Upgrader{
 }
 
 var hub *Hub
+
+// spaHandler serves static files from dir, falling back to index.html for any
+// path that doesn't match a real file (required for Vue Router history mode).
+func spaHandler(dir string) http.Handler {
+	fs := http.FileServer(http.Dir(dir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := filepath.Join(dir, filepath.Clean("/"+r.URL.Path))
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			http.ServeFile(w, r, filepath.Join(dir, "index.html"))
+			return
+		}
+		fs.ServeHTTP(w, r)
+	})
+}
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +174,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", wsHandler)
 	mux.HandleFunc("/screen", screenHandler)
-	mux.Handle("/", http.FileServer(http.Dir("frontend")))
+	mux.Handle("/", spaHandler("ui/dist"))
 	handler := corsMiddleware(mux)
 
 	addr := cfg.Addr
@@ -184,7 +199,7 @@ func main() {
 	hub.mu.Unlock()
 
 	// Navigate to the app now that the HTTP server is listening.
-	if err := navigateTo(browserCtx, "http://localhost:8080/app/"); err != nil {
+	if err := navigateTo(browserCtx, cfg.AppURL); err != nil {
 		log.Println("browser: initial navigate error:", err)
 	} else {
 		log.Println("browser: app loaded")

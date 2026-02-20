@@ -13,9 +13,16 @@
   "license": "Apache-2.0",
   "author": "",
   "type": "commonjs",
-  "main": "frontend/src/main.ts",
+  "main": "ui/src/main.ts",
   "scripts": {
-    "dev": "air",
-    "build": "go build -o velocipi-go ."
+    "dev": "concurrently --kill-others \"yarn dev:go\" \"yarn dev:ui\"",
+    "dev:ui": "cd ui && yarn dev --host 0.0.0.0",
+    "dev:go": "air",
+    "build": "yarn build:ui && go build -o velocipi-go .",
+    "build:ui": "cd ui && yarn build",
+    "build:go": "go build -o velocipi-go ."
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

@@ -22,7 +22,11 @@ type TireAddresses struct {
 
 type Config struct {
 	// HTTP
-	Addr string `envconfig:"ADDR" default:"0.0.0.0:8080"`
+	Addr   string `envconfig:"ADDR"    default:"0.0.0.0:8080"`
+	AppURL string `envconfig:"APP_URL" default:"http://localhost:8080/app/"`
+
+	// Splash screen image path (loaded by Go for the OLED)
+	SplashImage string `envconfig:"SPLASH_IMAGE" default:"ui/public/img/logo.png"`
 
 	// I2C
 	I2CDevice string `envconfig:"I2C_DEVICE" default:"/dev/i2c-1"`

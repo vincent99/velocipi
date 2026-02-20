@@ -10,7 +10,8 @@
       "WebFetch(domain:www.bosch-sensortec.com)",
       "WebFetch(domain:community.bosch-sensortec.com)",
       "WebFetch(domain:www.mouser.com)",
-      "WebFetch(domain:tech.alpsalpine.com)"
+      "WebFetch(domain:tech.alpsalpine.com)",
+      "Bash(npm create:*)"
     ]
   }
 }
