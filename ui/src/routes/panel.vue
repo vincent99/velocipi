@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue';
 import { RouterView } from 'vue-router';
-import KeyRelay from '../components/shared/KeyRelay.vue';
 import NavMenu from '../components/panel/NavMenu.vue';
 
 const appEl = document.getElementById('app')!;
@@ -24,11 +23,9 @@ onUnmounted(() => {
 
 <template>
   <div class="panel-root">
-    <h1>Velocipi</h1>
     <RouterView />
     <NavMenu />
   </div>
-  <KeyRelay />
 </template>
 
 <style>

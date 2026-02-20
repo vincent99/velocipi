@@ -103,6 +103,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(data, &lm); err == nil {
 				go hub.handleLEDMsg(lm.State, lm.Rate)
 			}
+		case "navigate":
+			var nm inboundNavigateMsg
+			if err := json.Unmarshal(data, &nm); err == nil {
+				go hub.navigate(nm.Path)
+			}
 		}
 	}
 }

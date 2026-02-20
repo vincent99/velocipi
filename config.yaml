@@ -60,3 +60,15 @@ ui:
   navMenu:
     hideDelay: 2000
     cellWidth: 60
+  keyMap:
+    up: ArrowUp
+    down: ArrowDown
+    left: ArrowLeft
+    right: ArrowRight
+    enter: Enter
+    joyLeft: ","
+    joyRight: .
+    innerLeft: ;
+    innerRight: "'"
+    outerLeft: "["
+    outerRight: "]"

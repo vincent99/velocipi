@@ -1,28 +1,49 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { computed, onMounted, onUnmounted } from 'vue';
 import type { LogicalKey } from '../../types/ws';
 import { useWebSocket } from '../../composables/useWebSocket';
+import { useConfig } from '../../composables/useConfig';
 
 const { send } = useWebSocket();
+const { config } = useConfig();
 
-const jsToLogical: Record<string, LogicalKey> = {
-  ArrowLeft: 'left',
-  ArrowRight: 'right',
-  ArrowUp: 'up',
-  ArrowDown: 'down',
-  Enter: 'enter',
-  '[': 'joy-left',
-  ']': 'joy-right',
-  ';': 'inner-left',
-  "'": 'inner-right',
-  ',': 'outer-left',
-  '.': 'outer-right',
-};
+const jsToLogical = computed<Record<string, LogicalKey>>(() => {
+  const km = config.value?.keyMap;
+  if (!km) {
+    return {};
+  }
+  return {
+    [km.up]: 'up',
+    [km.down]: 'down',
+    [km.left]: 'left',
+    [km.right]: 'right',
+    [km.enter]: 'enter',
+    [km.joyLeft]: 'joy-left',
+    [km.joyRight]: 'joy-right',
+    [km.innerLeft]: 'inner-left',
+    [km.innerRight]: 'inner-right',
+    [km.outerLeft]: 'outer-left',
+    [km.outerRight]: 'outer-right',
+  };
+});
 
-const KNOB_KEYS = new Set(['[', ']', ';', "'", ',', '.']);
+const knobKeys = computed<Set<string>>(() => {
+  const km = config.value?.keyMap;
+  if (!km) {
+    return new Set();
+  }
+  return new Set([
+    km.joyLeft,
+    km.joyRight,
+    km.innerLeft,
+    km.innerRight,
+    km.outerLeft,
+    km.outerRight,
+  ]);
+});
 
 function relayKey(eventType: 'keydown' | 'keyup', jsKey: string) {
-  const key = jsToLogical[jsKey];
+  const key = jsToLogical.value[jsKey];
   if (!key) {
     return;
   }
@@ -30,13 +51,13 @@ function relayKey(eventType: 'keydown' | 'keyup', jsKey: string) {
 }
 
 function onKeyDown(e: KeyboardEvent) {
-  if (!(e.key in jsToLogical)) {
+  if (!(e.key in jsToLogical.value)) {
     return;
   }
 
   e.preventDefault();
 
-  if (KNOB_KEYS.has(e.key)) {
+  if (knobKeys.value.has(e.key)) {
     relayKey('keydown', e.key);
     relayKey('keyup', e.key);
   } else if (!e.repeat) {
@@ -45,7 +66,7 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 function onKeyUp(e: KeyboardEvent) {
-  if (e.key in jsToLogical && !KNOB_KEYS.has(e.key)) {
+  if (e.key in jsToLogical.value && !knobKeys.value.has(e.key)) {
     e.preventDefault();
     relayKey('keyup', e.key);
   }

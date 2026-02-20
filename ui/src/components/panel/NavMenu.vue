@@ -36,13 +36,13 @@ function resetTimer() {
   }, hideDelay.value);
 }
 
-const OUTER_KEYS: Record<string, 'left' | 'right'> = {
-  '[': 'left',
-  ']': 'right',
-};
+const outerKeys = computed<Record<string, 'left' | 'right'>>(() => ({
+  [config.value?.keyMap.outerLeft ?? '[']: 'left',
+  [config.value?.keyMap.outerRight ?? ']']: 'right',
+}));
 
 function onKeyDown(e: KeyboardEvent) {
-  const dir = OUTER_KEYS[e.key];
+  const dir = outerKeys.value[e.key];
   if (!dir) {
     return;
   }

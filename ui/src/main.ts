@@ -39,6 +39,9 @@ for (const [name, component] of Object.entries(topLevel)) {
     }
   }
 
+  if (name === 'panel') {
+    children.unshift({ path: '', redirect: '/panel/home' });
+  }
   routes.push({ path: '/' + name, component, children });
 }
 

@@ -109,4 +109,9 @@ export interface LEDControlMsg {
   rate?: number;
 }
 
-export type OutboundWsMsg = ReloadMsg | KeyMsg | LEDControlMsg;
+export interface NavigateMsg {
+  type: 'navigate';
+  path: string;
+}
+
+export type OutboundWsMsg = ReloadMsg | KeyMsg | LEDControlMsg | NavigateMsg;

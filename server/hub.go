@@ -11,6 +11,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -52,11 +53,6 @@ type TpmsMsg struct {
 	Tire *tpms.Tire `json:"tire"`
 }
 
-type KeyMsg struct {
-	Type      string `json:"type"`      // always "key"
-	EventType string `json:"eventType"` // "keydown" or "keyup"
-	Key       string `json:"key"`
-}
 
 type LEDStateMsg struct {
 	Type string `json:"type"`           // always "ledState"
@@ -71,13 +67,17 @@ type inboundMsg struct {
 }
 
 type inboundKeyMsg struct {
-	EventType string `json:"eventType"` // "keydown" or "keyup"
+	EventType string `json:"eventType"` // "keydown", "keyup", or "keypress"
 	Key       string `json:"key"`
 }
 
 type inboundLEDMsg struct {
 	State string `json:"state"`          // "off", "on", "blink"
 	Rate  int    `json:"rate,omitempty"` // blink rate in ms, default 500
+}
+
+type inboundNavigateMsg struct {
+	Path string `json:"path"` // URL path to navigate to, e.g. "/panel/test"
 }
 
 type client struct {
@@ -503,10 +503,6 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 //
 // Held inputs (joystick directions, knobCenter): keydown on press, keyup on release.
 // Rotary encoders (outer, inner, joyKnob): single KeyEvent per detected step.
-//
-//	Outer knob:  '[' (left)  / ']' (right)
-//	Inner knob:  ';' (left)  / '\'' (right)
-//	Joy knob:    ',' (left)  / '.' (right)
 func (h *Hub) runInputLoop(ctx context.Context) {
 	e := hardware.Expander()
 	if e == nil {
@@ -543,33 +539,35 @@ var jsKeyToKb = map[string]string{
 	"Enter":      kb.Enter,
 }
 
-// logicalToJS maps logical action names (used in WebSocket messages) to the
-// underlying JavaScript key that gets dispatched to the browser.
-var logicalToJS = map[string]string{
-	"up":          "ArrowUp",
-	"down":        "ArrowDown",
-	"left":        "ArrowLeft",
-	"right":       "ArrowRight",
-	"enter":       "Enter",
-	"joy-left":    "[",
-	"joy-right":   "]",
-	"inner-left":  ";",
-	"inner-right": "'",
-	"outer-left":  ",",
-	"outer-right": ".",
+// logicalToJS returns a map from logical action names to the JS key values
+// configured in config.yaml (ui.keyMap).
+func (h *Hub) logicalToJS() map[string]string {
+	km := h.cfg.UI.KeyMap
+	return map[string]string{
+		"up":          km.Up,
+		"down":        km.Down,
+		"left":        km.Left,
+		"right":       km.Right,
+		"enter":       km.Enter,
+		"joy-left":    km.JoyLeft,
+		"joy-right":   km.JoyRight,
+		"inner-left":  km.InnerLeft,
+		"inner-right": km.InnerRight,
+		"outer-left":  km.OuterLeft,
+		"outer-right": km.OuterRight,
+	}
 }
 
 // dispatchLogical translates a logical name to a JS key, dispatches it to the
-// browser, and broadcasts the logical name to WebSocket clients.
 func (h *Hub) dispatchLogical(typ input.KeyType, logical string) {
-	jsKey, ok := logicalToJS[logical]
+	jsKey, ok := h.logicalToJS()[logical]
 	if !ok {
 		return
 	}
-	h.dispatchKey(typ, jsKey, logical)
+	h.dispatchKey(typ, jsKey)
 }
 
-func (h *Hub) dispatchKey(typ input.KeyType, jsKey, broadcastKey string) {
+func (h *Hub) dispatchKey(typ input.KeyType, jsKey string) {
 	h.mu.RLock()
 	bctx := h.browserCtx
 	h.mu.RUnlock()
@@ -611,11 +609,6 @@ func (h *Hub) dispatchKey(typ input.KeyType, jsKey, broadcastKey string) {
 		return
 	}
 
-	eventType := "keydown"
-	if typ == input.KeyUp {
-		eventType = "keyup"
-	}
-	h.broadcastAll(KeyMsg{Type: "key", EventType: eventType, Key: broadcastKey})
 }
 
 // ledStateMsg builds a LEDStateMsg from a led.State.
@@ -663,31 +656,27 @@ func (h *Hub) handleLEDMsg(state string, rateMs int) {
 // handleKeyMsg is called when a browser client sends a "key" websocket message.
 // It forwards the event into the chromedp browser instance.
 func (h *Hub) handleKeyMsg(eventType, key string) {
-	jsKey, ok := logicalToJS[key]
+	jsKey, ok := h.logicalToJS()[key]
 	if !ok {
 		return
 	}
 	switch eventType {
 	case "keydown":
-		h.dispatchKey(input.KeyDown, jsKey, key)
+		h.dispatchKey(input.KeyDown, jsKey)
 	case "keyup":
-		h.dispatchKey(input.KeyUp, jsKey, key)
-	case "keypress":
-		h.sendKeyEvent(jsKey, key)
+		h.dispatchKey(input.KeyUp, jsKey)
 	}
 }
 
-// sendLogical translates a logical name to a JS key, sends a KeyEvent to the
-// browser, and broadcasts the logical name to WebSocket clients.
 func (h *Hub) sendLogical(logical string) {
-	jsKey, ok := logicalToJS[logical]
+	jsKey, ok := h.logicalToJS()[logical]
 	if !ok {
 		return
 	}
-	h.sendKeyEvent(jsKey, logical)
+	h.sendKeyEvent(jsKey)
 }
 
-func (h *Hub) sendKeyEvent(jsKey, broadcastKey string) {
+func (h *Hub) sendKeyEvent(jsKey string) {
 	h.mu.RLock()
 	bctx := h.browserCtx
 	h.mu.RUnlock()
@@ -696,9 +685,7 @@ func (h *Hub) sendKeyEvent(jsKey, broadcastKey string) {
 	}
 	if err := chromedp.Run(bctx, chromedp.KeyEvent(jsKey)); err != nil {
 		log.Println("hub: key event error:", err)
-		return
 	}
-	h.broadcastAll(KeyMsg{Type: "key", EventType: "keydown", Key: broadcastKey})
 }
 
 // quadTable maps (prev<<2)|cur to a step direction for all 16 possible
@@ -850,6 +837,22 @@ func (h *Hub) reload() {
 		log.Println("reload error:", err)
 	} else {
 		log.Println("reload: done")
+	}
+}
+
+func (h *Hub) navigate(path string) {
+	h.mu.RLock()
+	bctx := h.browserCtx
+	h.mu.RUnlock()
+	if bctx == nil {
+		log.Println("navigate: no browser context")
+		return
+	}
+	base := strings.TrimRight(h.cfg.AppURL, "/")
+	url := base + "/" + strings.TrimLeft(path, "/")
+	log.Println("navigate:", url)
+	if err := navigateTo(bctx, url); err != nil {
+		log.Println("navigate error:", err)
 	}
 }
 

@@ -3,9 +3,24 @@ export interface NavMenuConfig {
   cellWidth: number; // px
 }
 
+export interface KeyMapConfig {
+  up: string;
+  down: string;
+  left: string;
+  right: string;
+  enter: string;
+  joyLeft: string;
+  joyRight: string;
+  innerLeft: string;
+  innerRight: string;
+  outerLeft: string;
+  outerRight: string;
+}
+
 export interface Config {
   tail: string;
   navMenu: NavMenuConfig;
+  keyMap: KeyMapConfig;
 }
 
 export interface PanelMeta {

@@ -15,10 +15,26 @@ type NavMenuConfig struct {
 	CellWidth int `yaml:"cellWidth" json:"cellWidth"` // px
 }
 
+// KeyMapConfig maps logical key names to the JS key values used in DOM events.
+type KeyMapConfig struct {
+	Up         string `yaml:"up"         json:"up"`
+	Down       string `yaml:"down"       json:"down"`
+	Left       string `yaml:"left"       json:"left"`
+	Right      string `yaml:"right"      json:"right"`
+	Enter      string `yaml:"enter"      json:"enter"`
+	JoyLeft    string `yaml:"joyLeft"    json:"joyLeft"`
+	JoyRight   string `yaml:"joyRight"   json:"joyRight"`
+	InnerLeft  string `yaml:"innerLeft"  json:"innerLeft"`
+	InnerRight string `yaml:"innerRight" json:"innerRight"`
+	OuterLeft  string `yaml:"outerLeft"  json:"outerLeft"`
+	OuterRight string `yaml:"outerRight" json:"outerRight"`
+}
+
 // UIConfig holds the subset of config sent to the browser UI via /config.
 type UIConfig struct {
 	Tail    string        `yaml:"tail"    json:"tail"`
 	NavMenu NavMenuConfig `yaml:"navMenu" json:"navMenu"`
+	KeyMap  KeyMapConfig  `yaml:"keyMap"  json:"keyMap"`
 }
 
 // TireAddresses maps one or more BT addresses to a wheel position label.

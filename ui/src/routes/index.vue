@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, onUnmounted } from 'vue';
 import { useWebSocket } from '../composables/useWebSocket';
 import { useScreenSocket } from '../composables/useScreenSocket';
 import ScreenViewer from '../components/remote/ScreenViewer.vue';
@@ -18,7 +18,7 @@ const lux = ref<number | null>(null);
 const tires = reactive<Map<string, Tire>>(new Map());
 const ledState = ref<LEDStateMsg | null>(null);
 
-onMessage((e: MessageEvent) => {
+const offMessage = onMessage((e: MessageEvent) => {
   let msg: InboundWsMsg;
   try {
     msg = JSON.parse(e.data);
@@ -50,8 +50,13 @@ onMessage((e: MessageEvent) => {
       break;
   }
 });
-onClose(() => {
+const offClose = onClose(() => {
   lastPing.value = 'Disconnected';
+});
+
+onUnmounted(() => {
+  offMessage();
+  offClose();
 });
 </script>
 
