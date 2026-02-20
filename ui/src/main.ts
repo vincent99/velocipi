@@ -1,7 +1,12 @@
 import { createApp } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
+import { library } from '@fortawesome/fontawesome-svg-core';
+import { fas } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
 import App from './App.vue';
+
+library.add(fas);
 
 const modules = import.meta.glob('./routes/**/*.vue');
 
@@ -50,4 +55,4 @@ const router = createRouter({
   routes,
 });
 
-createApp(App).use(router).mount('#app');
+createApp(App).use(router).component('FontAwesomeIcon', FontAwesomeIcon).mount('#app');

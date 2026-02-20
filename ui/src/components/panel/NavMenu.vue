@@ -97,7 +97,13 @@ onUnmounted(() => {
             :class="['nav-cell', { selected: i === selectedIndex }]"
             :style="{ width: `${cellWidth}px` }"
           >
-            <span class="nav-icon">{{ p.icon }}</span>
+            <span class="nav-icon">
+              <FontAwesomeIcon
+                v-if="p.icon.length > 1"
+                :icon="['fas', p.icon]"
+              />
+              <template v-else>{{ p.icon }}</template>
+            </span>
             <span class="nav-name">{{ p.name }}</span>
           </div>
         </div>
@@ -163,7 +169,7 @@ onUnmounted(() => {
 }
 
 .nav-name {
-  font-size: 8px;
+  font-size: 12px;
   line-height: 1;
 }
 </style>

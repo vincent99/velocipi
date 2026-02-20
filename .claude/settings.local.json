@@ -13,7 +13,8 @@
       "WebFetch(domain:tech.alpsalpine.com)",
       "Bash(npm create:*)",
       "Bash(go get:*)",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "WebFetch(domain:docs.fontawesome.com)"
     ]
   }
 }
