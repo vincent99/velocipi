@@ -8,8 +8,8 @@ import (
 	"errors"
 	"math"
 
-	"github.com/vincent99/velocipi-go/config"
-	"github.com/vincent99/velocipi-go/hardware/i2c"
+	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/hardware/i2c"
 )
 
 const (
@@ -123,7 +123,7 @@ type Reading struct {
 func NewAirSensor() (*AirSensor, error) {
 	cfg := config.Load()
 	return NewAirSensorWithOptions(&Config{
-		Address:            cfg.AirSensorAddress,
+		Address:            cfg.AirSensor.Address,
 		Device:             cfg.I2CDevice,
 		Mode:               NORMAL,
 		Standby:            SB_1,

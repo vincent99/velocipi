@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/vincent99/velocipi-go/config"
-	"github.com/vincent99/velocipi-go/hardware"
-	"github.com/vincent99/velocipi-go/hardware/oled"
+	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/hardware"
+	"github.com/vincent99/velocipi/server/hardware/oled"
 )
 
 var upgrader = websocket.Upgrader{
@@ -154,13 +154,13 @@ func main() {
 	// Initialise the OLED display. Non-fatal if the hardware isn't present.
 	var display *oled.OLED
 	if o, err := oled.New(oled.Config{
-		SPIPort:  cfg.OLEDSPIPort,
-		SPISpeed: cfg.OLEDSPISpeed,
-		GPIOChip: cfg.OLEDGPIOChip,
-		DCPin:    cfg.OLEDDCPin,
-		ResetPin: cfg.OLEDResetPin,
-		Flip:     cfg.OLEDFlip,
-	}, cfg.OLEDWidth, cfg.OLEDHeight); err != nil {
+		SPIPort:  cfg.OLED.SPIPort,
+		SPISpeed: cfg.OLEDSPIFreq,
+		GPIOChip: cfg.OLED.GPIOChip,
+		DCPin:    cfg.OLED.DCPin,
+		ResetPin: cfg.OLED.ResetPin,
+		Flip:     cfg.OLED.Flip,
+	}, cfg.OLED.Width, cfg.OLED.Height); err != nil {
 		log.Println("oled: init error (continuing without display):", err)
 	} else {
 		display = o
@@ -174,6 +174,15 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", wsHandler)
 	mux.HandleFunc("/screen", screenHandler)
+	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
+		data, err := json.Marshal(cfg.UI)
+		if err != nil {
+			http.Error(w, "config marshal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	})
 	mux.Handle("/", spaHandler("ui/dist"))
 	handler := corsMiddleware(mux)
 

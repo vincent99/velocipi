@@ -11,7 +11,9 @@
       "WebFetch(domain:community.bosch-sensortec.com)",
       "WebFetch(domain:www.mouser.com)",
       "WebFetch(domain:tech.alpsalpine.com)",
-      "Bash(npm create:*)"
+      "Bash(npm create:*)",
+      "Bash(go get:*)",
+      "Bash(go build:*)"
     ]
   }
 }

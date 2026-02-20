@@ -29,8 +29,8 @@ go.work.sum
 tmp
 node_modules
 build
-frontend/dist
-frontend/wailsjs
+dist
 *~
 *.swp
 *.swo
+velocipi

@@ -6,8 +6,8 @@ package expander
 import (
 	"time"
 
-	"github.com/vincent99/velocipi-go/config"
-	"github.com/vincent99/velocipi-go/hardware/i2c"
+	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/hardware/i2c"
 )
 
 const (
@@ -40,7 +40,7 @@ type Change struct {
 
 func New() (*Expander, error) {
 	cfg := config.Load()
-	address := cfg.ExpanderAddress
+	address := cfg.Expander.Address
 	if address == 0 {
 		address = DEFAULT_ADDRESS
 	}
@@ -52,7 +52,7 @@ func New() (*Expander, error) {
 
 	return &Expander{
 		iface:    iface,
-		interval: cfg.ExpanderInterval,
+		interval: cfg.ExpanderIntervalDur,
 		updates:  make(chan Change, 16),
 		stop:     make(chan struct{}),
 	}, nil

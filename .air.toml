@@ -1,15 +1,15 @@
-# air configuration for velocipi-go
+# air configuration for velocipi
 # https://github.com/air-verse/air
 
 root = "."
 tmp_dir = "tmp"
 
 [build]
-  cmd = "go build -o ./tmp/velocipi-go ."
-  bin = "./tmp/velocipi-go"
+  cmd = "go build -o ./tmp/velocipi ./server"
+  bin = "./tmp/velocipi"
   delay = 500             # ms to wait before rebuilding after a change
   include_ext = ["go"]
-  exclude_dir  = ["tmp", "vendor", "frontend", "ui"]
+  exclude_dir  = ["tmp", "vendor", "ui"]
   exclude_file = []
   kill_delay = "1s"
   send_interrupt = true   # send SIGINT before SIGKILL for graceful shutdown
@@ -25,4 +25,4 @@ tmp_dir = "tmp"
   runner  = "green"
 
 [misc]
-  clean_on_exit = true    # remove tmp/velocipi-go on exit
+  clean_on_exit = true    # remove tmp/velocipi on exit

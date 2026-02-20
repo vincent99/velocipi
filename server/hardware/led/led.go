@@ -3,7 +3,7 @@ package led
 import (
 	"time"
 
-	"github.com/vincent99/velocipi-go/hardware/expander"
+	"github.com/vincent99/velocipi/server/hardware/expander"
 )
 
 // State holds the current LED state.

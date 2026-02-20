@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/sigurn/crc16"
-	"github.com/vincent99/velocipi-go/config"
+	"github.com/vincent99/velocipi/server/config"
 	"tinygo.org/x/bluetooth"
 )
 

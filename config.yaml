@@ -1,0 +1,59 @@
+addr: "0.0.0.0:8080"
+appUrl: "http://localhost:5173/app/"
+i2cDevice: "/dev/i2c-1"
+pingInterval: "1s"
+
+airSensor:
+  address: 0x77
+  interval: "1s"
+
+expander:
+  address: 0x20
+  interval: "2ms"
+  bits:
+    joyCenter: 8
+    joyDown: 9
+    joyKnob: 13
+    joyLeft: 12
+    joyRight: 11
+    joyUp: 10
+    knobCenter: 0
+    knobInner: 1
+    knobOuter: 3
+    led: 6
+
+lightSensor:
+  address: 0x48
+  interval: "1s"
+
+oled:
+  dcPin: 5
+  flip: true
+  gpioChip: "gpiochip0"
+  height: 64
+  resetPin: 6
+  spiPort: "/dev/spidev0.0"
+  spiSpeed: "2.40MHz"
+  width: 256
+
+screen:
+  fps: 30
+  splashDuration: "2s"
+  splashImage: "ui/public/img/logo.png"
+
+tires:
+  fl:
+    - "4a:a0:00:00:eb:02"
+    - "ae3806cb-ea50-2187-4d1d-10010147721a"
+  fr:
+    - "4a:85:00:00:3a:50"
+    - "bc7ac313-2870-3c1f-c2bc-6047a80b58c2"
+  rl:
+    - "4a:88:00:00:72:70"
+    - "24237bb2-4496-36b6-a755-64e9de75ac6c"
+  rr:
+    - "4a:85:00:00:d7:38"
+    - "99633f0c-d627-5f15-7d5d-f171b5a745e7"
+
+ui:
+  tail: "N711ME"

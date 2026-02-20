@@ -4,12 +4,12 @@ import (
 	"log"
 	"sync"
 
-	"github.com/vincent99/velocipi-go/config"
-	"github.com/vincent99/velocipi-go/hardware/airsensor"
-	"github.com/vincent99/velocipi-go/hardware/expander"
-	"github.com/vincent99/velocipi-go/hardware/led"
-	"github.com/vincent99/velocipi-go/hardware/lightsensor"
-	"github.com/vincent99/velocipi-go/hardware/tpms"
+	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/hardware/airsensor"
+	"github.com/vincent99/velocipi/server/hardware/expander"
+	"github.com/vincent99/velocipi/server/hardware/led"
+	"github.com/vincent99/velocipi/server/hardware/lightsensor"
+	"github.com/vincent99/velocipi/server/hardware/tpms"
 )
 
 var (
@@ -72,7 +72,7 @@ func Expander() *expander.Expander {
 			return
 		}
 		// All pins are inputs except the LED pin.
-		inputs := uint16(0xFFFF) &^ (1 << cfg.BitLED)
+		inputs := uint16(0xFFFF) &^ (1 << cfg.Expander.Bits.LED)
 		if err := e.Init(inputs); err != nil {
 			log.Println("hardware: expander init error:", err)
 			return
@@ -86,7 +86,7 @@ func Expander() *expander.Expander {
 func LED() *led.Controller {
 	ledOnce.Do(func() {
 		cfg := config.Load()
-		ledUnit = led.New(cfg.BitLED)
+		ledUnit = led.New(cfg.Expander.Bits.LED)
 	})
 	return ledUnit
 }

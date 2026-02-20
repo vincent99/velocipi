@@ -8,8 +8,8 @@ import (
 	"errors"
 	"math"
 
-	"github.com/vincent99/velocipi-go/config"
-	"github.com/vincent99/velocipi-go/hardware/i2c"
+	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/hardware/i2c"
 )
 
 const (
@@ -73,7 +73,7 @@ type Config struct {
 func NewLightSensor() (*LightSensor, error) {
 	cfg := config.Load()
 	return NewLightSensorWithOptions(&Config{
-		Address: cfg.LightSensorAddress,
+		Address: cfg.LightSensor.Address,
 		Device:  cfg.I2CDevice,
 	})
 }

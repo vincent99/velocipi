@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vincent99/velocipi-go/hardware/lightsensor"
+	"github.com/vincent99/velocipi/server/hardware/lightsensor"
 )
 
 const (

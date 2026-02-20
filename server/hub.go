@@ -20,13 +20,13 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/kb"
 	"github.com/gorilla/websocket"
-	"github.com/vincent99/velocipi-go/config"
-	"github.com/vincent99/velocipi-go/hardware"
-	"github.com/vincent99/velocipi-go/hardware/airsensor"
-	"github.com/vincent99/velocipi-go/hardware/expander"
-	"github.com/vincent99/velocipi-go/hardware/led"
-	"github.com/vincent99/velocipi-go/hardware/oled"
-	"github.com/vincent99/velocipi-go/hardware/tpms"
+	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/hardware"
+	"github.com/vincent99/velocipi/server/hardware/airsensor"
+	"github.com/vincent99/velocipi/server/hardware/expander"
+	"github.com/vincent99/velocipi/server/hardware/led"
+	"github.com/vincent99/velocipi/server/hardware/oled"
+	"github.com/vincent99/velocipi/server/hardware/tpms"
 )
 
 // Outbound message types. Each has a fixed Type field so the JSON consumer
@@ -204,7 +204,7 @@ func (h *Hub) runAirSensorLoop(ctx context.Context) {
 		return
 	}
 
-	ticker := time.NewTicker(h.cfg.AirSensorInterval)
+	ticker := time.NewTicker(h.cfg.AirSensorIntervalDur)
 	defer ticker.Stop()
 
 	var last *airsensor.Reading
@@ -262,7 +262,7 @@ func (h *Hub) runLightSensorLoop(ctx context.Context) {
 		return
 	}
 
-	ticker := time.NewTicker(h.cfg.LightSensorInterval)
+	ticker := time.NewTicker(h.cfg.LightSensorIntervalDur)
 	defer ticker.Stop()
 
 	const threshold = 1.0 // lux change required to trigger a broadcast
@@ -345,7 +345,7 @@ func pngToImage(path string) (image.Image, error) {
 // Chromium, forwarding each to screen clients and the OLED display.
 // Ping messages are sent on a separate ticker.
 func (h *Hub) runScreencastLoop(ctx context.Context) {
-	pingTicker := time.NewTicker(h.cfg.PingInterval)
+	pingTicker := time.NewTicker(h.cfg.PingIntervalDur)
 	defer pingTicker.Stop()
 
 	// Send pings independently of the screencast.
@@ -376,7 +376,7 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 		}
 	}
 
-	minInterval := time.Second / time.Duration(h.cfg.ScreenshotFPS)
+	minInterval := time.Second / time.Duration(h.cfg.Screen.FPS)
 	var lastFrame time.Time
 
 	// splashDone is set to true once the splash screen has finished displaying.
@@ -437,8 +437,8 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 	// Start the screencast — Chromium will now push frames as they change.
 	if err := chromedp.Run(bctx, page.StartScreencast().
 		WithFormat(page.ScreencastFormatPng).
-		WithMaxWidth(int64(h.cfg.OLEDWidth)).
-		WithMaxHeight(int64(h.cfg.OLEDHeight)),
+		WithMaxWidth(int64(h.cfg.OLED.Width)).
+		WithMaxHeight(int64(h.cfg.OLED.Height)),
 	); err != nil {
 		log.Println("screencast: start error:", err)
 		return
@@ -449,7 +449,7 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 	// the live screencast and turn the LED off.
 	go func() {
 		if h.oled != nil {
-			if img, err := pngToImage(h.cfg.SplashImage); err != nil {
+			if img, err := pngToImage(h.cfg.Screen.SplashImage); err != nil {
 				log.Println("splash: load error:", err)
 			} else {
 				h.oled.Blit(img)
@@ -459,7 +459,7 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(h.cfg.SplashDuration):
+		case <-time.After(h.cfg.SplashDurationDur):
 		}
 		splashDone.Store(true)
 		log.Println("splash: done, switching to screencast")
@@ -498,7 +498,7 @@ func (h *Hub) runInputLoop(ctx context.Context) {
 		return
 	}
 
-	cfg := config.Load()
+	cfg := h.cfg
 
 	inner := &knobState{prev: 0b11}
 	outer := &knobState{prev: 0b11}
@@ -689,23 +689,24 @@ func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, inner, outer,
 	// Joystick directions: center bit drives press/release.
 	// keydown fires when center is pressed, for each direction bit currently held.
 	// keyup fires when center is released, for each direction bit that was held.
+	bits := cfg.Expander.Bits
 	dirs := []struct {
 		bit uint
 		key string
 	}{
-		{cfg.BitJoyLeft, kb.ArrowLeft},
-		{cfg.BitJoyRight, kb.ArrowRight},
-		{cfg.BitJoyUp, kb.ArrowUp},
-		{cfg.BitJoyDown, kb.ArrowDown},
+		{bits.JoyLeft, kb.ArrowLeft},
+		{bits.JoyRight, kb.ArrowRight},
+		{bits.JoyUp, kb.ArrowUp},
+		{bits.JoyDown, kb.ArrowDown},
 	}
-	if pressed(cfg.BitJoyCenter) {
+	if pressed(bits.JoyCenter) {
 		for _, d := range dirs {
 			if bit(v, d.bit) {
 				h.dispatchKey(input.KeyDown, d.key)
 			}
 		}
 	}
-	if released(cfg.BitJoyCenter) {
+	if released(bits.JoyCenter) {
 		for _, d := range dirs {
 			if bit(p, d.bit) {
 				h.dispatchKey(input.KeyUp, d.key)
@@ -714,27 +715,27 @@ func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, inner, outer,
 	}
 
 	// Knob center: keydown on press, keyup on release.
-	if pressed(cfg.BitKnobCenter) {
+	if pressed(bits.KnobCenter) {
 		h.dispatchKey(input.KeyDown, kb.Enter)
 	}
-	if released(cfg.BitKnobCenter) {
+	if released(bits.KnobCenter) {
 		h.dispatchKey(input.KeyUp, kb.Enter)
 	}
 
 	// Rotary encoders: update returns -1 (left), 0 (none), or 1 (right).
-	if d := outer.update(uint8(v>>cfg.BitKnobOuter) & 0x3); d == -1 {
+	if d := outer.update(uint8(v>>bits.KnobOuter) & 0x3); d == -1 {
 		h.sendKeyEvent("[")
 	} else if d == 1 {
 		h.sendKeyEvent("]")
 	}
 
-	if d := inner.update(uint8(v>>cfg.BitKnobInner) & 0x3); d == -1 {
+	if d := inner.update(uint8(v>>bits.KnobInner) & 0x3); d == -1 {
 		h.sendKeyEvent(";")
 	} else if d == 1 {
 		h.sendKeyEvent("'")
 	}
 
-	if d := joyKnob.update(uint8(v>>cfg.BitJoyKnob) & 0x3); d == -1 {
+	if d := joyKnob.update(uint8(v>>bits.JoyKnob) & 0x3); d == -1 {
 		h.sendKeyEvent(",")
 	} else if d == 1 {
 		h.sendKeyEvent(".")
