@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import KnobCounters from '../components/panel/KnobCounters.vue'
-import KeyDisplay from '../components/panel/KeyDisplay.vue'
+import KnobCounters from '../../components/panel/KnobCounters.vue'
+import KeyDisplay from '../../components/panel/KeyDisplay.vue'
 
 const appEl = document.getElementById('app')!
 
