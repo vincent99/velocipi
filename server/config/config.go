@@ -87,79 +87,17 @@ type Config struct {
 	OLEDSPIFreq            physic.Frequency `yaml:"-" json:"-"`
 }
 
-var defaults = Config{
-	Addr:         "0.0.0.0:8080",
-	AppURL:       "http://localhost:8080/app/",
-	I2CDevice:    "/dev/i2c-1",
-	PingInterval: "1s",
-
-	Expander: ExpanderConfig{
-		Address:  0x20,
-		Interval: "2ms",
-		Bits: ExpanderBits{
-			KnobCenter: 0,
-			KnobInner:  1,
-			KnobOuter:  3,
-			LED:        6,
-			JoyCenter:  8,
-			JoyDown:    9,
-			JoyUp:      10,
-			JoyRight:   11,
-			JoyLeft:    12,
-			JoyKnob:    13,
-		},
-	},
-
-	AirSensor: SensorConfig{
-		Address:  0x77,
-		Interval: "1s",
-	},
-
-	LightSensor: SensorConfig{
-		Address:  0x48,
-		Interval: "1s",
-	},
-
-	Screen: ScreenConfig{
-		SplashImage:    "ui/public/img/logo.png",
-		SplashDuration: "2s",
-		FPS:            30,
-	},
-
-	OLED: OLEDConfig{
-		SPIPort:  "/dev/spidev0.0",
-		SPISpeed: "2.40MHz",
-		GPIOChip: "gpiochip0",
-		DCPin:    5,
-		ResetPin: 6,
-		Width:    256,
-		Height:   64,
-		Flip:     true,
-	},
-
-	Tires: TireAddresses{
-		FL: []string{"4a:a0:00:00:eb:02", "ae3806cb-ea50-2187-4d1d-10010147721a"},
-		FR: []string{"4a:85:00:00:3a:50", "bc7ac313-2870-3c1f-c2bc-6047a80b58c2"},
-		RL: []string{"4a:88:00:00:72:70", "24237bb2-4496-36b6-a755-64e9de75ac6c"},
-		RR: []string{"4a:85:00:00:d7:38", "99633f0c-d627-5f15-7d5d-f171b5a745e7"},
-	},
-}
-
-// Load reads config.yaml, falling back to defaults for any missing fields.
+// Load reads config.yaml and parses it.
 // String duration/frequency fields are parsed into their typed counterparts.
 func Load() *Config {
-	cfg := defaults
+	var cfg Config
 
 	data, err := os.ReadFile("config.yaml")
 	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Fatal("config: read error: ", err)
-		}
-		log.Println("config: no config.yaml found, using defaults")
-	} else {
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
-			log.Fatal("config: parse error: ", err)
-		}
+		log.Fatal("config: read error: ", err)
+	}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		log.Fatal("config: parse error: ", err)
 	}
 
 	cfg.ExpanderIntervalDur = parseDuration(cfg.Expander.Interval, "expander.interval")
