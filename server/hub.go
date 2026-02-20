@@ -86,6 +86,9 @@ type Hub struct {
 	browserCtx    context.Context
 	cfg           *config.Config
 	oled          *oled.OLED
+
+	lastFrameMu sync.RWMutex
+	lastFrame   []byte // most recent decoded PNG from the screencast
 }
 
 func newHub(browserCtx context.Context, cfg *config.Config, o *oled.OLED) *Hub {
@@ -122,9 +125,20 @@ func (h *Hub) unregister(c *client) {
 
 func (h *Hub) registerScreen(c *client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.screenClients[c] = struct{}{}
 	log.Println("hub: screen client registered, total:", len(h.screenClients))
+	h.mu.Unlock()
+
+	// Send the most recent frame immediately so the client doesn't see a blank screen.
+	h.lastFrameMu.RLock()
+	buf := h.lastFrame
+	h.lastFrameMu.RUnlock()
+	if buf != nil {
+		select {
+		case c.send <- buf:
+		default:
+		}
+	}
 }
 
 func (h *Hub) unregisterScreen(c *client) {
@@ -383,10 +397,6 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 	// Until then, screencast frames are acked but not blitted to the OLED.
 	var splashDone atomic.Bool
 
-	// lastBuf holds the most recent decoded frame for the OLED re-blit ticker.
-	var lastBuf []byte
-	var lastBufMu sync.Mutex
-
 	// Listen for screencast frames pushed by Chromium.
 	chromedp.ListenTarget(bctx, func(ev any) {
 		frame, ok := ev.(*page.EventScreencastFrame)
@@ -412,6 +422,11 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 			return
 		}
 
+		// Always store the latest frame so new clients and post-splash blit have it.
+		h.lastFrameMu.Lock()
+		h.lastFrame = buf
+		h.lastFrameMu.Unlock()
+
 		// Forward to browser clients regardless of splash state.
 		h.broadcastScreen(buf)
 
@@ -419,10 +434,6 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 		if !splashDone.Load() {
 			return
 		}
-
-		lastBufMu.Lock()
-		lastBuf = buf
-		lastBufMu.Unlock()
 
 		if h.oled != nil {
 			if img, err := png.Decode(bytes.NewReader(buf)); err == nil {
@@ -465,9 +476,9 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 		log.Println("splash: done, switching to screencast")
 		// Blit the last received frame immediately so the OLED updates
 		// even if Chromium hasn't sent a new frame since the splash started.
-		lastBufMu.Lock()
-		buf := lastBuf
-		lastBufMu.Unlock()
+		h.lastFrameMu.RLock()
+		buf := h.lastFrame
+		h.lastFrameMu.RUnlock()
 		if buf != nil && h.oled != nil {
 			if img, err := png.Decode(bytes.NewReader(buf)); err == nil {
 				h.oled.Blit(img)
