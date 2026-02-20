@@ -1,6 +1,24 @@
 <script setup lang="ts">
+import { onMounted, onUnmounted } from 'vue'
 import KnobCounters from '../components/app/KnobCounters.vue'
 import KeyDisplay from '../components/app/KeyDisplay.vue'
+
+const appEl = document.getElementById('app')!
+
+function updateZoom() {
+  const zoom = Math.max(1, Math.floor(window.innerWidth / 256))
+  appEl.style.zoom = String(zoom)
+}
+
+onMounted(() => {
+  updateZoom()
+  window.addEventListener('resize', updateZoom)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateZoom)
+  appEl.style.zoom = ''
+})
 </script>
 
 <template>

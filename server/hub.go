@@ -52,6 +52,12 @@ type TpmsMsg struct {
 	Tire *tpms.Tire `json:"tire"`
 }
 
+type KeyMsg struct {
+	Type      string `json:"type"`      // always "key"
+	EventType string `json:"eventType"` // "keydown" or "keyup"
+	Key       string `json:"key"`
+}
+
 type LEDStateMsg struct {
 	Type string `json:"type"`           // always "ledState"
 	Mode string `json:"mode"`           // "off", "on", "blink"
@@ -538,7 +544,33 @@ var jsKeyToKb = map[string]string{
 	"Enter":      kb.Enter,
 }
 
-func (h *Hub) dispatchKey(typ input.KeyType, key string) {
+// logicalToJS maps logical action names (used in WebSocket messages) to the
+// underlying JavaScript key that gets dispatched to the browser.
+var logicalToJS = map[string]string{
+	"up":          "ArrowUp",
+	"down":        "ArrowDown",
+	"left":        "ArrowLeft",
+	"right":       "ArrowRight",
+	"enter":       "Enter",
+	"joy-left":    "[",
+	"joy-right":   "]",
+	"inner-left":  ";",
+	"inner-right": "'",
+	"outer-left":  ",",
+	"outer-right": ".",
+}
+
+// dispatchLogical translates a logical name to a JS key, dispatches it to the
+// browser, and broadcasts the logical name to WebSocket clients.
+func (h *Hub) dispatchLogical(typ input.KeyType, logical string) {
+	jsKey, ok := logicalToJS[logical]
+	if !ok {
+		return
+	}
+	h.dispatchKey(typ, jsKey, logical)
+}
+
+func (h *Hub) dispatchKey(typ input.KeyType, jsKey, broadcastKey string) {
 	h.mu.RLock()
 	bctx := h.browserCtx
 	h.mu.RUnlock()
@@ -546,6 +578,7 @@ func (h *Hub) dispatchKey(typ input.KeyType, key string) {
 		return
 	}
 
+	key := jsKey
 	// Translate JS key name to kb rune constant if needed.
 	if mapped, ok := jsKeyToKb[key]; ok {
 		key = mapped
@@ -576,7 +609,14 @@ func (h *Hub) dispatchKey(typ input.KeyType, key string) {
 		return p.Do(ctx)
 	})); err != nil {
 		log.Println("hub: key dispatch error:", err)
+		return
 	}
+
+	eventType := "keydown"
+	if typ == input.KeyUp {
+		eventType = "keyup"
+	}
+	h.broadcastAll(KeyMsg{Type: "key", EventType: eventType, Key: broadcastKey})
 }
 
 // ledStateMsg builds a LEDStateMsg from a led.State.
@@ -624,33 +664,42 @@ func (h *Hub) handleLEDMsg(state string, rateMs int) {
 // handleKeyMsg is called when a browser client sends a "key" websocket message.
 // It forwards the event into the chromedp browser instance.
 func (h *Hub) handleKeyMsg(eventType, key string) {
-	allowed := map[string]bool{
-		"ArrowLeft": true, "ArrowRight": true, "ArrowUp": true, "ArrowDown": true,
-		"Enter": true, "[": true, "]": true, ";": true, "'": true, ",": true, ".": true,
-	}
-	if !allowed[key] {
+	jsKey, ok := logicalToJS[key]
+	if !ok {
 		return
 	}
 	switch eventType {
 	case "keydown":
-		h.dispatchKey(input.KeyDown, key)
+		h.dispatchKey(input.KeyDown, jsKey, key)
 	case "keyup":
-		h.dispatchKey(input.KeyUp, key)
+		h.dispatchKey(input.KeyUp, jsKey, key)
 	case "keypress":
-		h.sendKeyEvent(key)
+		h.sendKeyEvent(jsKey, key)
 	}
 }
 
-func (h *Hub) sendKeyEvent(key string) {
+// sendLogical translates a logical name to a JS key, sends a KeyEvent to the
+// browser, and broadcasts the logical name to WebSocket clients.
+func (h *Hub) sendLogical(logical string) {
+	jsKey, ok := logicalToJS[logical]
+	if !ok {
+		return
+	}
+	h.sendKeyEvent(jsKey, logical)
+}
+
+func (h *Hub) sendKeyEvent(jsKey, broadcastKey string) {
 	h.mu.RLock()
 	bctx := h.browserCtx
 	h.mu.RUnlock()
 	if bctx == nil {
 		return
 	}
-	if err := chromedp.Run(bctx, chromedp.KeyEvent(key)); err != nil {
+	if err := chromedp.Run(bctx, chromedp.KeyEvent(jsKey)); err != nil {
 		log.Println("hub: key event error:", err)
+		return
 	}
+	h.broadcastAll(KeyMsg{Type: "key", EventType: "keydown", Key: broadcastKey})
 }
 
 // quadTable maps (prev<<2)|cur to a step direction for all 16 possible
@@ -702,54 +751,54 @@ func (h *Hub) handleChange(ch expander.Change, cfg *config.Config, inner, outer,
 	// keyup fires when center is released, for each direction bit that was held.
 	bits := cfg.Expander.Bits
 	dirs := []struct {
-		bit uint
-		key string
+		bit     uint
+		logical string
 	}{
-		{bits.JoyLeft, kb.ArrowLeft},
-		{bits.JoyRight, kb.ArrowRight},
-		{bits.JoyUp, kb.ArrowUp},
-		{bits.JoyDown, kb.ArrowDown},
+		{bits.JoyLeft, "left"},
+		{bits.JoyRight, "right"},
+		{bits.JoyUp, "up"},
+		{bits.JoyDown, "down"},
 	}
 	if pressed(bits.JoyCenter) {
 		for _, d := range dirs {
 			if bit(v, d.bit) {
-				h.dispatchKey(input.KeyDown, d.key)
+				h.dispatchLogical(input.KeyDown, d.logical)
 			}
 		}
 	}
 	if released(bits.JoyCenter) {
 		for _, d := range dirs {
 			if bit(p, d.bit) {
-				h.dispatchKey(input.KeyUp, d.key)
+				h.dispatchLogical(input.KeyUp, d.logical)
 			}
 		}
 	}
 
 	// Knob center: keydown on press, keyup on release.
 	if pressed(bits.KnobCenter) {
-		h.dispatchKey(input.KeyDown, kb.Enter)
+		h.dispatchLogical(input.KeyDown, "enter")
 	}
 	if released(bits.KnobCenter) {
-		h.dispatchKey(input.KeyUp, kb.Enter)
+		h.dispatchLogical(input.KeyUp, "enter")
 	}
 
 	// Rotary encoders: update returns -1 (left), 0 (none), or 1 (right).
 	if d := outer.update(uint8(v>>bits.KnobOuter) & 0x3); d == -1 {
-		h.sendKeyEvent("[")
+		h.sendLogical("outer-left")
 	} else if d == 1 {
-		h.sendKeyEvent("]")
+		h.sendLogical("outer-right")
 	}
 
 	if d := inner.update(uint8(v>>bits.KnobInner) & 0x3); d == -1 {
-		h.sendKeyEvent(";")
+		h.sendLogical("inner-left")
 	} else if d == 1 {
-		h.sendKeyEvent("'")
+		h.sendLogical("inner-right")
 	}
 
 	if d := joyKnob.update(uint8(v>>bits.JoyKnob) & 0x3); d == -1 {
-		h.sendKeyEvent(",")
+		h.sendLogical("joy-left")
 	} else if d == 1 {
-		h.sendKeyEvent(".")
+		h.sendLogical("joy-right")
 	}
 }
 

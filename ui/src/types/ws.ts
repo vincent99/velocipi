@@ -59,7 +59,19 @@ export interface LEDStateMsg {
   rate?: number
 }
 
-export type InboundWsMsg = PingMsg | AirReadingMsg | LuxReadingMsg | TpmsMsg | LEDStateMsg
+export type LogicalKey =
+  | 'up' | 'down' | 'left' | 'right' | 'enter'
+  | 'joy-left' | 'joy-right'
+  | 'inner-left' | 'inner-right'
+  | 'outer-left' | 'outer-right'
+
+export interface KeyEventMsg {
+  type: 'key'
+  eventType: 'keydown' | 'keyup'
+  key: LogicalKey
+}
+
+export type InboundWsMsg = PingMsg | AirReadingMsg | LuxReadingMsg | TpmsMsg | LEDStateMsg | KeyEventMsg
 
 // Outbound messages (client → server, sent on /ws)
 
@@ -70,7 +82,7 @@ export interface ReloadMsg {
 export interface KeyMsg {
   type: 'key'
   eventType: 'keydown' | 'keyup'
-  key: string
+  key: LogicalKey
 }
 
 export interface LEDControlMsg {

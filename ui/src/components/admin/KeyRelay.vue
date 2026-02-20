@@ -1,21 +1,33 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import type { KeyMsg } from '../../types/ws'
+import type { KeyMsg, LogicalKey } from '../../types/ws'
 
 const emit = defineEmits<{ key: [msg: KeyMsg] }>()
 
-const RELAY_KEYS = new Set([
-  'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
-  'Enter', '[', ']', ';', "'", ',', '.',
-])
+const jsToLogical: Record<string, LogicalKey> = {
+  'ArrowLeft':  'left',
+  'ArrowRight': 'right',
+  'ArrowUp':    'up',
+  'ArrowDown':  'down',
+  'Enter':      'enter',
+  '[':          'joy-left',
+  ']':          'joy-right',
+  ';':          'inner-left',
+  "'":          'inner-right',
+  ',':          'outer-left',
+  '.':          'outer-right',
+}
+
 const KNOB_KEYS = new Set(['[', ']', ';', "'", ',', '.'])
 
-function relayKey(eventType: 'keydown' | 'keyup', key: string) {
+function relayKey(eventType: 'keydown' | 'keyup', jsKey: string) {
+  const key = jsToLogical[jsKey]
+  if (!key) return
   emit('key', { type: 'key', eventType, key })
 }
 
 function onKeyDown(e: KeyboardEvent) {
-  if (!RELAY_KEYS.has(e.key)) return
+  if (!(e.key in jsToLogical)) return
   e.preventDefault()
   if (KNOB_KEYS.has(e.key)) {
     relayKey('keydown', e.key)
@@ -26,7 +38,7 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 function onKeyUp(e: KeyboardEvent) {
-  if (RELAY_KEYS.has(e.key) && !KNOB_KEYS.has(e.key)) {
+  if ((e.key in jsToLogical) && !KNOB_KEYS.has(e.key)) {
     e.preventDefault()
     relayKey('keyup', e.key)
   }
