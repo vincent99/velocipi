@@ -7,7 +7,7 @@ import AirSensor from '../components/remote/AirSensor.vue'
 import TpmsPanel from '../components/remote/TpmsPanel.vue'
 import LedStatus from '../components/remote/LedStatus.vue'
 import KeyRelay from '../components/remote/KeyRelay.vue'
-import type { AirReading, Tire, LEDStateMsg, InboundWsMsg, KeyMsg } from '../types/ws'
+import type { AirReading, Tire, LEDStateMsg, InboundWsMsg } from '../types/ws'
 
 const { send, onMessage, onClose } = useWebSocket()
 const { frameUrl } = useScreenSocket()
@@ -41,10 +41,6 @@ onMessage((e: MessageEvent) => {
   }
 })
 onClose(() => { lastPing.value = 'Disconnected' })
-
-function onKey(msg: KeyMsg) {
-  send(msg)
-}
 </script>
 
 <template>
@@ -57,7 +53,7 @@ function onKey(msg: KeyMsg) {
     <LedStatus :state="ledState" />
     <TpmsPanel :tires="tires" />
     <ScreenViewer :frame-url="frameUrl" />
-    <KeyRelay @key="onKey" />
+    <KeyRelay />
   </div>
 </template>
 

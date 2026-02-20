@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import KnobCounters from '../../components/panel/KnobCounters.vue'
-import KeyDisplay from '../../components/panel/KeyDisplay.vue'
+import { RouterView } from 'vue-router'
+import KeyRelay from '../components/remote/KeyRelay.vue'
 
 const appEl = document.getElementById('app')!
 
@@ -24,9 +24,9 @@ onUnmounted(() => {
 <template>
   <div class="panel-root">
     <h1>Velocipi</h1>
-    <KnobCounters />
-    <KeyDisplay />
+    <RouterView />
   </div>
+  <KeyRelay />
 </template>
 
 <style>

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import type { KeyMsg, LogicalKey } from '../../types/ws'
+import type { LogicalKey } from '../../types/ws'
+import { useWebSocket } from '../../composables/useWebSocket'
 
-const emit = defineEmits<{ key: [msg: KeyMsg] }>()
+const { send } = useWebSocket()
 
 const jsToLogical: Record<string, LogicalKey> = {
   'ArrowLeft':  'left',
@@ -23,7 +24,7 @@ const KNOB_KEYS = new Set(['[', ']', ';', "'", ',', '.'])
 function relayKey(eventType: 'keydown' | 'keyup', jsKey: string) {
   const key = jsToLogical[jsKey]
   if (!key) return
-  emit('key', { type: 'key', eventType, key })
+  send({ type: 'key', eventType, key })
 }
 
 function onKeyDown(e: KeyboardEvent) {
