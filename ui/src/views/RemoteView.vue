@@ -2,11 +2,11 @@
 import { ref, reactive } from 'vue'
 import { useWebSocket } from '../composables/useWebSocket'
 import { useScreenSocket } from '../composables/useScreenSocket'
-import ScreenViewer from '../components/admin/ScreenViewer.vue'
-import AirSensor from '../components/admin/AirSensor.vue'
-import TpmsPanel from '../components/admin/TpmsPanel.vue'
-import LedStatus from '../components/admin/LedStatus.vue'
-import KeyRelay from '../components/admin/KeyRelay.vue'
+import ScreenViewer from '../components/remote/ScreenViewer.vue'
+import AirSensor from '../components/remote/AirSensor.vue'
+import TpmsPanel from '../components/remote/TpmsPanel.vue'
+import LedStatus from '../components/remote/LedStatus.vue'
+import KeyRelay from '../components/remote/KeyRelay.vue'
 import type { AirReading, Tire, LEDStateMsg, InboundWsMsg, KeyMsg } from '../types/ws'
 
 const { send, onMessage, onClose } = useWebSocket()
@@ -62,7 +62,7 @@ function onKey(msg: KeyMsg) {
 </template>
 
 <style scoped>
-.admin {
+.remote {
   font-family: sans-serif;
   margin: 1rem;
   background: #111;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
-import KnobCounters from '../components/app/KnobCounters.vue'
-import KeyDisplay from '../components/app/KeyDisplay.vue'
+import KnobCounters from '../components/panel/KnobCounters.vue'
+import KeyDisplay from '../components/panel/KeyDisplay.vue'
 
 const appEl = document.getElementById('app')!
 
@@ -22,7 +22,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-root">
+  <div class="panel-root">
     <h1>Velocipi</h1>
     <KnobCounters />
     <KeyDisplay />
@@ -30,14 +30,14 @@ onUnmounted(() => {
 </template>
 
 <style>
-/* Global reset for the OLED app page — must not be scoped */
+/* Global reset for the OLED panel page — must not be scoped */
 html, body {
   margin: 0;
   padding: 0;
   overflow: hidden;
   background: #000;
 }
-.app-root * {
+.panel-root * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -45,7 +45,7 @@ html, body {
 </style>
 
 <style scoped>
-.app-root {
+.panel-root {
   -webkit-font-smoothing: none;
   background: #111;
   color: white;
