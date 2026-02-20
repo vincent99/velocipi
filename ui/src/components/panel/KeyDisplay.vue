@@ -1,26 +1,28 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted } from 'vue';
 
 const KEY_LABELS: Record<string, string> = {
-  ArrowLeft: "◀",
-  ArrowRight: "▶",
-  ArrowUp: "▲",
-  ArrowDown: "▼",
-  Enter: "●",
-  "[": "[",
-  "]": "]",
-  ";": "(",
-  "'": ")",
-  ",": "<",
-  ".": ">",
+  ArrowLeft: '◀',
+  ArrowRight: '▶',
+  ArrowUp: '▲',
+  ArrowDown: '▼',
+  Enter: '●',
+  '[': '[',
+  ']': ']',
+  ';': '(',
+  "'": ')',
+  ',': '<',
+  '.': '>',
 };
 
-const MOMENTARY = new Set(["[", "]", ";", "'", ",", "."]);
+const MOMENTARY = new Set(['[', ']', ';', "'", ',', '.']);
 const timers: Record<string, ReturnType<typeof setTimeout>> = {};
 const keyState = ref<Record<string, boolean>>({});
 
 function onKeyDown(e: KeyboardEvent) {
-  if (!(e.key in KEY_LABELS)) return;
+  if (!(e.key in KEY_LABELS)) {
+    return;
+  }
   keyState.value = { ...keyState.value, [e.key]: true };
   if (MOMENTARY.has(e.key)) {
     clearTimeout(timers[e.key]);
@@ -37,12 +39,12 @@ function onKeyUp(e: KeyboardEvent) {
 }
 
 onMounted(() => {
-  document.addEventListener("keydown", onKeyDown);
-  document.addEventListener("keyup", onKeyUp);
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
 });
 onUnmounted(() => {
-  document.removeEventListener("keydown", onKeyDown);
-  document.removeEventListener("keyup", onKeyUp);
+  document.removeEventListener('keydown', onKeyDown);
+  document.removeEventListener('keyup', onKeyUp);
 });
 </script>
 

@@ -15,7 +15,17 @@ go build ./...     # build all packages including hardware modules
 # Run a specific test
 go test ./hardware/expander/...
 go test ./...
+
+# UI formatting / linting (run from ui/)
+yarn format        # prettier --write src
+yarn lint          # eslint src
+
+# Go formatting
+gofmt -w ./server/
 ```
+
+After editing any file under `ui/src/`, run `yarn format` from `ui/` to auto-format.
+After editing any `.go` file, run `gofmt -w ./server/` from the repo root.
 
 `air` watches `*.go` files and rebuilds into `tmp/velocipi-go` on change. It sends SIGINT before SIGKILL so the app can shut down gracefully.
 

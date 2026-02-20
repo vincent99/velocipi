@@ -24,8 +24,8 @@ type TireAddresses struct {
 
 type ExpanderBits struct {
 	KnobCenter uint `yaml:"knobCenter" json:"knobCenter"`
-	KnobInner  uint `yaml:"knobInner"  json:"knobInner"`  // and bit+1
-	KnobOuter  uint `yaml:"knobOuter"  json:"knobOuter"`  // and bit+1
+	KnobInner  uint `yaml:"knobInner"  json:"knobInner"` // and bit+1
+	KnobOuter  uint `yaml:"knobOuter"  json:"knobOuter"` // and bit+1
 	LED        uint `yaml:"led"        json:"led"`
 	JoyCenter  uint `yaml:"joyCenter"  json:"joyCenter"`
 	JoyDown    uint `yaml:"joyDown"    json:"joyDown"`
@@ -65,9 +65,9 @@ type OLEDConfig struct {
 
 // Config holds all runtime configuration.
 type Config struct {
-	Addr        string `yaml:"addr"        json:"addr"`
-	AppURL      string `yaml:"appUrl"      json:"appUrl"`
-	I2CDevice   string `yaml:"i2cDevice"   json:"i2cDevice"`
+	Addr         string `yaml:"addr"        json:"addr"`
+	AppURL       string `yaml:"appUrl"      json:"appUrl"`
+	I2CDevice    string `yaml:"i2cDevice"   json:"i2cDevice"`
 	PingInterval string `yaml:"pingInterval" json:"pingInterval"`
 
 	AirSensor   SensorConfig   `yaml:"airSensor"   json:"airSensor"`
@@ -112,7 +112,6 @@ func Load() *Config {
 
 	return &cfg
 }
-
 
 func parseDuration(s, field string) time.Duration {
 	d, err := time.ParseDuration(s)

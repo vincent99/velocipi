@@ -1,3 +1,3 @@
 export interface Config {
-  tail: string
+  tail: string;
 }

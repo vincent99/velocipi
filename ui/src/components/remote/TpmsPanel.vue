@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import type { Tire } from '../../types/ws'
-import TireCard from './TireCard.vue'
+import type { Tire } from '../../types/ws';
+import TireCard from './TireCard.vue';
 
 defineProps<{
-  tires: Map<string, Tire>
-}>()
+  tires: Map<string, Tire>;
+}>();
 
-const POSITIONS = ['FL', 'FR', 'RL', 'RR']
+const POSITIONS = ['FL', 'FR', 'RL', 'RR'];
 </script>
 
 <template>

@@ -450,7 +450,6 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 		}
 	})
 
-
 	// Start the screencast — Chromium will now push frames as they change.
 	if err := chromedp.Run(bctx, page.StartScreencast().
 		WithFormat(page.ScreencastFormatPng).

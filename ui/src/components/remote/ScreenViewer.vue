@@ -1,35 +1,40 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue';
 
-defineProps<{ frameUrl: string | null }>()
+defineProps<{ frameUrl: string | null }>();
 
 // frame.png is 2409x704. The transparent window is:
 // x: 621–1803 (width 1182), y: 167–480 (height 313).
-const SCREENSHOT_W = 256
-const FRAME_W = 2409
-const WINDOW_W = 1182
-const FRAME_MIN_W = Math.round((SCREENSHOT_W * FRAME_W) / WINDOW_W)
+const SCREENSHOT_W = 256;
+const FRAME_W = 2409;
+const WINDOW_W = 1182;
+const FRAME_MIN_W = Math.round((SCREENSHOT_W * FRAME_W) / WINDOW_W);
 
-const frameWidth = ref(0)
+const frameWidth = ref(0);
 
 function resize() {
-  const available = document.documentElement.clientWidth - 32
-  const scale = Math.max(1, Math.floor(available / FRAME_MIN_W))
-  frameWidth.value = scale * FRAME_MIN_W
+  const available = document.documentElement.clientWidth - 32;
+  const scale = Math.max(1, Math.floor(available / FRAME_MIN_W));
+  frameWidth.value = scale * FRAME_MIN_W;
 }
 
 onMounted(() => {
-  resize()
-  window.addEventListener('resize', resize)
-})
-onUnmounted(() => window.removeEventListener('resize', resize))
+  resize();
+  window.addEventListener('resize', resize);
+});
+onUnmounted(() => window.removeEventListener('resize', resize));
 </script>
 
 <template>
   <div class="frame-wrap" :style="{ width: frameWidth + 'px' }">
     <img class="frame-img" src="/img/frame.png" alt="frame" />
     <div class="screen-window">
-      <img v-if="frameUrl" class="screenshot" :src="frameUrl" alt="screenshot" />
+      <img
+        v-if="frameUrl"
+        class="screenshot"
+        :src="frameUrl"
+        alt="screenshot"
+      />
     </div>
   </div>
 </template>

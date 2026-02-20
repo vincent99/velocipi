@@ -1,19 +1,21 @@
 <script setup lang="ts">
-import type { Tire } from '../../types/ws'
+import type { Tire } from '../../types/ws';
 
 defineProps<{
-  position: string
-  tire: Tire | null
-}>()
+  position: string;
+  tire: Tire | null;
+}>();
 
 function fmt(n: number | null | undefined, decimals: number): string {
-  return n == null ? '--' : n.toFixed(decimals)
+  return n == null ? '--' : n.toFixed(decimals);
 }
 </script>
 
 <template>
   <div class="tire-card" :class="{ stale: !tire }">
-    <div class="tire-position">{{ position }}</div>
+    <div class="tire-position">
+      {{ position }}
+    </div>
     <div
       class="tire-psi"
       :class="{
@@ -24,7 +26,11 @@ function fmt(n: number | null | undefined, decimals: number): string {
       {{ tire ? fmt(tire.pressurePsi, 1) + ' PSI' : '--' }}
     </div>
     <div class="tire-meta">
-      {{ tire ? fmt(tire.tempF, 0) + '°F · ' + fmt(tire.battery, 0) + '% batt' : '-- · --' }}
+      {{
+        tire
+          ? fmt(tire.tempF, 0) + '°F · ' + fmt(tire.battery, 0) + '% batt'
+          : '-- · --'
+      }}
     </div>
     <div class="tire-state">
       {{ tire ? tire.inflation + ' · ' + tire.rotation : '--' }}

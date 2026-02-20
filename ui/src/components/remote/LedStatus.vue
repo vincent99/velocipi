@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import type { LEDStateMsg } from '../../types/ws'
+import type { LEDStateMsg } from '../../types/ws';
 
 defineProps<{
-  state: LEDStateMsg | null
-}>()
+  state: LEDStateMsg | null;
+}>();
 
 function ledLabel(state: LEDStateMsg | null): string {
-  if (!state) return 'LED: --'
-  if (state.mode === 'on') return 'LED: on'
-  if (state.mode === 'blink') return `LED: blink (${state.rate ?? 500}ms)`
-  return 'LED: off'
+  if (!state) {
+    return 'LED: --';
+  }
+  if (state.mode === 'on') {
+    return 'LED: on';
+  }
+  if (state.mode === 'blink') {
+    return `LED: blink (${state.rate ?? 500}ms)`;
+  }
+  return 'LED: off';
 }
 </script>
 
@@ -18,8 +24,12 @@ function ledLabel(state: LEDStateMsg | null): string {
     <div
       class="led-dot"
       :class="state?.mode"
-      :style="state?.mode === 'blink' ? { '--blink-rate': ((state.rate ?? 500) * 2) + 'ms' } : {}"
-    ></div>
+      :style="
+        state?.mode === 'blink'
+          ? { '--blink-rate': (state.rate ?? 500) * 2 + 'ms' }
+          : {}
+      "
+    />
     <span class="led-label">{{ ledLabel(state) }}</span>
   </div>
 </template>
@@ -50,7 +60,10 @@ function ledLabel(state: LEDStateMsg | null): string {
   animation: led-blink var(--blink-rate, 500ms) step-start infinite;
 }
 @keyframes led-blink {
-  50% { background: #333; border-color: #555; }
+  50% {
+    background: #333;
+    border-color: #555;
+  }
 }
 .led-label {
   color: #aaa;

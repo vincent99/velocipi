@@ -1,24 +1,24 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
-import { RouterView } from 'vue-router'
-import KeyRelay from '../components/remote/KeyRelay.vue'
+import { onMounted, onUnmounted } from 'vue';
+import { RouterView } from 'vue-router';
+import KeyRelay from '../components/remote/KeyRelay.vue';
 
-const appEl = document.getElementById('app')!
+const appEl = document.getElementById('app')!;
 
 function updateZoom() {
-  const zoom = Math.max(1, Math.floor(window.innerWidth / 256))
-  appEl.style.zoom = String(zoom)
+  const zoom = Math.max(1, Math.floor(window.innerWidth / 256));
+  appEl.style.zoom = String(zoom);
 }
 
 onMounted(() => {
-  updateZoom()
-  window.addEventListener('resize', updateZoom)
-})
+  updateZoom();
+  window.addEventListener('resize', updateZoom);
+});
 
 onUnmounted(() => {
-  window.removeEventListener('resize', updateZoom)
-  appEl.style.zoom = ''
-})
+  window.removeEventListener('resize', updateZoom);
+  appEl.style.zoom = '';
+});
 </script>
 
 <template>
@@ -31,7 +31,8 @@ onUnmounted(() => {
 
 <style>
 /* Global reset for the OLED panel page — must not be scoped */
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
   overflow: hidden;
