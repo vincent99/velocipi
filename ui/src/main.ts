@@ -1,12 +1,8 @@
 import { createApp } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
-import { library } from '@fortawesome/fontawesome-svg-core';
-import { fas } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome';
+import '@flaticon/flaticon-uicons/css/solid/rounded.css';
 import App from './App.vue';
-
-library.add(fas);
 
 const modules = import.meta.glob('./routes/**/*.vue');
 
@@ -26,6 +22,8 @@ const routes: RouteRecordRaw[] = [];
 
 if (topLevel['index']) {
   routes.push({ path: '/', component: topLevel['index'] });
+} else {
+  routes.push({ path: '/', redirect: '/remote/home' });
 }
 
 for (const [name, component] of Object.entries(topLevel)) {
@@ -47,6 +45,10 @@ for (const [name, component] of Object.entries(topLevel)) {
   if (name === 'panel') {
     children.unshift({ path: '', redirect: '/panel/home' });
   }
+  if (name === 'remote') {
+    children.unshift({ path: '', redirect: '/remote/home' });
+  }
+
   routes.push({ path: '/' + name, component, children });
 }
 
@@ -55,4 +57,6 @@ const router = createRouter({
   routes,
 });
 
-createApp(App).use(router).component('FontAwesomeIcon', FontAwesomeIcon).mount('#app');
+createApp(App)
+  .use(router)
+  .mount('#app');

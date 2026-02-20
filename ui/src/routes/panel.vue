@@ -30,6 +30,19 @@ onUnmounted(() => {
 
 <style>
 /* Global reset for the OLED panel page — must not be scoped */
+@font-face {
+  font-family: 'Terminus';
+  src: url('/fonts/TerminusTTF-4.49.3.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Terminus';
+  src: url('/fonts/TerminusTTF-Bold-4.49.3.ttf') format('truetype');
+  font-weight: bold;
+  font-style: normal;
+}
+
 html,
 body {
   margin: 0;
@@ -47,12 +60,14 @@ body {
 <style scoped>
 .panel-root {
   -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: grayscale;
+  font-smooth: never;
   background: #111;
   color: white;
   overflow: hidden;
   width: 256px;
   height: 64px;
-  font-family: sans-serif;
+  font-family: 'Terminus', monospace;
   position: relative;
 }
 h1 {

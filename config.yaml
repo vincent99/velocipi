@@ -59,7 +59,7 @@ ui:
   tail: "N711ME"
   navMenu:
     hideDelay: 2000
-    cellWidth: 60
+    cellWidth: 64
   keyMap:
     up: ArrowUp
     down: ArrowDown

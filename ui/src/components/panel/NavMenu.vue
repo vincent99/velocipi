@@ -15,7 +15,7 @@ const containerRef = ref<HTMLElement | null>(null);
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
 const hideDelay = computed(() => config.value?.navMenu.hideDelay ?? 2000);
-const cellWidth = computed(() => config.value?.navMenu.cellWidth ?? 60);
+const cellWidth = computed(() => config.value?.navMenu.cellWidth ?? 64);
 const containerWidth = computed(() => containerRef.value?.offsetWidth ?? 256);
 
 const offset = computed(() => {
@@ -98,10 +98,7 @@ onUnmounted(() => {
             :style="{ width: `${cellWidth}px` }"
           >
             <span class="nav-icon">
-              <FontAwesomeIcon
-                v-if="p.icon.length > 1"
-                :icon="['fas', p.icon]"
-              />
+              <i v-if="p.icon.length > 1" :class="`fi-sr-${p.icon}`" />
               <template v-else>{{ p.icon }}</template>
             </span>
             <span class="nav-name">{{ p.name }}</span>
@@ -164,12 +161,14 @@ onUnmounted(() => {
 }
 
 .nav-icon {
-  font-size: 12px;
+  font-size: 16px;
   line-height: 1;
+  margin-top: 3px;
 }
 
 .nav-name {
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1;
+  margin-top: -6px;
 }
 </style>
