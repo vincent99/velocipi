@@ -1,5 +1,5 @@
 addr: "0.0.0.0:8080"
-appUrl: "http://localhost:5173/app/"
+appUrl: "http://localhost:8081/app/"
 i2cDevice: "/dev/i2c-1"
 pingInterval: "1s"
 
