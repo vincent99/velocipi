@@ -22,12 +22,73 @@ export interface KeyMapConfig {
   outerRight: string;
 }
 
+// UIConfig — subset served by GET /config (no ?full=true)
 export interface Config {
   tail: string;
   headerColor: string;
   panel: PanelConfig;
   navMenu: NavMenuConfig;
   keyMap: KeyMapConfig;
+}
+
+// Full config — served by GET /config?full=true and accepted by POST /config
+export interface SensorConfig {
+  address: number;
+  interval: string;
+}
+
+export interface ExpanderBits {
+  knobCenter: number;
+  knobInner: number;
+  knobOuter: number;
+  led: number;
+  joyCenter: number;
+  joyDown: number;
+  joyUp: number;
+  joyRight: number;
+  joyLeft: number;
+  joyKnob: number;
+}
+
+export interface ExpanderConfig {
+  address: number;
+  interval: string;
+  bits: ExpanderBits;
+}
+
+export interface OLEDConfig {
+  spiPort: string;
+  spiSpeed: string;
+  gpioChip: string;
+  dcPin: number;
+  resetPin: number;
+  flip: boolean;
+}
+
+export interface ScreenConfig {
+  splashImage: string;
+  splashDuration: string;
+  fps: number;
+}
+
+export interface TireAddresses {
+  nose: string[];
+  left: string[];
+  right: string[];
+}
+
+export interface FullConfig {
+  addr: string;
+  appUrl: string;
+  i2cDevice: string;
+  pingInterval: string;
+  airSensor: SensorConfig;
+  expander: ExpanderConfig;
+  lightSensor: SensorConfig;
+  oled: OLEDConfig;
+  screen: ScreenConfig;
+  tires: TireAddresses;
+  ui: Config;
 }
 
 export interface PanelMeta {

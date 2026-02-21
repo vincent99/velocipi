@@ -106,7 +106,7 @@ function pointerup(key: LogicalKey) {
     <!-- Center: screen -->
     <div class="vp-center">
       <div class="screen-box">
-        <ScreenViewer />
+        <ScreenViewer :show-led="false" />
       </div>
     </div>
 
@@ -158,26 +158,34 @@ function pointerup(key: LogicalKey) {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 2px solid #555;
-  background: transparent;
-  transition: background 0.15s, box-shadow 0.15s;
+  background: radial-gradient(circle at 35% 35%, #555, #333 50%, #1a1a1a 100%);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
 
   &.on {
-    background: #e53e3e;
-    box-shadow: 0 0 6px #e53e3e;
-    border-color: #e53e3e;
+    background: radial-gradient(circle at 35% 35%, #ff9999, #e53e3e 50%, #a00 100%);
+    box-shadow:
+      0 0 3px 1px rgba(229, 62, 62, 0.9),
+      0 0 8px 3px rgba(229, 62, 62, 0.6),
+      0 0 18px 6px rgba(229, 62, 62, 0.25);
   }
 
   &.blink {
-    background: #e53e3e;
-    box-shadow: 0 0 6px #e53e3e;
-    border-color: #e53e3e;
+    background: radial-gradient(circle at 35% 35%, #ff9999, #e53e3e 50%, #a00 100%);
+    box-shadow:
+      0 0 3px 1px rgba(229, 62, 62, 0.9),
+      0 0 8px 3px rgba(229, 62, 62, 0.6),
+      0 0 18px 6px rgba(229, 62, 62, 0.25);
     animation: led-blink 500ms step-start infinite;
   }
 }
 
 @keyframes led-blink {
-  50% { background: transparent; box-shadow: none; }
+  50% {
+    background: radial-gradient(circle at 35% 35%, #553333, #3a1010 50%, #200 100%);
+    box-shadow:
+      0 0 2px 1px rgba(100, 20, 20, 0.4),
+      0 0 4px 2px rgba(100, 20, 20, 0.2);
+  }
 }
 
 .joy-grid {

@@ -89,13 +89,12 @@ function navigate(path: string) {
   color: #fff;
   position: relative;
   box-sizing: border-box;
-  height: calc(64px + 2px + 1rem); // panel height + border + vertical padding
+  height: calc(64px + 1rem); // panel height + vertical padding
 }
 
 .header-screen {
   flex-shrink: 0;
   line-height: 0; // prevent extra space below img
-  border: 1px solid white;
 }
 
 .header-tail {

@@ -16,6 +16,7 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/oled"
+	"gopkg.in/yaml.v3"
 )
 
 var upgrader = websocket.Upgrader{
@@ -180,13 +181,43 @@ func main() {
 	mux.HandleFunc("/ws", wsHandler)
 	mux.HandleFunc("/screen", screenHandler)
 	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
-		data, err := json.Marshal(cfg.UI)
-		if err != nil {
-			http.Error(w, "config marshal error", http.StatusInternalServerError)
-			return
+		switch r.Method {
+		case http.MethodGet:
+			var (
+				data []byte
+				err  error
+			)
+			if r.URL.Query().Get("full") == "true" {
+				data, err = json.Marshal(cfg)
+			} else {
+				data, err = json.Marshal(cfg.UI)
+			}
+			if err != nil {
+				http.Error(w, "config marshal error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(data)
+		case http.MethodPost:
+			var updated config.Config
+			if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
+				http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			yamlData, err := yaml.Marshal(&updated)
+			if err != nil {
+				http.Error(w, "yaml marshal error: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if err := os.WriteFile("config.yaml", yamlData, 0644); err != nil {
+				http.Error(w, "write error: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			*cfg = updated
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
 	})
 	mux.Handle("/", spaHandler("ui/dist"))
 	handler := corsMiddleware(mux)
