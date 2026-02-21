@@ -14,7 +14,11 @@ defineProps<{
     </svg>
     <div v-if="message" class="red-x-message">
       <span>{{ message }}</span>
-      <button v-if="reloadButton" class="reload-btn" @click="() => location.reload()">
+      <button
+        v-if="reloadButton"
+        class="reload-btn"
+        @click="() => location.reload()"
+      >
         <i class="fi-sr-rotate-right" />
       </button>
     </div>

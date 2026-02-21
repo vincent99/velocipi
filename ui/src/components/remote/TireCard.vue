@@ -64,8 +64,12 @@ function fmt(n: number | null | undefined, decimals: number): string {
   color: #eee;
   line-height: 1;
 
-  &.warn { color: #f0a500; }
-  &.flat { color: #e05555; }
+  &.warn {
+    color: #f0a500;
+  }
+  &.flat {
+    color: #e05555;
+  }
 }
 .tire-meta {
   font-size: 0.75rem;

@@ -17,6 +17,12 @@ export default defineConfig(
       'vue/multi-word-component-names': 'off',
       'vue/valid-template-root': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
+      // Defer HTML formatting to prettier
+      'vue/max-attributes-per-line': 'off',
+      'vue/singleline-html-element-content-newline': 'off',
+      'vue/html-self-closing': 'off',
+      'vue/html-indent': 'off',
+      'vue/html-closing-bracket-newline': 'off',
       '@typescript-eslint/no-unused-vars': [
         'error',
         {

@@ -16,7 +16,9 @@ let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
 const hideDelay = computed(() => config.value?.navMenu.hideDelay ?? 2000);
 const cellWidth = computed(() => config.value?.navMenu.cellWidth ?? 64);
-const containerWidth = computed(() => containerRef.value?.offsetWidth ?? config.value?.panel.width ?? 256);
+const containerWidth = computed(
+  () => containerRef.value?.offsetWidth ?? config.value?.panel.width ?? 256
+);
 
 const offset = computed(() => {
   const center =

@@ -53,7 +53,6 @@ type TpmsMsg struct {
 	Tire *tpms.Tire `json:"tire"`
 }
 
-
 type LEDStateMsg struct {
 	Type string `json:"type"`           // always "ledState"
 	Mode string `json:"mode"`           // "off", "on", "blink"

@@ -8,7 +8,17 @@ defineProps<{ title: string; columns?: number }>();
       <span class="settings-group-title">{{ title }}</span>
       <slot name="header-action" />
     </div>
-    <div :style="columns ? { display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '0 0.5rem' } : {}">
+    <div
+      :style="
+        columns
+          ? {
+              display: 'grid',
+              gridTemplateColumns: `repeat(${columns}, 1fr)`,
+              gap: '0 0.5rem',
+            }
+          : {}
+      "
+    >
       <slot />
     </div>
   </div>

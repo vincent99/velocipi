@@ -49,12 +49,19 @@ function onKeyDown(e: KeyboardEvent) {
       keyState.value = { ...keyState.value, [e.key]: false };
     }, 150);
 
-    if (e.key === k.outerLeft) outer.value--;
-    else if (e.key === k.outerRight) outer.value++;
-    else if (e.key === k.innerLeft) inner.value--;
-    else if (e.key === k.innerRight) inner.value++;
-    else if (e.key === k.joyLeft) joy.value--;
-    else if (e.key === k.joyRight) joy.value++;
+    if (e.key === k.outerLeft) {
+      outer.value--;
+    } else if (e.key === k.outerRight) {
+      outer.value++;
+    } else if (e.key === k.innerLeft) {
+      inner.value--;
+    } else if (e.key === k.innerRight) {
+      inner.value++;
+    } else if (e.key === k.joyLeft) {
+      joy.value--;
+    } else if (e.key === k.joyRight) {
+      joy.value++;
+    }
   }
 }
 
@@ -174,7 +181,9 @@ onUnmounted(() => {
   border-radius: 2px;
   background: #0e0e0e;
   flex-shrink: 0;
-  transition: background 0.05s, color 0.05s;
+  transition:
+    background 0.05s,
+    color 0.05s;
 
   &.active {
     background: #444;
@@ -216,7 +225,9 @@ onUnmounted(() => {
   border: 1px solid #2a2a2a;
   border-radius: 3px;
   background: #0e0e0e;
-  transition: background 0.05s, color 0.05s;
+  transition:
+    background 0.05s,
+    color 0.05s;
 
   &.active {
     background: #444;

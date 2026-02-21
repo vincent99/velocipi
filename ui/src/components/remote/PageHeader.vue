@@ -14,7 +14,11 @@ const menuOpen = ref(false);
 const navEl = ref<HTMLElement | null>(null);
 
 function onDocClick(e: MouseEvent) {
-  if (menuOpen.value && navEl.value && !navEl.value.contains(e.target as Node)) {
+  if (
+    menuOpen.value &&
+    navEl.value &&
+    !navEl.value.contains(e.target as Node)
+  ) {
     menuOpen.value = false;
   }
 }
@@ -43,7 +47,9 @@ function navigate(path: string) {
     </div>
 
     <!-- Center: tail number -->
-    <div class="header-tail">{{ tail }}</div>
+    <div class="header-tail">
+      {{ tail }}
+    </div>
 
     <!-- Right: hamburger menu -->
     <div ref="navEl" class="header-nav">

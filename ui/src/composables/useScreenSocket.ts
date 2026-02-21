@@ -10,7 +10,9 @@ function connect() {
   ws = new WebSocket(`ws://${location.host}/screen`);
   ws.binaryType = 'blob';
 
-  ws.onopen = () => { connected.value = true; };
+  ws.onopen = () => {
+    connected.value = true;
+  };
 
   ws.onmessage = (e: MessageEvent<Blob>) => {
     const url = URL.createObjectURL(e.data);
@@ -24,7 +26,9 @@ function connect() {
   ws.onerror = (e) => console.error('screen ws error', e);
 
   ws.onclose = () => {
-    if (connected.value) dropped.value = true;
+    if (connected.value) {
+      dropped.value = true;
+    }
     connected.value = false;
     setTimeout(connect, 2000);
   };

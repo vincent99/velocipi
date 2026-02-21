@@ -51,9 +51,16 @@ function relayKey(eventType: 'keydown' | 'keyup', jsKey: string) {
 }
 
 function isFormField(el: EventTarget | null): boolean {
-  if (!(el instanceof HTMLElement)) return false;
+  if (!(el instanceof HTMLElement)) {
+    return false;
+  }
   const tag = el.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+  return (
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    el.isContentEditable
+  );
 }
 
 function onKeyDown(e: KeyboardEvent) {
@@ -72,7 +79,11 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 function onKeyUp(e: KeyboardEvent) {
-  if (e.key in jsToLogical.value && !knobKeys.value.has(e.key) && !isFormField(e.target)) {
+  if (
+    e.key in jsToLogical.value &&
+    !knobKeys.value.has(e.key) &&
+    !isFormField(e.target)
+  ) {
     e.preventDefault();
     relayKey('keyup', e.key);
   }

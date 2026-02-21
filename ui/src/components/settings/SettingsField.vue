@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject } from 'vue';
+import { inject, computed } from 'vue';
 import { settingsKey } from './settingsContext';
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const props = defineProps<{
 
 const ctx = inject(settingsKey)!;
 const type = props.type ?? 'text';
+const inputValue = computed(() => ctx.getPath(props.path) as string | number);
 
 function onInput(e: Event) {
   const el = e.target as HTMLInputElement;
@@ -68,7 +69,7 @@ function onInput(e: Event) {
     </template>
     <template v-else>
       <input
-        :value="ctx.getPath(path) as string | number"
+        :value="inputValue"
         :type="type"
         class="sf-input"
         :placeholder="placeholder"
@@ -88,7 +89,9 @@ function onInput(e: Event) {
   margin-bottom: 0.5rem;
   min-width: 0; // prevents flex children from overflowing a grid cell
 
-  &:last-child { margin-bottom: 0; }
+  &:last-child {
+    margin-bottom: 0;
+  }
 }
 
 .sf-reset,
@@ -108,7 +111,9 @@ function onInput(e: Event) {
   align-items: center;
   justify-content: center;
 
-  &:hover { color: #60a5fa; }
+  &:hover {
+    color: #60a5fa;
+  }
 }
 
 .sf-label {
@@ -134,7 +139,10 @@ function onInput(e: Event) {
   font-family: monospace;
   min-width: 0;
 
-  &:focus { outline: none; border-color: #666; }
+  &:focus {
+    outline: none;
+    border-color: #666;
+  }
 }
 
 .sf-checkbox {

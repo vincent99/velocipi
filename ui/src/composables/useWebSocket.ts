@@ -19,7 +19,9 @@ function connect() {
   ws.onerror = (e) => console.error('ws error', e);
 
   ws.onclose = () => {
-    if (connected.value) dropped.value = true;
+    if (connected.value) {
+      dropped.value = true;
+    }
     connected.value = false;
     closeHandlers.forEach((h) => h());
     setTimeout(connect, 2000);

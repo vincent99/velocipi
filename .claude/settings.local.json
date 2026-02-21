@@ -14,7 +14,13 @@
       "Bash(npm create:*)",
       "Bash(go get:*)",
       "Bash(go build:*)",
-      "WebFetch(domain:docs.fontawesome.com)"
+      "WebFetch(domain:docs.fontawesome.com)",
+      "Bash(gofmt:*)",
+      "Bash(echo:*)",
+      "Bash(yarn format:*)",
+      "Bash(yarn lint:*)",
+      "Bash(npx eslint:*)",
+      "Bash(ls:*)"
     ]
   }
 }

@@ -23,10 +23,18 @@ const routes: RemoteRoute[] = Object.entries(modules)
       icon: '□',
     };
 
-    return { path, name: meta.name, icon: meta.icon, sort: meta.sort ?? 0, headerScreen: meta.headerScreen ?? true };
+    return {
+      path,
+      name: meta.name,
+      icon: meta.icon,
+      sort: meta.sort ?? 0,
+      headerScreen: meta.headerScreen ?? true,
+    };
   })
   .sort((a, b) => {
-    if (a.sort !== b.sort) return a.sort - b.sort;
+    if (a.sort !== b.sort) {
+      return a.sort - b.sort;
+    }
     return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   });
 
