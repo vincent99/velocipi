@@ -34,3 +34,5 @@ dist
 *.swp
 *.swo
 velocipi
+config.yaml
+recordings

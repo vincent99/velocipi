@@ -1,4 +1,9 @@
 addr: "0.0.0.0:8080"
+
+dvr:
+  recordingsDir: "recordings"
+  cameras: []
+
 appUrl: "http://localhost:8081/panel/"
 i2cDevice: "/dev/i2c-1"
 pingInterval: "1s"

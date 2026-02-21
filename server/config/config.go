@@ -11,6 +11,21 @@ import (
 	"periph.io/x/conn/v3/physic"
 )
 
+// CameraConfig holds connection parameters for a single IP camera.
+type CameraConfig struct {
+	Name     string `yaml:"name"     json:"name"`
+	Host     string `yaml:"host"     json:"host"`
+	Port     int    `yaml:"port"     json:"port"`
+	Username string `yaml:"username" json:"username"`
+	Password string `yaml:"password" json:"password"`
+}
+
+// DVRConfig holds settings for the DVR recording subsystem.
+type DVRConfig struct {
+	RecordingsDir string         `yaml:"recordingsDir" json:"recordingsDir"`
+	Cameras       []CameraConfig `yaml:"cameras"       json:"cameras"`
+}
+
 // NavMenuConfig holds display settings for the panel navigation menu.
 type NavMenuConfig struct {
 	HideDelay int `yaml:"hideDelay" json:"hideDelay"` // ms
@@ -101,6 +116,7 @@ type Config struct {
 	PingInterval string `yaml:"pingInterval" json:"pingInterval"`
 
 	AirSensor   SensorConfig   `yaml:"airSensor"   json:"airSensor"`
+	DVR         DVRConfig      `yaml:"dvr"         json:"dvr"`
 	Expander    ExpanderConfig `yaml:"expander"    json:"expander"`
 	LightSensor SensorConfig   `yaml:"lightSensor" json:"lightSensor"`
 	OLED        OLEDConfig     `yaml:"oled"        json:"oled"`

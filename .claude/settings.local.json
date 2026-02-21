@@ -20,7 +20,10 @@
       "Bash(yarn format:*)",
       "Bash(yarn lint:*)",
       "Bash(npx eslint:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(yarn add:*)",
+      "Bash(yarn build)"
     ]
   }
 }

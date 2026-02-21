@@ -71,6 +71,19 @@ export interface ScreenConfig {
   fps: number;
 }
 
+export interface CameraConfig {
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+}
+
+export interface DVRConfig {
+  recordingsDir: string;
+  cameras: CameraConfig[];
+}
+
 export interface TireAddresses {
   nose: string[];
   left: string[];
@@ -83,6 +96,7 @@ export interface FullConfig {
   i2cDevice: string;
   pingInterval: string;
   airSensor: SensorConfig;
+  dvr: DVRConfig;
   expander: ExpanderConfig;
   lightSensor: SensorConfig;
   oled: OLEDConfig;

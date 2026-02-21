@@ -14,6 +14,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/dvr"
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/oled"
 )
@@ -218,6 +219,53 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	// /cameras — list configured cameras (name only, no credentials).
+	mux.HandleFunc("/cameras", func(w http.ResponseWriter, r *http.Request) {
+		type cameraInfo struct {
+			Name string `json:"name"`
+		}
+		infos := make([]cameraInfo, 0, len(cfg.DVR.Cameras))
+		for _, c := range cfg.DVR.Cameras {
+			infos = append(infos, cameraInfo{Name: c.Name})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(infos)
+	})
+
+	// /hls/{camera}/{file} — serve the live HLS playlist/segments produced by
+	// the DVR manager. The manager writes HLS alongside the MKV recordings, so
+	// the playlist is always available once a camera has connected.
+	dvrManager := dvr.New(cfg.DVR)
+	mux.HandleFunc("/hls/", func(w http.ResponseWriter, r *http.Request) {
+		// Path: /hls/{cameraName}/{file}
+		rest := r.URL.Path[len("/hls/"):]
+		slash := -1
+		for i, ch := range rest {
+			if ch == '/' {
+				slash = i
+				break
+			}
+		}
+		if slash < 0 {
+			http.NotFound(w, r)
+			return
+		}
+		cameraName := rest[:slash]
+		file := rest[slash+1:]
+
+		hlsDir, err := dvrManager.HLSDir(cameraName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		if file == "" || file == "stream.m3u8" {
+			http.ServeFile(w, r, filepath.Join(hlsDir, "stream.m3u8"))
+		} else {
+			http.ServeFile(w, r, filepath.Join(hlsDir, file))
+		}
+	})
+
 	mux.Handle("/", spaHandler("ui/dist"))
 	handler := corsMiddleware(mux)
 
@@ -255,6 +303,9 @@ func main() {
 	go hub.runTpmsLoop(ctx)
 	go hub.runInputLoop(ctx)
 	go hub.runScreencastLoop(ctx)
+
+	// Start DVR recording for all configured cameras.
+	dvrManager.Start(ctx)
 
 	// Block until signal.
 	<-ctx.Done()

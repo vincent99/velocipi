@@ -2,7 +2,7 @@
 import type { PanelMeta } from '@/types/config';
 export const remoteMeta: PanelMeta = {
   name: 'Settings',
-  icon: 'settings-sliders',
+  icon: 'settings-sliders/',
   sort: 99,
 };
 </script>
@@ -313,6 +313,79 @@ const expanderBitFields = [
         </SettingsGroup>
       </section>
 
+      <!-- DVR / Cameras -->
+      <section>
+        <h2>DVR / Cameras</h2>
+        <SettingsField
+          label="Recordings directory"
+          path="dvr.recordingsDir"
+          placeholder="recordings"
+        />
+        <div class="cameras-header">
+          <span class="cameras-title">Cameras</span>
+          <button
+            type="button"
+            class="add-camera-btn"
+            @click="
+              cfg!.dvr.cameras.push({
+                name: '',
+                host: '',
+                port: 554,
+                username: '',
+                password: '',
+              })
+            "
+          >
+            + Add camera
+          </button>
+        </div>
+        <div
+          v-for="(cam, idx) in cfg!.dvr.cameras"
+          :key="idx"
+          class="camera-card"
+        >
+          <div class="camera-card-header">
+            <span class="camera-num">Camera {{ idx + 1 }}</span>
+            <button
+              type="button"
+              class="remove-camera-btn"
+              title="Remove camera"
+              @click="cfg!.dvr.cameras.splice(idx, 1)"
+            >
+              <i class="fi-sr-trash" />
+            </button>
+          </div>
+          <div class="camera-fields">
+            <label>Name<input v-model="cam.name" placeholder="Front" /></label>
+            <label
+              >Host<input v-model="cam.host" placeholder="192.168.1.100"
+            /></label>
+            <label
+              >Port<input
+                v-model.number="cam.port"
+                type="number"
+                min="1"
+                max="65535"
+                placeholder="554"
+            /></label>
+            <label
+              >Username<input v-model="cam.username" placeholder="(optional)"
+            /></label>
+            <label
+              >Password
+              <input
+                v-model="cam.password"
+                type="text"
+                placeholder="or $CAMERA_PASSWORD env var"
+              />
+            </label>
+          </div>
+        </div>
+        <p v-if="cfg!.dvr.cameras.length === 0" class="hint">
+          No cameras configured.
+        </p>
+      </section>
+
       <!-- Tires -->
       <section>
         <h2>TPMS sensors</h2>
@@ -478,5 +551,94 @@ textarea {
 .error-msg {
   color: #f87171;
   font-size: 0.85rem;
+}
+
+.cameras-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.cameras-title {
+  font-size: 0.85rem;
+  color: #aaa;
+  font-weight: 500;
+}
+
+.add-camera-btn {
+  background: none;
+  border: 1px solid #3b82f6;
+  border-radius: 4px;
+  color: #3b82f6;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+
+  &:hover {
+    background: #1e3a5f;
+  }
+}
+
+.camera-card {
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+}
+
+.camera-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.camera-num {
+  font-size: 0.85rem;
+  color: #aaa;
+  font-weight: 500;
+}
+
+.remove-camera-btn {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+
+  &:hover {
+    color: #f87171;
+  }
+}
+
+.camera-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem 0.75rem;
+
+  label {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.78rem;
+    color: #999;
+    gap: 0.2rem;
+  }
+
+  input {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 0.82rem;
+    padding: 0.25rem 0.4rem;
+
+    &:focus {
+      outline: none;
+      border-color: #666;
+    }
+  }
 }
 </style>
