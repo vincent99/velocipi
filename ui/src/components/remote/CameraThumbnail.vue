@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useDeviceState } from '@/composables/useDeviceState';
 import RedX from '@/components/RedX.vue';
 
-const props = defineProps<{ name: string }>();
+const props = defineProps<{ name: string; selected?: boolean }>();
 const emit = defineEmits<{ (e: 'select', name: string): void }>();
 
 const { cameraRecording } = useDeviceState();
@@ -54,7 +54,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="cam-thumb" @click="emit('select', name)">
+  <div
+    class="cam-thumb"
+    :class="{ active: selected }"
+    @click="emit('select', name)"
+  >
     <img v-if="src" :src="src" class="thumb-img" :alt="name" />
     <div v-else class="thumb-placeholder" />
     <RedX v-if="!recording" :stroke-width="3" />
@@ -75,6 +79,10 @@ onUnmounted(() => {
 
   &:hover {
     outline: 2px solid rgba(255, 255, 255, 0.5);
+  }
+
+  &.active {
+    outline: 2px solid #fff;
   }
 }
 

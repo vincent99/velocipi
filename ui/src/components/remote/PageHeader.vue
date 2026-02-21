@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useConfig } from '@/composables/useConfig';
 import { useRemoteRoutes } from '@/composables/useRemoteRoutes';
@@ -32,8 +32,22 @@ onUnmounted(() => document.removeEventListener('click', onDocClick, true));
 const headerColor = computed(() => config.value?.headerColor ?? '#b91c1c');
 const tail = computed(() => config.value?.tail ?? '');
 
+// Keep document title in sync with the tail number.
+watch(
+  tail,
+  (t) => {
+    document.title = t || 'velocipi';
+  },
+  { immediate: true }
+);
+
 const currentRoute = computed(
   () => routes.find((r) => r.path === route.path) ?? routes[0]
+);
+
+// The camera currently being viewed (from ?cam= query param on /cameras route).
+const activeCam = computed(() =>
+  route.path === '/remote/cameras' ? ((route.query.cam as string) ?? '') : ''
 );
 
 function navigate(path: string) {
@@ -48,30 +62,23 @@ function openCamera(name: string) {
 
 <template>
   <header class="page-header" :style="{ background: headerColor }">
-    <!-- Left: screen viewer (hidden on routes that opt out) -->
-    <div v-if="currentRoute?.headerScreen" class="header-screen">
-      <ScreenViewer />
+    <!-- Screen viewer + camera thumbnails on the left, wrap together -->
+    <div v-if="currentRoute?.headerScreen" class="header-left">
+      <div class="header-screen">
+        <ScreenViewer />
+      </div>
     </div>
-
-    <!-- Camera thumbnails: one per configured camera, right of screen viewer -->
-    <div
-      v-if="cameras.length > 0 && currentRoute?.headerScreen"
-      class="header-cameras"
-    >
+    <div v-if="cameras.length > 0" class="header-cameras">
       <CameraThumbnail
         v-for="cam in cameras"
         :key="cam"
         :name="cam"
+        :selected="cam === activeCam"
         @select="openCamera"
       />
     </div>
 
-    <!-- Center: tail number -->
-    <div class="header-tail">
-      {{ tail }}
-    </div>
-
-    <!-- Right: hamburger menu -->
+    <!-- Right: hamburger menu, always last in flow -->
     <div ref="navEl" class="header-nav">
       <button class="hamburger" @click="menuOpen = !menuOpen">
         <span class="current-icon">
@@ -109,13 +116,23 @@ function openCamera(name: string) {
 <style scoped lang="scss">
 .page-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
   color: #fff;
   position: relative;
   box-sizing: border-box;
-  height: calc(64px + 1rem); // panel height + vertical padding
+  // No fixed height — grows to fit if content wraps to a second row.
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .header-screen {
@@ -129,18 +146,9 @@ function openCamera(name: string) {
   align-items: stretch;
   gap: 0.25rem;
   height: 64px;
-  flex-shrink: 0;
-}
-
-.header-tail {
-  position: absolute;
-  left: 0;
-  right: 0;
-  text-align: center;
-  font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  pointer-events: none;
+  flex-wrap: wrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .header-nav {
