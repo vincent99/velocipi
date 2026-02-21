@@ -83,13 +83,20 @@ export interface KeyEventMsg {
   key: LogicalKey;
 }
 
+export interface KeyEchoMsg {
+  type: 'keyEcho';
+  eventType: 'keydown' | 'keyup';
+  key: LogicalKey;
+}
+
 export type InboundWsMsg =
   | PingMsg
   | AirReadingMsg
   | LuxReadingMsg
   | TpmsMsg
   | LEDStateMsg
-  | KeyEventMsg;
+  | KeyEventMsg
+  | KeyEchoMsg;
 
 // Outbound messages (client → server, sent on /ws)
 

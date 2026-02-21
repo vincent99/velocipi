@@ -4,11 +4,12 @@ export const remoteMeta: PanelMeta = {
   name: 'Virtual Panel',
   icon: 'gamepad',
   sort: 98,
+  headerScreen: false,
 };
 </script>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import ScreenViewer from '@/components/remote/ScreenViewer.vue';
 import KeyRelay from '@/components/shared/KeyRelay.vue';
 import { useWebSocket } from '@/composables/useWebSocket';
@@ -16,9 +17,36 @@ import { useDeviceState } from '@/composables/useDeviceState';
 import type { LogicalKey } from '@/types/ws';
 
 const { send } = useWebSocket();
-const { ledState } = useDeviceState();
+const { ledState, keyEcho } = useDeviceState();
+
+const shellRef = ref<HTMLElement | null>(null);
+const scale = ref(1);
+
+function updateScale() {
+  if (!shellRef.value) return;
+  // Temporarily reset scale to measure natural width accurately
+  shellRef.value.style.transform = 'none';
+  const naturalWidth = shellRef.value.getBoundingClientRect().width;
+  shellRef.value.style.transform = '';
+  const parent = shellRef.value.parentElement!;
+  const style = getComputedStyle(parent);
+  const available = parent.clientWidth
+    - parseFloat(style.paddingLeft)
+    - parseFloat(style.paddingRight);
+  scale.value = available / naturalWidth;
+}
+
+onMounted(() => {
+  updateScale();
+  window.addEventListener('resize', updateScale);
+});
+onUnmounted(() => window.removeEventListener('resize', updateScale));
 
 const ledMode = computed(() => ledState.value?.mode ?? 'off');
+
+function active(key: LogicalKey) {
+  return keyEcho.get(key) === true;
+}
 
 // Encoder keys: just a tap (keydown + keyup immediately)
 function press(key: LogicalKey) {
@@ -49,27 +77,27 @@ function pointerup(key: LogicalKey) {
 
 <template>
   <KeyRelay />
-  <div class="vp-shell">
+  <div ref="shellRef" class="vp-shell" :style="{ transform: `scale(${scale})`, transformOrigin: 'top left' }">
 
     <!-- Left cluster: joystick grid with LED in top-right cell -->
     <div class="joy-grid">
       <div />
-      <button class="ctrl-btn"
+      <button class="ctrl-btn" :class="{ active: active('up') }"
         @pointerdown="pointerdown('up', $event)" @pointerup="pointerup('up')" @pointercancel="pointerup('up')"
       ><i class="fi-sr-angle-up" /></button>
       <div class="led-cell"><div class="led-circle" :class="ledMode" /></div>
-      <button class="ctrl-btn"
+      <button class="ctrl-btn" :class="{ active: active('left') }"
         @pointerdown="pointerdown('left', $event)" @pointerup="pointerup('left')" @pointercancel="pointerup('left')"
       ><i class="fi-sr-angle-left" /></button>
       <div class="enc-ring">
-        <button class="enc-half enc-half-l" @click="press('joy-left')"><span class="mirror">⤸</span></button>
-        <button class="enc-half enc-half-r" @click="press('joy-right')">⤸</button>
+        <button class="enc-half enc-half-l" :class="{ active: active('joy-left') }" @click="press('joy-left')"><span class="mirror">⤸</span></button>
+        <button class="enc-half enc-half-r" :class="{ active: active('joy-right') }" @click="press('joy-right')">⤸</button>
       </div>
-      <button class="ctrl-btn"
+      <button class="ctrl-btn" :class="{ active: active('right') }"
         @pointerdown="pointerdown('right', $event)" @pointerup="pointerup('right')" @pointercancel="pointerup('right')"
       ><i class="fi-sr-angle-right" /></button>
       <div />
-      <button class="ctrl-btn"
+      <button class="ctrl-btn" :class="{ active: active('down') }"
         @pointerdown="pointerdown('down', $event)" @pointerup="pointerup('down')" @pointercancel="pointerup('down')"
       ><i class="fi-sr-angle-down" /></button>
       <div />
@@ -85,12 +113,12 @@ function pointerup(key: LogicalKey) {
     <!-- Right cluster: two concentric encoder rings, each split left/right -->
     <div class="vp-right">
       <div class="enc-ring enc-ring-outer">
-        <button class="enc-half enc-half-l enc-half-outer" @click="press('outer-left')"><span class="mirror">⤸</span></button>
-        <button class="enc-half enc-half-r enc-half-outer" @click="press('outer-right')">⤸</button>
+        <button class="enc-half enc-half-l enc-half-outer" :class="{ active: active('outer-left') }" @click="press('outer-left')"><span class="mirror">⤸</span></button>
+        <button class="enc-half enc-half-r enc-half-outer" :class="{ active: active('outer-right') }" @click="press('outer-right')">⤸</button>
         <div class="enc-ring enc-ring-inner">
-          <button class="enc-half enc-half-l" @click="press('inner-left')"><span class="mirror">⤸</span></button>
-          <button class="enc-half enc-half-r" @click="press('inner-right')">⤸</button>
-          <button class="knob-enter"
+          <button class="enc-half enc-half-l" :class="{ active: active('inner-left') }" @click="press('inner-left')"><span class="mirror">⤸</span></button>
+          <button class="enc-half enc-half-r" :class="{ active: active('inner-right') }" @click="press('inner-right')">⤸</button>
+          <button class="knob-enter" :class="{ active: active('enter') }"
             @pointerdown.stop="pointerdown('enter', $event)" @pointerup.stop="pointerup('enter')" @pointercancel.stop="pointerup('enter')"
           >●</button>
         </div>
@@ -109,7 +137,7 @@ function pointerup(key: LogicalKey) {
   background: #2a2a2a;
   border-radius: 12px;
   border: 1px solid #444;
-  width: fit-content;
+  width: max-content;
   user-select: none;
   touch-action: none;
 
@@ -215,6 +243,7 @@ function pointerup(key: LogicalKey) {
 
   &:hover { color: #fff; background: rgba(255,255,255,0.1); }
   &:active { color: #fff; background: rgba(255,255,255,0.2); }
+  &.active { color: #fff; background: rgba(255,255,255,0.25); }
 }
 
 .enc-half-l {
@@ -267,6 +296,7 @@ function pointerup(key: LogicalKey) {
 
   &:hover { background: #4a4a4a; }
   &:active { background: #555; transform: scale(0.93); }
+  &.active { background: #666; color: #fff; }
 }
 
 
@@ -312,5 +342,6 @@ function pointerup(key: LogicalKey) {
 
   &:hover { background: #666; }
   &:active { background: #777; }
+  &.active { background: #888; color: #fff; }
 }
 </style>

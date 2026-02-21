@@ -5,6 +5,7 @@ export interface RemoteRoute {
   name: string;
   icon: string;
   sort: number;
+  headerScreen: boolean;
 }
 
 const modules = import.meta.glob('../routes/remote/**/*.vue', { eager: true });
@@ -22,7 +23,7 @@ const routes: RemoteRoute[] = Object.entries(modules)
       icon: '□',
     };
 
-    return { path, name: meta.name, icon: meta.icon, sort: meta.sort ?? 0 };
+    return { path, name: meta.name, icon: meta.icon, sort: meta.sort ?? 0, headerScreen: meta.headerScreen ?? true };
   })
   .sort((a, b) => {
     if (a.sort !== b.sort) return a.sort - b.sort;

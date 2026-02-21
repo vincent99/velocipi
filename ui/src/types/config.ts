@@ -34,4 +34,5 @@ export interface PanelMeta {
   name: string;
   icon: string;
   sort?: number;
+  headerScreen?: boolean; // default true
 }

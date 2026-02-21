@@ -37,8 +37,8 @@ function navigate(path: string) {
 
 <template>
   <header class="page-header" :style="{ background: headerColor }">
-    <!-- Left: screen viewer -->
-    <div class="header-screen">
+    <!-- Left: screen viewer (hidden on routes that opt out) -->
+    <div v-if="currentRoute?.headerScreen" class="header-screen">
       <ScreenViewer />
     </div>
 
@@ -88,6 +88,8 @@ function navigate(path: string) {
   padding: 0.5rem 1rem;
   color: #fff;
   position: relative;
+  box-sizing: border-box;
+  height: calc(64px + 2px + 1rem); // panel height + border + vertical padding
 }
 
 .header-screen {
@@ -97,16 +99,20 @@ function navigate(path: string) {
 }
 
 .header-tail {
-  flex: 1;
+  position: absolute;
+  left: 0;
+  right: 0;
   text-align: center;
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: 0.05em;
+  pointer-events: none;
 }
 
 .header-nav {
   flex-shrink: 0;
   position: relative;
+  margin-left: auto;
 }
 
 .hamburger {

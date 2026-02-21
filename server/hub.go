@@ -60,6 +60,12 @@ type LEDStateMsg struct {
 	Rate int    `json:"rate,omitempty"` // blink rate in ms, only set when mode == "blink"
 }
 
+type KeyEchoMsg struct {
+	Type      string `json:"type"`      // always "keyEcho"
+	EventType string `json:"eventType"` // "keydown" or "keyup"
+	Key       string `json:"key"`       // logical key name
+}
+
 // Inbound message types from websocket clients.
 
 type inboundMsg struct {
@@ -192,6 +198,11 @@ func (h *Hub) broadcastAll(msg any) {
 		return
 	}
 	h.sendToClients(data, h.clients)
+}
+
+// broadcastKeyEcho notifies all clients that a logical key event was dispatched.
+func (h *Hub) broadcastKeyEcho(logical, eventType string) {
+	h.broadcastAll(KeyEchoMsg{Type: "keyEcho", EventType: eventType, Key: logical})
 }
 
 // sendReading sends the current air sensor reading to a single client.
@@ -565,6 +576,11 @@ func (h *Hub) dispatchLogical(typ input.KeyType, logical string) {
 		return
 	}
 	h.dispatchKey(typ, jsKey)
+	eventType := "keydown"
+	if typ == input.KeyUp {
+		eventType = "keyup"
+	}
+	h.broadcastKeyEcho(logical, eventType)
 }
 
 func (h *Hub) dispatchKey(typ input.KeyType, jsKey string) {
@@ -666,6 +682,7 @@ func (h *Hub) handleKeyMsg(eventType, key string) {
 	case "keyup":
 		h.dispatchKey(input.KeyUp, jsKey)
 	}
+	h.broadcastKeyEcho(key, eventType)
 }
 
 func (h *Hub) sendLogical(logical string) {
@@ -674,6 +691,7 @@ func (h *Hub) sendLogical(logical string) {
 		return
 	}
 	h.sendKeyEvent(jsKey)
+	h.broadcastKeyEcho(logical, "keydown")
 }
 
 func (h *Hub) sendKeyEvent(jsKey string) {
