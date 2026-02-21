@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router';
 import { useConfig } from '@/composables/useConfig';
 import { useRemoteRoutes } from '@/composables/useRemoteRoutes';
 import { useCameraList } from '@/composables/useCameraList';
-import ScreenViewer from '@/components/remote/ScreenViewer.vue';
 import CameraThumbnail from '@/components/remote/CameraThumbnail.vue';
 
 const { config } = useConfig();
@@ -62,12 +61,7 @@ function openCamera(name: string) {
 
 <template>
   <header class="page-header" :style="{ background: headerColor }">
-    <!-- Screen viewer + camera thumbnails on the left, wrap together -->
-    <div v-if="currentRoute?.headerScreen" class="header-left">
-      <div class="header-screen">
-        <ScreenViewer />
-      </div>
-    </div>
+    <!-- Camera thumbnails on the left -->
     <div v-if="cameras.length > 0" class="header-cameras">
       <CameraThumbnail
         v-for="cam in cameras"
@@ -126,25 +120,10 @@ function openCamera(name: string) {
   // No fixed height — grows to fit if content wraps to a second row.
 }
 
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  flex: 1;
-  min-width: 0;
-}
-
-.header-screen {
-  flex-shrink: 0;
-  line-height: 0; // prevent extra space below img
-  height: 64px;
-}
-
 .header-cameras {
   display: flex;
   align-items: stretch;
-  gap: 0.25rem;
+  gap: 0.5rem;
   height: 64px;
   flex-wrap: wrap;
   flex-shrink: 1;

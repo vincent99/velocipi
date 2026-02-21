@@ -41,6 +41,7 @@ const wsDisconnected = computed(() => dropped.value && !connected.value);
   min-height: 0; // required so flex child can shrink and fill without overflow
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
 }
 
 .disconnect-overlay {

@@ -18,6 +18,7 @@ type CameraConfig struct {
 	Port     int    `yaml:"port"     json:"port"`
 	Username string `yaml:"username" json:"username"`
 	Password string `yaml:"password" json:"password"`
+	Sort     *int   `yaml:"sort,omitempty" json:"sort,omitempty"`
 }
 
 // DVRConfig holds settings for the DVR recording subsystem.

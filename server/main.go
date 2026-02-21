@@ -13,6 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"math"
+	"sort"
+	"strings"
+
 	"github.com/gorilla/websocket"
 	"github.com/vincent99/velocipi/server/config"
 	"github.com/vincent99/velocipi/server/dvr"
@@ -221,13 +225,29 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-	// /cameras — list configured cameras (name only, no credentials).
+	// /cameras — list configured cameras sorted by sort then alphabetically.
 	mux.HandleFunc("/cameras", func(w http.ResponseWriter, r *http.Request) {
 		type cameraInfo struct {
 			Name string `json:"name"`
 		}
-		infos := make([]cameraInfo, 0, len(cfg.DVR.Cameras))
-		for _, c := range cfg.DVR.Cameras {
+		cams := make([]config.CameraConfig, len(cfg.DVR.Cameras))
+		copy(cams, cfg.DVR.Cameras)
+		sort.Slice(cams, func(i, j int) bool {
+			si := math.MaxInt
+			sj := math.MaxInt
+			if cams[i].Sort != nil {
+				si = *cams[i].Sort
+			}
+			if cams[j].Sort != nil {
+				sj = *cams[j].Sort
+			}
+			if si != sj {
+				return si < sj
+			}
+			return strings.ToLower(cams[i].Name) < strings.ToLower(cams[j].Name)
+		})
+		infos := make([]cameraInfo, 0, len(cams))
+		for _, c := range cams {
 			infos = append(infos, cameraInfo{Name: c.Name})
 		}
 		w.Header().Set("Content-Type", "application/json")

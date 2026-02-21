@@ -345,6 +345,7 @@ const expanderBitFields = [
                 port: 554,
                 username: '',
                 password: '',
+                sort: undefined,
               })
             "
           >
@@ -379,6 +380,13 @@ const expanderBitFields = [
                 min="1"
                 max="65535"
                 placeholder="554"
+            /></label>
+            <label
+              >Sort<input
+                v-model.number="cam.sort"
+                type="number"
+                min="0"
+                placeholder="(optional)"
             /></label>
             <label
               >Username<input v-model="cam.username" placeholder="(optional)"

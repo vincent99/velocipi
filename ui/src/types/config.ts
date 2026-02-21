@@ -77,6 +77,7 @@ export interface CameraConfig {
   port: number;
   username: string;
   password: string;
+  sort?: number;
 }
 
 export interface DVRConfig {

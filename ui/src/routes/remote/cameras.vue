@@ -8,10 +8,13 @@ export const remoteMeta: PanelMeta = {
 
 <script setup lang="ts">
 import { ref, watch, onUnmounted, nextTick } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import Hls from 'hls.js';
+import { useCameraList } from '@/composables/useCameraList';
 
 const route = useRoute();
+const router = useRouter();
+const { cameras } = useCameraList();
 
 const videoEl = ref<HTMLVideoElement | null>(null);
 const error = ref('');
@@ -24,6 +27,17 @@ watch(
   (cam) => {
     selected.value = (cam as string) ?? '';
   }
+);
+
+// If no camera is selected, redirect to the first one once the list loads.
+watch(
+  cameras,
+  (list) => {
+    if (!selected.value && list.length > 0) {
+      router.replace({ path: '/remote/cameras', query: { cam: list[0] } });
+    }
+  },
+  { immediate: true }
 );
 
 let hls: Hls | null = null;
