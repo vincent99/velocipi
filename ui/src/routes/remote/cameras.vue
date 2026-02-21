@@ -14,8 +14,30 @@ const cameras = ref<string[]>([]);
 const selected = ref<string>('');
 const videoEl = ref<HTMLVideoElement | null>(null);
 const error = ref('');
+const snapshotSrc = ref('');
 
 let hls: Hls | null = null;
+let snapshotTimer: ReturnType<typeof setInterval> | null = null;
+
+function snapshotUrl(name: string) {
+  return `/snapshot/${encodeURIComponent(name)}?t=${Date.now()}`;
+}
+
+function startSnapshots(name: string) {
+  stopSnapshots();
+  snapshotSrc.value = snapshotUrl(name);
+  snapshotTimer = setInterval(() => {
+    snapshotSrc.value = snapshotUrl(name);
+  }, 5000);
+}
+
+function stopSnapshots() {
+  if (snapshotTimer !== null) {
+    clearInterval(snapshotTimer);
+    snapshotTimer = null;
+  }
+  snapshotSrc.value = '';
+}
 
 async function loadCameras() {
   try {
@@ -70,9 +92,13 @@ watch(selected, async (name) => {
   error.value = '';
   await nextTick();
   startStream(name);
+  startSnapshots(name);
 });
 
-onUnmounted(destroyHls);
+onUnmounted(() => {
+  destroyHls();
+  stopSnapshots();
+});
 
 loadCameras();
 </script>
@@ -96,6 +122,11 @@ loadCameras();
 
     <div v-if="selected" class="video-wrap">
       <video ref="videoEl" class="video" autoplay muted playsinline controls />
+    </div>
+
+    <div v-if="snapshotSrc" class="snapshot-wrap">
+      <div class="snapshot-label">Snapshot</div>
+      <img :src="snapshotSrc" class="snapshot" alt="Camera snapshot" />
     </div>
   </div>
 </template>
@@ -162,5 +193,22 @@ loadCameras();
   width: 100%;
   display: block;
   max-height: 70vh;
+}
+
+.snapshot-wrap {
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.snapshot-label {
+  font-size: 0.75rem;
+  color: #666;
+  padding: 0.4rem 0.6rem 0;
+}
+
+.snapshot {
+  width: 100%;
+  display: block;
 }
 </style>

@@ -19,20 +19,30 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 )
 
+const snapshotTTL = 5 * time.Second
+
+type snapshotCache struct {
+	data      []byte
+	fetchedAt time.Time
+}
+
 // Manager starts and supervises DVR recording for all configured cameras.
 // Each camera gets one ffmpeg process that writes both archival MP4 segments
 // and a live HLS playlist. Call HLSDir to get the playlist directory for a camera.
 type Manager struct {
-	mu      sync.RWMutex
-	cfg     config.DVRConfig
-	hlsDirs map[string]string // sanitized name → HLS temp dir
+	mu        sync.RWMutex
+	cfg       config.DVRConfig
+	hlsDirs   map[string]string         // sanitized name → HLS temp dir
+	snapshots map[string]*snapshotCache // sanitized name → cached JPEG
+	snapMu    sync.Mutex
 }
 
 // New creates a Manager. Call Start to begin recording.
 func New(cfg config.DVRConfig) *Manager {
 	return &Manager{
-		cfg:     cfg,
-		hlsDirs: make(map[string]string),
+		cfg:       cfg,
+		hlsDirs:   make(map[string]string),
+		snapshots: make(map[string]*snapshotCache),
 	}
 }
 
@@ -74,6 +84,52 @@ func (m *Manager) HLSDir(name string) (string, error) {
 		return "", fmt.Errorf("camera %q is not yet recording", name)
 	}
 	return dir, nil
+}
+
+// Snapshot returns a JPEG-encoded frame from the named camera's RTSP stream.
+// Results are cached for snapshotTTL to avoid hammering the camera on rapid requests.
+// The context controls the ffmpeg subprocess timeout.
+func (m *Manager) Snapshot(ctx context.Context, name string) ([]byte, error) {
+	var cam *config.CameraConfig
+	for i := range m.cfg.Cameras {
+		if m.cfg.Cameras[i].Name == name {
+			cam = &m.cfg.Cameras[i]
+			break
+		}
+	}
+	if cam == nil {
+		return nil, fmt.Errorf("unknown camera %q", name)
+	}
+	key := sanitizeName(name)
+
+	m.snapMu.Lock()
+	defer m.snapMu.Unlock()
+
+	if c := m.snapshots[key]; c != nil && time.Since(c.fetchedAt) < snapshotTTL {
+		return c.data, nil
+	}
+
+	// -vframes 1: grab exactly one frame
+	// -f image2pipe: write raw image to stdout
+	// -vcodec mjpeg: encode as JPEG
+	// -q:v 5: quality 1 (best) – 31 (worst); 5 is a good balance
+	args := []string{
+		"-rtsp_transport", "tcp",
+		"-i", rtspURL(*cam),
+		"-vframes", "1",
+		"-f", "image2pipe",
+		"-vcodec", "mjpeg",
+		"-q:v", "5",
+		"pipe:1",
+	}
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	data, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("ffmpeg snapshot: %w", err)
+	}
+
+	m.snapshots[key] = &snapshotCache{data: data, fetchedAt: time.Now()}
+	return data, nil
 }
 
 // resolveEnv expands a single value that may be an env-var reference.

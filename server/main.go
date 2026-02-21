@@ -266,6 +266,26 @@ func main() {
 		}
 	})
 
+	// /snapshot/{camera} — returns a single JPEG frame from the RTSP stream.
+	// Results are cached for 5 seconds to avoid hammering the camera.
+	mux.HandleFunc("/snapshot/", func(w http.ResponseWriter, r *http.Request) {
+		cameraName := r.URL.Path[len("/snapshot/"):]
+		if cameraName == "" {
+			http.NotFound(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		data, err := dvrManager.Snapshot(ctx, cameraName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(data)
+	})
+
 	mux.Handle("/", spaHandler("ui/dist"))
 	handler := corsMiddleware(mux)
 
