@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue';
 import { RouterView } from 'vue-router';
-import NavMenu from '../components/panel/NavMenu.vue';
-import { useConfig } from '../composables/useConfig';
+import NavMenu from '@/components/panel/NavMenu.vue';
+import { useConfig } from '@/composables/useConfig';
 
 const { config } = useConfig();
 const panelWidth = computed(() => config.value?.panel.width ?? 256);

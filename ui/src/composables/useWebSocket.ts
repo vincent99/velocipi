@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { OutboundWsMsg } from '../types/ws';
+import type { OutboundWsMsg } from '@/types/ws';
 
 const connected = ref(false);
 const dropped = ref(false);

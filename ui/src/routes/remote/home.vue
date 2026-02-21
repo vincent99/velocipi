@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { PanelMeta } from '@/types/config';
-export const panelMeta: PanelMeta = {
+export const remoteMeta: PanelMeta = {
   name: 'Home',
   icon: 'home',
   sort: -1,
@@ -10,5 +10,7 @@ export const panelMeta: PanelMeta = {
 <script setup lang="ts"></script>
 
 <template>
-  <h1>Home</h1>
+  <div>
+    <h1>Home</h1>
+  </div>
 </template>

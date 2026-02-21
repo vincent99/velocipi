@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue';
-import type { LogicalKey } from '../../types/ws';
-import { useWebSocket } from '../../composables/useWebSocket';
-import { useConfig } from '../../composables/useConfig';
+import type { LogicalKey } from '@/types/ws';
+import { useWebSocket } from '@/composables/useWebSocket';
+import { useConfig } from '@/composables/useConfig';
 
 const { send } = useWebSocket();
 const { config } = useConfig();
@@ -50,8 +50,14 @@ function relayKey(eventType: 'keydown' | 'keyup', jsKey: string) {
   send({ type: 'key', eventType, key });
 }
 
+function isFormField(el: EventTarget | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
 function onKeyDown(e: KeyboardEvent) {
-  if (!(e.key in jsToLogical.value)) {
+  if (!(e.key in jsToLogical.value) || isFormField(e.target)) {
     return;
   }
 
@@ -66,7 +72,7 @@ function onKeyDown(e: KeyboardEvent) {
 }
 
 function onKeyUp(e: KeyboardEvent) {
-  if (e.key in jsToLogical.value && !knobKeys.value.has(e.key)) {
+  if (e.key in jsToLogical.value && !knobKeys.value.has(e.key) && !isFormField(e.target)) {
     e.preventDefault();
     relayKey('keyup', e.key);
   }

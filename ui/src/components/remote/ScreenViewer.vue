@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useConfig } from '../../composables/useConfig';
-import RedX from '../RedX.vue';
-import type { LEDStateMsg } from '../../types/ws';
+import { useConfig } from '@/composables/useConfig';
+import RedX from '@/components/RedX.vue';
+import type { LEDStateMsg } from '@/types/ws';
 
 const { frameUrl, disconnected, ledState } = defineProps<{
   frameUrl: string | null;

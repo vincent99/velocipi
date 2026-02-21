@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { LEDStateMsg } from '../../types/ws';
+import type { LEDStateMsg } from '@/types/ws';
 
 defineProps<{
   state: LEDStateMsg | null;

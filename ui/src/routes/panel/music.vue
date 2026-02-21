@@ -1,14 +1,13 @@
 <script lang="ts">
 import type { PanelMeta } from '@/types/config';
 export const panelMeta: PanelMeta = {
-  name: 'Home',
-  icon: 'home',
-  sort: -1,
+  name: 'Music',
+  icon: 'headphones',
 };
 </script>
 
 <script setup lang="ts"></script>
 
 <template>
-  <h1>Home</h1>
+  <h2>Music</h2>
 </template>

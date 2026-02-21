@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Tire } from '../../types/ws';
+import type { Tire } from '@/types/ws';
 
 defineProps<{
   position: string;

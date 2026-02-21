@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { Config } from '../types/config';
+import type { Config } from '@/types/config';
 
 const config = ref<Config | null>(null);
 let fetchPromise: Promise<void> | null = null;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AirReading } from '../../types/ws';
+import type { AirReading } from '@/types/ws';
 
 defineProps<{
   reading: AirReading | null;

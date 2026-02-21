@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { Tire } from '../../types/ws';
-import TireCard from './TireCard.vue';
+import type { Tire } from '@/types/ws';
+import TireCard from '@/components/remote/TireCard.vue';
 
 defineProps<{
   tires: Map<string, Tire>;

@@ -1,23 +1,23 @@
 import type { PanelMeta } from '@/types/config';
 
-export interface PanelRoute {
+export interface RemoteRoute {
   path: string;
   name: string;
   icon: string;
-  sort?: number;
+  sort: number;
 }
 
-const modules = import.meta.glob('../routes/panel/**/*.vue', { eager: true });
+const modules = import.meta.glob('../routes/remote/**/*.vue', { eager: true });
 
-const routes: PanelRoute[] = Object.entries(modules)
+const routes: RemoteRoute[] = Object.entries(modules)
   .map(([file, mod]) => {
     const stripped = file
-      .replace(/^\.\.\/routes\/panel\//, '')
+      .replace(/^\.\.\/routes\/remote\//, '')
       .replace(/\.vue$/, '')
       .replace(/\/index$/, '');
 
-    const path = '/panel/' + stripped;
-    const meta = (mod as { panelMeta?: PanelMeta }).panelMeta ?? {
+    const path = '/remote/' + stripped;
+    const meta = (mod as { remoteMeta?: PanelMeta }).remoteMeta ?? {
       name: stripped,
       icon: '□',
     };
@@ -25,12 +25,10 @@ const routes: PanelRoute[] = Object.entries(modules)
     return { path, name: meta.name, icon: meta.icon, sort: meta.sort ?? 0 };
   })
   .sort((a, b) => {
-    if (a.sort !== b.sort) {
-      return a.sort - b.sort;
-    }
+    if (a.sort !== b.sort) return a.sort - b.sort;
     return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   });
 
-export function usePanelRoutes(): PanelRoute[] {
+export function useRemoteRoutes(): RemoteRoute[] {
   return routes;
 }

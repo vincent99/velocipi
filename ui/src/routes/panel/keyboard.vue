@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { PanelMeta } from '../../types/config';
+import type { PanelMeta } from '@/types/config';
 export const panelMeta: PanelMeta = {
   name: 'Kbd',
   icon: 'keyboard',
@@ -9,7 +9,7 @@ export const panelMeta: PanelMeta = {
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useConfig } from '../../composables/useConfig';
+import { useConfig } from '@/composables/useConfig';
 
 const { config } = useConfig();
 

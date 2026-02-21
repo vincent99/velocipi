@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useConfig } from '../../composables/useConfig';
-import { usePanelRoutes } from '../../composables/usePanelRoutes';
+import { useConfig } from '@/composables/useConfig';
+import { usePanelRoutes } from '@/composables/usePanelRoutes';
 
 const panels = usePanelRoutes();
 const route = useRoute();
