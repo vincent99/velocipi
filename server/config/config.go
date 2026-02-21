@@ -18,6 +18,7 @@ type CameraConfig struct {
 	Port     int    `yaml:"port"     json:"port"`
 	Username string `yaml:"username" json:"username"`
 	Password string `yaml:"password" json:"password"`
+	Audio    bool   `yaml:"audio"    json:"audio"` // record and stream audio (default false)
 	Sort     *int   `yaml:"sort,omitempty" json:"sort,omitempty"`
 }
 

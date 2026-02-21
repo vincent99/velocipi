@@ -345,6 +345,7 @@ const expanderBitFields = [
                 port: 554,
                 username: '',
                 password: '',
+                audio: false,
                 sort: undefined,
               })
             "
@@ -387,6 +388,10 @@ const expanderBitFields = [
                 type="number"
                 min="0"
                 placeholder="(optional)"
+            /></label>
+            <label class="audio-label"
+              ><span>Audio</span
+              ><input v-model="cam.audio" type="checkbox" class="audio-check"
             /></label>
             <label
               >Username<input v-model="cam.username" placeholder="(optional)"
@@ -658,6 +663,21 @@ textarea {
     &:focus {
       outline: none;
       border-color: #666;
+    }
+  }
+
+  .audio-label {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+
+    .audio-check {
+      width: 1rem;
+      height: 1rem;
+      padding: 0;
+      border: none;
+      background: none;
+      accent-color: #888;
     }
   }
 }

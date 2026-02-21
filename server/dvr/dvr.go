@@ -428,12 +428,18 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase,
 			"-rtsp_transport", "tcp",
 			"-i", rtspURL(cam),
 			"-t", fmt.Sprintf("%d", duration),
-			"-c", "copy",
-			"-map", "0",
+			"-c:v", "copy",
+		}
+		if cam.Audio {
+			args = append(args, "-c:a", "aac", "-map", "0:v", "-map", "0:a?")
+		} else {
+			args = append(args, "-an", "-map", "0:v")
+		}
+		args = append(args,
 			"-f", "tee",
 			"-y",
 			teeOut,
-		}
+		)
 		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 		cmd.Stdout = nil
 		cmd.Stderr = nil
