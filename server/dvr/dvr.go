@@ -1,6 +1,8 @@
 // Package dvr manages continuous recording of IP cameras to disk using ffmpeg.
-// Each camera runs a single ffmpeg process that simultaneously writes 10-minute
-// MKV segments for archival and a live HLS playlist for browser viewing.
+// Each camera runs a single ffmpeg process that simultaneously writes MP4
+// segments for archival and a live HLS playlist for browser viewing.
+// All timestamps are UTC. Archival files are organised under per-day
+// subdirectories: <recordingsDir>/<camera>/<yyyy-mm-dd>/<camera>-<hh-mm-ss>.mp4
 package dvr
 
 import (
@@ -17,10 +19,8 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 )
 
-const segmentDuration = 10 * 60 // 10 minutes in seconds
-
 // Manager starts and supervises DVR recording for all configured cameras.
-// Each camera gets one ffmpeg process that writes both archival MKV segments
+// Each camera gets one ffmpeg process that writes both archival MP4 segments
 // and a live HLS playlist. Call HLSDir to get the playlist directory for a camera.
 type Manager struct {
 	mu      sync.RWMutex
@@ -56,7 +56,6 @@ func (m *Manager) Start(ctx context.Context) {
 // soon as the camera's ffmpeg process produces its first segment; callers
 // should handle a temporarily missing stream.m3u8 gracefully.
 func (m *Manager) HLSDir(name string) (string, error) {
-	// Validate the name against the config.
 	found := false
 	for i := range m.cfg.Cameras {
 		if m.cfg.Cameras[i].Name == name {
@@ -104,18 +103,14 @@ func rtspURL(cam config.CameraConfig) string {
 	return fmt.Sprintf("rtsp://%s%s:%d/", creds, cam.Host, port)
 }
 
-// runCamera is the per-camera goroutine. It launches two independent ffmpeg
-// loops: one for archival MKV segments and one for the live HLS playlist.
+// runCamera is the per-camera goroutine. It allocates a persistent HLS temp dir
+// (stable for the process lifetime so the playlist URL never changes) and then
+// enters the recording loop.
 func (m *Manager) runCamera(ctx context.Context, cam config.CameraConfig) {
 	key := sanitizeName(cam.Name)
-	recDir := filepath.Join(m.cfg.RecordingsDir, key)
-	if err := os.MkdirAll(recDir, 0755); err != nil {
-		log.Printf("dvr[%s]: cannot create camera dir: %v", cam.Name, err)
-		return
-	}
+	camBase := filepath.Join(m.cfg.RecordingsDir, key)
 
-	// Allocate a persistent temp dir for HLS output. This dir lives for the
-	// lifetime of the process so the playlist path never changes.
+	// Allocate a persistent temp dir for HLS output.
 	hlsDir, err := os.MkdirTemp("", "velocipi-hls-"+key+"-")
 	if err != nil {
 		log.Printf("dvr[%s]: cannot create HLS dir: %v", cam.Name, err)
@@ -127,72 +122,112 @@ func (m *Manager) runCamera(ctx context.Context, cam config.CameraConfig) {
 	m.hlsDirs[key] = hlsDir
 	m.mu.Unlock()
 
-	go m.runRecordLoop(ctx, cam, recDir)
-	m.runHLSLoop(ctx, cam, hlsDir)
+	m.runLoop(ctx, cam, camBase, hlsDir)
 }
 
-// runRecordLoop continuously records 10-minute MKV segments, restarting on failure.
-func (m *Manager) runRecordLoop(ctx context.Context, cam config.CameraConfig, recDir string) {
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		log.Printf("dvr[%s]: starting recording", cam.Name)
-		ts := time.Now().Format("2006-01-02-15-04-05")
-		outPath := filepath.Join(recDir, fmt.Sprintf("%s-%s.mkv", sanitizeName(cam.Name), ts))
-		args := []string{
-			"-rtsp_transport", "tcp",
-			"-i", rtspURL(cam),
-			"-t", fmt.Sprintf("%d", segmentDuration),
-			"-c", "copy",
-			"-y",
-			outPath,
-		}
-		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-		cmd.Stdout = nil
-		cmd.Stderr = nil
-		if err := cmd.Run(); err != nil && ctx.Err() == nil {
-			log.Printf("dvr[%s]: recording stopped (%v), retrying in 5s", cam.Name, err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(5 * time.Second):
-		}
+// segmentDur returns the configured segment duration, falling back to 600s.
+func (m *Manager) segmentDur() int {
+	if m.cfg.SegmentDuration > 0 {
+		return m.cfg.SegmentDuration
 	}
+	return 600
 }
 
-// runHLSLoop continuously maintains a live HLS playlist, restarting on failure.
-func (m *Manager) runHLSLoop(ctx context.Context, cam config.CameraConfig, hlsDir string) {
+// nextBoundary returns the UTC time of the next segment boundary at or after
+// now, snapped to multiples of segSecs from the start of the current UTC day,
+// but never crossing midnight (i.e. capped at the start of the next UTC day).
+func nextBoundary(now time.Time, segSecs int) time.Time {
+	now = now.UTC()
+	midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+	seg := time.Duration(segSecs) * time.Second
+	// How far into the day are we?
+	elapsed := now.Sub(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC))
+	// Next segment boundary within the day.
+	next := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).
+		Add(((elapsed / seg) + 1) * seg)
+	if next.After(midnight) {
+		return midnight
+	}
+	return next
+}
+
+// runLoop is the main per-camera restart loop. Each iteration:
+//  1. Computes the UTC start time and determines the current day's subdir.
+//  2. Calculates how many seconds until the next segment boundary (or midnight).
+//  3. Runs a single ffmpeg with -t <duration> writing one MP4 file plus HLS.
+//  4. On normal exit (or error), waits up to 5s then restarts.
+//
+// Because each ffmpeg run is bounded by -t, it naturally stops before midnight
+// so the next iteration can open a new day directory. The HLS output is
+// continuous — ffmpeg appends to the rolling playlist across restarts because
+// hls_flags=append_list is set.
+//
+// tee syntax requires -map before -f tee, and format options in [...] brackets.
+func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase, hlsDir string) {
 	playlist := filepath.Join(hlsDir, "stream.m3u8")
-	segPattern := filepath.Join(hlsDir, "seg%05d.ts")
+	hlsSeg := filepath.Join(hlsDir, "seg%05d.ts")
+	segSecs := m.segmentDur()
+
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		log.Printf("dvr[%s]: starting HLS stream", cam.Name)
+
+		now := time.Now().UTC()
+		boundary := nextBoundary(now, segSecs)
+		duration := int(boundary.Sub(now).Seconds())
+		if duration <= 0 {
+			duration = 1
+		}
+
+		// Ensure the daily subdir exists.
+		dayDir := filepath.Join(camBase, now.Format("2006-01-02"))
+		if err := os.MkdirAll(dayDir, 0755); err != nil {
+			log.Printf("dvr[%s]: cannot create day dir: %v", cam.Name, err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+
+		mp4File := filepath.Join(dayDir, fmt.Sprintf("%s_%s_%s.mp4", sanitizeName(cam.Name), now.Format("2006-01-02-15"), now.Format("03-04-05")))
+		log.Printf("dvr[%s]: starting → %s (%ds)", cam.Name, mp4File, duration)
+
+		teeOut := fmt.Sprintf(
+			"[f=mp4:movflags=+faststart+empty_moov+default_base_moof]%s"+
+				"|[f=hls:hls_time=2:hls_list_size=10:hls_flags=delete_segments+append_list:hls_segment_filename=%s]%s",
+			mp4File, hlsSeg, playlist,
+		)
 		args := []string{
 			"-rtsp_transport", "tcp",
 			"-i", rtspURL(cam),
+			"-t", fmt.Sprintf("%d", duration),
 			"-c", "copy",
-			"-f", "hls",
-			"-hls_time", "2",
-			"-hls_list_size", "10",
-			"-hls_flags", "delete_segments+append_list",
-			"-hls_segment_filename", segPattern,
+			"-map", "0",
+			"-f", "tee",
 			"-y",
-			playlist,
+			teeOut,
 		}
 		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 		cmd.Stdout = nil
 		cmd.Stderr = nil
 		if err := cmd.Run(); err != nil && ctx.Err() == nil {
-			log.Printf("dvr[%s]: HLS stopped (%v), retrying in 5s", cam.Name, err)
+			log.Printf("dvr[%s]: stopped (%v), retrying in 5s", cam.Name, err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			continue
 		}
+
+		// Normal exit (segment boundary reached). Restart immediately.
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(5 * time.Second):
+		default:
 		}
 	}
 }

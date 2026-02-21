@@ -2,6 +2,7 @@ addr: "0.0.0.0:8080"
 
 dvr:
   recordingsDir: "recordings"
+  segmentDuration: 600
   cameras: []
 
 appUrl: "http://localhost:8081/panel/"

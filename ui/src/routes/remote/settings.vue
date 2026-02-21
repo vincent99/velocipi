@@ -321,6 +321,12 @@ const expanderBitFields = [
           path="dvr.recordingsDir"
           placeholder="recordings"
         />
+        <SettingsField
+          label="Segment duration (seconds)"
+          path="dvr.segmentDuration"
+          type="number"
+          :min="10"
+        />
         <div class="cameras-header">
           <span class="cameras-title">Cameras</span>
           <button
