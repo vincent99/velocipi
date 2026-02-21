@@ -82,6 +82,7 @@ export interface CameraConfig {
 export interface DVRConfig {
   recordingsDir: string;
   segmentDuration: number; // seconds
+  snapshotInterval: number; // seconds
   cameras: CameraConfig[];
 }
 

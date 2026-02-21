@@ -19,22 +19,31 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 )
 
-const snapshotTTL = 5 * time.Second
+const defaultSnapshotInterval = 5 * time.Second
 
 type snapshotCache struct {
 	data      []byte
 	fetchedAt time.Time
 }
 
+// CameraStatusMsg is broadcast over WebSocket when a camera's recording state changes.
+type CameraStatusMsg struct {
+	Type      string `json:"type"`      // always "cameraStatus"
+	Name      string `json:"name"`      // camera name (original, not sanitized)
+	Recording bool   `json:"recording"` // true = actively recording
+}
+
 // Manager starts and supervises DVR recording for all configured cameras.
 // Each camera gets one ffmpeg process that writes both archival MP4 segments
 // and a live HLS playlist. Call HLSDir to get the playlist directory for a camera.
 type Manager struct {
-	mu        sync.RWMutex
-	cfg       config.DVRConfig
-	hlsDirs   map[string]string         // sanitized name → HLS temp dir
-	snapshots map[string]*snapshotCache // sanitized name → cached JPEG
-	snapMu    sync.Mutex
+	mu             sync.RWMutex
+	cfg            config.DVRConfig
+	hlsDirs        map[string]string         // sanitized name → HLS temp dir
+	recording      map[string]bool           // sanitized name → recording state
+	snapshots      map[string]*snapshotCache // sanitized name → cached JPEG
+	snapMu         sync.Mutex
+	onStatusChange func(CameraStatusMsg)
 }
 
 // New creates a Manager. Call Start to begin recording.
@@ -42,7 +51,42 @@ func New(cfg config.DVRConfig) *Manager {
 	return &Manager{
 		cfg:       cfg,
 		hlsDirs:   make(map[string]string),
+		recording: make(map[string]bool),
 		snapshots: make(map[string]*snapshotCache),
+	}
+}
+
+// OnStatusChange registers a callback invoked whenever a camera's recording
+// state changes. Must be called before Start.
+func (m *Manager) OnStatusChange(fn func(CameraStatusMsg)) {
+	m.onStatusChange = fn
+}
+
+// CameraStatuses returns the current recording status of all configured cameras.
+// Implements CameraStatusProvider for hub.go.
+func (m *Manager) CameraStatuses() []CameraStatusMsg {
+	msgs := make([]CameraStatusMsg, 0, len(m.cfg.Cameras))
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, cam := range m.cfg.Cameras {
+		key := sanitizeName(cam.Name)
+		msgs = append(msgs, CameraStatusMsg{
+			Type:      "cameraStatus",
+			Name:      cam.Name,
+			Recording: m.recording[key],
+		})
+	}
+	return msgs
+}
+
+// setRecording updates the recording state for a camera and fires the callback if changed.
+func (m *Manager) setRecording(name, key string, recording bool) {
+	m.mu.Lock()
+	prev := m.recording[key]
+	m.recording[key] = recording
+	m.mu.Unlock()
+	if prev != recording && m.onStatusChange != nil {
+		m.onStatusChange(CameraStatusMsg{Type: "cameraStatus", Name: name, Recording: recording})
 	}
 }
 
@@ -86,8 +130,16 @@ func (m *Manager) HLSDir(name string) (string, error) {
 	return dir, nil
 }
 
+// SnapshotInterval returns the configured snapshot cache TTL.
+func (m *Manager) SnapshotInterval() time.Duration {
+	if m.cfg.SnapshotInterval > 0 {
+		return time.Duration(m.cfg.SnapshotInterval) * time.Second
+	}
+	return defaultSnapshotInterval
+}
+
 // Snapshot returns a JPEG-encoded frame from the named camera's RTSP stream.
-// Results are cached for snapshotTTL to avoid hammering the camera on rapid requests.
+// Results are cached for SnapshotInterval to avoid hammering the camera on rapid requests.
 // The context controls the ffmpeg subprocess timeout.
 func (m *Manager) Snapshot(ctx context.Context, name string) ([]byte, error) {
 	var cam *config.CameraConfig
@@ -105,7 +157,7 @@ func (m *Manager) Snapshot(ctx context.Context, name string) ([]byte, error) {
 	m.snapMu.Lock()
 	defer m.snapMu.Unlock()
 
-	if c := m.snapshots[key]; c != nil && time.Since(c.fetchedAt) < snapshotTTL {
+	if c := m.snapshots[key]; c != nil && time.Since(c.fetchedAt) < m.SnapshotInterval() {
 		return c.data, nil
 	}
 
@@ -220,9 +272,12 @@ func nextBoundary(now time.Time, segSecs int) time.Time {
 //
 // tee syntax requires -map before -f tee, and format options in [...] brackets.
 func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase, hlsDir string) {
+	key := sanitizeName(cam.Name)
 	playlist := filepath.Join(hlsDir, "stream.m3u8")
 	hlsSeg := filepath.Join(hlsDir, "seg%05d.ts")
 	segSecs := m.segmentDur()
+
+	defer m.setRecording(cam.Name, key, false)
 
 	for {
 		if ctx.Err() != nil {
@@ -240,6 +295,7 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase,
 		dayDir := filepath.Join(camBase, now.Format("2006-01-02"))
 		if err := os.MkdirAll(dayDir, 0755); err != nil {
 			log.Printf("dvr[%s]: cannot create day dir: %v", cam.Name, err)
+			m.setRecording(cam.Name, key, false)
 			select {
 			case <-ctx.Done():
 				return
@@ -269,8 +325,10 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase,
 		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
 		cmd.Stdout = nil
 		cmd.Stderr = nil
+		m.setRecording(cam.Name, key, true)
 		if err := cmd.Run(); err != nil && ctx.Err() == nil {
 			log.Printf("dvr[%s]: stopped (%v), retrying in 5s", cam.Name, err)
+			m.setRecording(cam.Name, key, false)
 			select {
 			case <-ctx.Done():
 				return

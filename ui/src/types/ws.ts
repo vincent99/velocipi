@@ -89,6 +89,12 @@ export interface KeyEchoMsg {
   key: LogicalKey;
 }
 
+export interface CameraStatusMsg {
+  type: 'cameraStatus';
+  name: string;
+  recording: boolean;
+}
+
 export type InboundWsMsg =
   | PingMsg
   | AirReadingMsg
@@ -96,7 +102,8 @@ export type InboundWsMsg =
   | TpmsMsg
   | LEDStateMsg
   | KeyEventMsg
-  | KeyEchoMsg;
+  | KeyEchoMsg
+  | CameraStatusMsg;
 
 // Outbound messages (client → server, sent on /ws)
 

@@ -26,17 +26,21 @@ const wsDisconnected = computed(() => dropped.value && !connected.value);
 
 <style scoped lang="scss">
 .remote-layout {
-  min-height: 100vh;
+  height: 100vh;
   background: #111;
   color: #eee;
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
 }
 
 .remote-main {
   flex: 1;
   padding: 1rem;
+  min-height: 0; // required so flex child can shrink and fill without overflow
+  display: flex;
+  flex-direction: column;
 }
 
 .disconnect-overlay {

@@ -3,12 +3,15 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useConfig } from '@/composables/useConfig';
 import { useRemoteRoutes } from '@/composables/useRemoteRoutes';
+import { useCameraList } from '@/composables/useCameraList';
 import ScreenViewer from '@/components/remote/ScreenViewer.vue';
+import CameraThumbnail from '@/components/remote/CameraThumbnail.vue';
 
 const { config } = useConfig();
 const routes = useRemoteRoutes();
 const route = useRoute();
 const router = useRouter();
+const { cameras } = useCameraList();
 
 const menuOpen = ref(false);
 const navEl = ref<HTMLElement | null>(null);
@@ -37,6 +40,10 @@ function navigate(path: string) {
   menuOpen.value = false;
   router.push(path);
 }
+
+function openCamera(name: string) {
+  router.push({ path: '/remote/cameras', query: { cam: name } });
+}
 </script>
 
 <template>
@@ -44,6 +51,19 @@ function navigate(path: string) {
     <!-- Left: screen viewer (hidden on routes that opt out) -->
     <div v-if="currentRoute?.headerScreen" class="header-screen">
       <ScreenViewer />
+    </div>
+
+    <!-- Camera thumbnails: one per configured camera, right of screen viewer -->
+    <div
+      v-if="cameras.length > 0 && currentRoute?.headerScreen"
+      class="header-cameras"
+    >
+      <CameraThumbnail
+        v-for="cam in cameras"
+        :key="cam"
+        :name="cam"
+        @select="openCamera"
+      />
     </div>
 
     <!-- Center: tail number -->
@@ -90,7 +110,7 @@ function navigate(path: string) {
 .page-header {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
   padding: 0.5rem 1rem;
   color: #fff;
   position: relative;
@@ -101,6 +121,15 @@ function navigate(path: string) {
 .header-screen {
   flex-shrink: 0;
   line-height: 0; // prevent extra space below img
+  height: 64px;
+}
+
+.header-cameras {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  height: 64px;
+  flex-shrink: 0;
 }
 
 .header-tail {

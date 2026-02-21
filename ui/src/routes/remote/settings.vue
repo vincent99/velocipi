@@ -327,6 +327,12 @@ const expanderBitFields = [
           type="number"
           :min="10"
         />
+        <SettingsField
+          label="Snapshot interval (seconds)"
+          path="dvr.snapshotInterval"
+          type="number"
+          :min="1"
+        />
         <div class="cameras-header">
           <span class="cameras-title">Cameras</span>
           <button

@@ -22,9 +22,10 @@ type CameraConfig struct {
 
 // DVRConfig holds settings for the DVR recording subsystem.
 type DVRConfig struct {
-	RecordingsDir   string         `yaml:"recordingsDir"   json:"recordingsDir"`
-	SegmentDuration int            `yaml:"segmentDuration" json:"segmentDuration"` // seconds
-	Cameras         []CameraConfig `yaml:"cameras"         json:"cameras"`
+	RecordingsDir    string         `yaml:"recordingsDir"    json:"recordingsDir"`
+	SegmentDuration  int            `yaml:"segmentDuration"  json:"segmentDuration"`  // seconds
+	SnapshotInterval int            `yaml:"snapshotInterval" json:"snapshotInterval"` // seconds
+	Cameras          []CameraConfig `yaml:"cameras"          json:"cameras"`
 }
 
 // NavMenuConfig holds display settings for the panel navigation menu.

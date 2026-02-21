@@ -22,6 +22,7 @@ import (
 	"github.com/chromedp/chromedp/kb"
 	"github.com/gorilla/websocket"
 	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/dvr"
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/airsensor"
 	"github.com/vincent99/velocipi/server/hardware/expander"
@@ -97,6 +98,7 @@ type Hub struct {
 	browserCtx    context.Context
 	cfg           *config.Config
 	oled          *oled.OLED
+	dvrManager    *dvr.Manager
 
 	lastFrameMu sync.RWMutex
 	lastFrame   []byte // most recent decoded PNG from the screencast
@@ -633,6 +635,23 @@ func ledStateMsg(s led.State) LEDStateMsg {
 		msg.Rate = int(s.Rate.Milliseconds())
 	}
 	return msg
+}
+
+// sendCameraStatuses sends the current recording status of all cameras to a single client.
+func (h *Hub) sendCameraStatuses(c *client) {
+	if h.dvrManager == nil {
+		return
+	}
+	for _, msg := range h.dvrManager.CameraStatuses() {
+		data, err := json.Marshal(msg)
+		if err != nil {
+			continue
+		}
+		select {
+		case c.send <- data:
+		default:
+		}
+	}
 }
 
 // sendLEDState sends the current LED state to a single client.

@@ -14,6 +14,8 @@ const airReading = ref<AirReading | null>(null);
 const lux = ref<number | null>(null);
 const ledState = ref<LEDStateMsg | null>(null);
 const tires = reactive<Map<string, Tire>>(new Map());
+// cameraRecording: camera name → true if actively recording
+const cameraRecording = reactive<Map<string, boolean>>(new Map());
 
 // Key echo: tracks which logical keys are currently "active" for visual feedback.
 // Encoder keys (tap-only) auto-clear after 150ms; held keys clear on keyup.
@@ -85,6 +87,9 @@ function init() {
       case 'keyEcho':
         handleKeyEcho(msg.key, msg.eventType);
         break;
+      case 'cameraStatus':
+        cameraRecording.set(msg.name, msg.recording);
+        break;
     }
   });
 
@@ -95,5 +100,13 @@ function init() {
 
 export function useDeviceState() {
   init();
-  return { lastPing, airReading, lux, ledState, tires, keyEcho };
+  return {
+    lastPing,
+    airReading,
+    lux,
+    ledState,
+    tires,
+    keyEcho,
+    cameraRecording,
+  };
 }

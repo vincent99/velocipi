@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -66,6 +67,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	go hub.sendLux(c)
 	go hub.sendTpms(c)
 	go hub.sendLEDState(c)
+	go hub.sendCameraStatuses(c)
 
 	// Write pump: drains c.send and writes to the WebSocket connection.
 	go func() {
@@ -267,7 +269,8 @@ func main() {
 	})
 
 	// /snapshot/{camera} — returns a single JPEG frame from the RTSP stream.
-	// Results are cached for 5 seconds to avoid hammering the camera.
+	// Results are cached for dvr.snapshotInterval seconds.
+	// The X-Snapshot-Interval header tells clients the cache TTL in seconds.
 	mux.HandleFunc("/snapshot/", func(w http.ResponseWriter, r *http.Request) {
 		cameraName := r.URL.Path[len("/snapshot/"):]
 		if cameraName == "" {
@@ -283,6 +286,7 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Snapshot-Interval", fmt.Sprintf("%d", int(dvrManager.SnapshotInterval().Seconds())))
 		w.Write(data)
 	})
 
@@ -323,6 +327,14 @@ func main() {
 	go hub.runTpmsLoop(ctx)
 	go hub.runInputLoop(ctx)
 	go hub.runScreencastLoop(ctx)
+
+	// Connect DVR manager to hub for camera status broadcasts.
+	hub.mu.Lock()
+	hub.dvrManager = dvrManager
+	hub.mu.Unlock()
+	dvrManager.OnStatusChange(func(msg dvr.CameraStatusMsg) {
+		hub.broadcastAll(msg)
+	})
 
 	// Start DVR recording for all configured cameras.
 	dvrManager.Start(ctx)
