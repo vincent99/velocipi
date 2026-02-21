@@ -3,14 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useConfig } from '@/composables/useConfig';
 import { useRemoteRoutes } from '@/composables/useRemoteRoutes';
-import { useDeviceState } from '@/composables/useDeviceState';
-import { useScreenSocket } from '@/composables/useScreenSocket';
 import ScreenViewer from '@/components/remote/ScreenViewer.vue';
-
-const { frameUrl } = defineProps<{ frameUrl: string | null }>();
-
-const { ledState } = useDeviceState();
-const { connected, dropped } = useScreenSocket();
 
 const { config } = useConfig();
 const routes = useRemoteRoutes();
@@ -46,11 +39,7 @@ function navigate(path: string) {
   <header class="page-header" :style="{ background: headerColor }">
     <!-- Left: screen viewer -->
     <div class="header-screen">
-      <ScreenViewer
-        :frame-url="frameUrl"
-        :disconnected="dropped && !connected"
-        :led-state="ledState"
-      />
+      <ScreenViewer />
     </div>
 
     <!-- Center: tail number -->

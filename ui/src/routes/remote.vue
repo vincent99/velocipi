@@ -3,17 +3,15 @@ import { computed } from 'vue';
 import { RouterView } from 'vue-router';
 import PageHeader from '@/components/remote/PageHeader.vue';
 import RedX from '@/components/RedX.vue';
-import { useScreenSocket } from '@/composables/useScreenSocket';
 import { useWebSocket } from '@/composables/useWebSocket';
 
-const { frameUrl } = useScreenSocket();
 const { connected, dropped } = useWebSocket();
 const wsDisconnected = computed(() => dropped.value && !connected.value);
 </script>
 
 <template>
   <div class="remote-layout">
-    <PageHeader :frame-url="frameUrl" />
+    <PageHeader />
     <main class="remote-main">
       <RouterView />
     </main>

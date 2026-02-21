@@ -21,17 +21,14 @@ type TPMS struct {
 // Tire updates are delivered on the Updates() channel.
 func Listen(addrs *config.TireAddresses) (*TPMS, error) {
 	positions := make(map[string]string)
-	for _, addr := range addrs.FL {
-		positions[strings.ToLower(addr)] = "FL"
+	for _, addr := range addrs.Nose {
+		positions[strings.ToLower(addr)] = "Nose"
 	}
-	for _, addr := range addrs.FR {
-		positions[strings.ToLower(addr)] = "FR"
+	for _, addr := range addrs.Left {
+		positions[strings.ToLower(addr)] = "Left"
 	}
-	for _, addr := range addrs.RL {
-		positions[strings.ToLower(addr)] = "RL"
-	}
-	for _, addr := range addrs.RR {
-		positions[strings.ToLower(addr)] = "RR"
+	for _, addr := range addrs.Right {
+		positions[strings.ToLower(addr)] = "Right"
 	}
 
 	tpms := &TPMS{

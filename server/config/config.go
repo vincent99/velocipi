@@ -47,10 +47,9 @@ type UIConfig struct {
 
 // TireAddresses maps one or more BT addresses to a wheel position label.
 type TireAddresses struct {
-	FL []string `yaml:"fl" json:"fl"`
-	FR []string `yaml:"fr" json:"fr"`
-	RL []string `yaml:"rl" json:"rl"`
-	RR []string `yaml:"rr" json:"rr"`
+	Nose  []string `yaml:"nose"  json:"nose"`
+	Left  []string `yaml:"left"  json:"left"`
+	Right []string `yaml:"right" json:"right"`
 }
 
 type ExpanderBits struct {

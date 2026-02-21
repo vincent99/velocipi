@@ -6,7 +6,7 @@ defineProps<{
   tires: Map<string, Tire>;
 }>();
 
-const POSITIONS = ['FL', 'FR', 'RL', 'RR'];
+const POSITIONS = ['Nose', 'Left', 'Right'];
 </script>
 
 <template>
@@ -23,7 +23,7 @@ const POSITIONS = ['FL', 'FR', 'RL', 'RR'];
 <style scoped lang="scss">
 .tpms {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 0.5rem;
   margin: 0.75rem 0;
   max-width: 480px;

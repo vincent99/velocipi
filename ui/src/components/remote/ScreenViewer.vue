@@ -1,24 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useConfig } from '@/composables/useConfig';
+import { useScreenSocket } from '@/composables/useScreenSocket';
+import { useDeviceState } from '@/composables/useDeviceState';
 import RedX from '@/components/RedX.vue';
-import type { LEDStateMsg } from '@/types/ws';
-
-const { frameUrl, disconnected, ledState } = defineProps<{
-  frameUrl: string | null;
-  disconnected: boolean;
-  ledState: LEDStateMsg | null;
-}>();
 
 const { config } = useConfig();
+const { frameUrl, connected, dropped } = useScreenSocket();
+const { ledState } = useDeviceState();
 
 const w = computed(() => config.value?.panel.width ?? 256);
 const h = computed(() => config.value?.panel.height ?? 64);
+const disconnected = computed(() => dropped.value && !connected.value);
 
 const borderStyle = computed(() => {
-  if (!ledState || ledState.mode === 'off') return {};
-  const rate = (ledState.rate ?? 500) * 2;
-  return ledState.mode === 'blink' ? { '--blink-rate': rate + 'ms' } : {};
+  if (!ledState.value || ledState.value.mode === 'off') return {};
+  const rate = (ledState.value.rate ?? 500) * 2;
+  return ledState.value.mode === 'blink' ? { '--blink-rate': rate + 'ms' } : {};
 });
 </script>
 
@@ -30,7 +28,6 @@ const borderStyle = computed(() => {
   >
     <img v-if="frameUrl" class="screenshot" :src="frameUrl" alt="screenshot" />
     <div v-else class="no-signal" />
-
     <RedX v-if="disconnected" :stroke-width="2" />
   </div>
 </template>

@@ -40,16 +40,13 @@ screen:
   splashImage: "ui/public/img/logo.png"
 
 tires:
-  fl:
+  nose:
     - "4a:a0:00:00:eb:02"
     - "ae3806cb-ea50-2187-4d1d-10010147721a"
-  fr:
-    - "4a:85:00:00:3a:50"
-    - "bc7ac313-2870-3c1f-c2bc-6047a80b58c2"
-  rl:
+  left:
     - "4a:88:00:00:72:70"
     - "24237bb2-4496-36b6-a755-64e9de75ac6c"
-  rr:
+  right:
     - "4a:85:00:00:d7:38"
     - "99633f0c-d627-5f15-7d5d-f171b5a745e7"
 
