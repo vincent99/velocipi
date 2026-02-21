@@ -3,19 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"syscall"
-	"time"
-
-	"math"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/vincent99/velocipi/server/config"
@@ -288,26 +286,18 @@ func main() {
 		}
 	})
 
-	// /snapshot/{camera} — returns a single JPEG frame from the RTSP stream.
-	// Results are cached for dvr.snapshotInterval seconds.
-	// The X-Snapshot-Interval header tells clients the cache TTL in seconds.
+	// /snapshot/{camera} — multipart/x-mixed-replace stream of JPEG frames.
+	// The server pushes a new frame each time the background snapshot loop
+	// captures one; browsers update the <img> automatically.
 	mux.HandleFunc("/snapshot/", func(w http.ResponseWriter, r *http.Request) {
 		cameraName := r.URL.Path[len("/snapshot/"):]
 		if cameraName == "" {
 			http.NotFound(w, r)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-		defer cancel()
-		data, err := dvrManager.Snapshot(ctx, cameraName)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		if err := dvrManager.StreamSnapshot(r.Context(), cameraName, w, r); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
 		}
-		w.Header().Set("Content-Type", "image/jpeg")
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("X-Snapshot-Interval", fmt.Sprintf("%d", int(dvrManager.SnapshotInterval().Seconds())))
-		w.Write(data)
 	})
 
 	mux.Handle("/", spaHandler("ui/dist"))

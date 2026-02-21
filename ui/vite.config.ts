@@ -40,6 +40,21 @@ export default defineConfig({
       '/snapshot': {
         target: 'http://localhost:8080',
         changeOrigin: false,
+        // Disable response buffering so multipart/x-mixed-replace frames
+        // are forwarded to the browser as they arrive rather than being
+        // held until the connection closes.
+        selfHandleResponse: true,
+        configure: (proxy) => {
+          proxy.on(
+            'proxyRes',
+            (proxyRes, req, res: import('http').ServerResponse) => {
+              // Copy status and headers through unchanged.
+              res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
+              // Pipe raw bytes directly — no buffering.
+              proxyRes.pipe(res);
+            }
+          );
+        },
       },
     },
   },

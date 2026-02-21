@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { computed } from 'vue';
 import { useDeviceState } from '@/composables/useDeviceState';
 import RedX from '@/components/RedX.vue';
 
@@ -9,48 +9,7 @@ const emit = defineEmits<{ (e: 'select', name: string): void }>();
 const { cameraRecording } = useDeviceState();
 const recording = computed(() => cameraRecording.get(props.name) ?? false);
 
-const src = ref('');
-let timer: ReturnType<typeof setTimeout> | null = null;
-
-async function fetchSnapshot() {
-  try {
-    const r = await fetch(`/snapshot/${encodeURIComponent(props.name)}`);
-    if (r.ok) {
-      const intervalSec = parseInt(
-        r.headers.get('X-Snapshot-Interval') ?? '5',
-        10
-      );
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      if (src.value) {
-        URL.revokeObjectURL(src.value);
-      }
-      src.value = url;
-      schedule(intervalSec * 1000);
-    } else {
-      schedule(5000);
-    }
-  } catch {
-    schedule(5000);
-  }
-}
-
-function schedule(ms: number) {
-  if (timer !== null) {
-    clearTimeout(timer);
-  }
-  timer = setTimeout(fetchSnapshot, ms);
-}
-
-onMounted(fetchSnapshot);
-onUnmounted(() => {
-  if (timer !== null) {
-    clearTimeout(timer);
-  }
-  if (src.value) {
-    URL.revokeObjectURL(src.value);
-  }
-});
+const src = computed(() => `/snapshot/${encodeURIComponent(props.name)}`);
 </script>
 
 <template>
@@ -59,8 +18,7 @@ onUnmounted(() => {
     :class="{ active: selected }"
     @click="emit('select', name)"
   >
-    <img v-if="src" :src="src" class="thumb-img" :alt="name" />
-    <div v-else class="thumb-placeholder" />
+    <img :src="src" class="thumb-img" :alt="name" />
     <RedX v-if="!recording" :stroke-width="3" />
     <span class="thumb-label">{{ name }}</span>
   </div>
@@ -86,16 +44,11 @@ onUnmounted(() => {
   }
 }
 
-.thumb-img,
-.thumb-placeholder {
+.thumb-img {
   display: block;
   height: 100%;
   width: auto;
-}
-
-.thumb-placeholder {
-  // Show something while the first snapshot loads.
-  width: 114px; // 16:9 at 64px height
+  min-width: 114px; // 16:9 at 64px height — holds size before first frame
   background: #111;
 }
 

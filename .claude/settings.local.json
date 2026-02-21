@@ -23,7 +23,8 @@
       "Bash(ls:*)",
       "Bash(ffmpeg:*)",
       "Bash(yarn add:*)",
-      "Bash(yarn build)"
+      "Bash(yarn build)",
+      "Bash(node -e:*)"
     ]
   }
 }

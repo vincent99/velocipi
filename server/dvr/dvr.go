@@ -9,6 +9,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"mime/multipart"
+	"net/http"
+	"net/textproto"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,9 +24,36 @@ import (
 
 const defaultSnapshotInterval = 5 * time.Second
 
-type snapshotCache struct {
-	data      []byte
-	fetchedAt time.Time
+// frameEntry holds the latest snapshot for a camera and the subscribers waiting for the next one.
+type frameEntry struct {
+	mu        sync.Mutex
+	data      []byte    // latest JPEG, nil until first capture
+	updatedAt time.Time // when data was last set
+	// broadcast: close this channel to wake all waiters, then replace it.
+	ready chan struct{}
+}
+
+func newFrameEntry() *frameEntry {
+	return &frameEntry{ready: make(chan struct{})}
+}
+
+// latest returns the current frame data and a channel that closes when a newer
+// frame is available.
+func (f *frameEntry) latest() ([]byte, chan struct{}) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.data, f.ready
+}
+
+// publish stores a new frame and wakes all waiting goroutines.
+func (f *frameEntry) publish(data []byte) {
+	f.mu.Lock()
+	f.data = data
+	f.updatedAt = time.Now()
+	old := f.ready
+	f.ready = make(chan struct{})
+	f.mu.Unlock()
+	close(old)
 }
 
 // CameraStatusMsg is broadcast over WebSocket when a camera's recording state changes.
@@ -39,20 +69,23 @@ type CameraStatusMsg struct {
 type Manager struct {
 	mu             sync.RWMutex
 	cfg            config.DVRConfig
-	hlsDirs        map[string]string         // sanitized name → HLS temp dir
-	recording      map[string]bool           // sanitized name → recording state
-	snapshots      map[string]*snapshotCache // sanitized name → cached JPEG
-	snapMu         sync.Mutex
+	hlsDirs        map[string]string      // sanitized name → HLS temp dir
+	recording      map[string]bool        // sanitized name → recording state
+	frames         map[string]*frameEntry // sanitized name → latest snapshot + waiters
 	onStatusChange func(CameraStatusMsg)
 }
 
 // New creates a Manager. Call Start to begin recording.
 func New(cfg config.DVRConfig) *Manager {
+	frames := make(map[string]*frameEntry, len(cfg.Cameras))
+	for _, cam := range cfg.Cameras {
+		frames[sanitizeName(cam.Name)] = newFrameEntry()
+	}
 	return &Manager{
 		cfg:       cfg,
 		hlsDirs:   make(map[string]string),
 		recording: make(map[string]bool),
-		snapshots: make(map[string]*snapshotCache),
+		frames:    frames,
 	}
 }
 
@@ -90,8 +123,8 @@ func (m *Manager) setRecording(name, key string, recording bool) {
 	}
 }
 
-// Start launches a background recording loop for each camera.
-// It returns immediately; recording runs until ctx is cancelled.
+// Start launches background recording and snapshot loops for each camera.
+// It returns immediately; all loops run until ctx is cancelled.
 func (m *Manager) Start(ctx context.Context) {
 	if len(m.cfg.Cameras) == 0 {
 		return
@@ -102,6 +135,7 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 	for _, cam := range m.cfg.Cameras {
 		go m.runCamera(ctx, cam)
+		go m.runSnapshotLoop(ctx, cam)
 	}
 }
 
@@ -130,45 +164,22 @@ func (m *Manager) HLSDir(name string) (string, error) {
 	return dir, nil
 }
 
-// SnapshotInterval returns the configured snapshot cache TTL.
-func (m *Manager) SnapshotInterval() time.Duration {
+// snapshotInterval returns the configured snapshot capture interval.
+func (m *Manager) snapshotInterval() time.Duration {
 	if m.cfg.SnapshotInterval > 0 {
 		return time.Duration(m.cfg.SnapshotInterval) * time.Second
 	}
 	return defaultSnapshotInterval
 }
 
-// Snapshot returns a JPEG-encoded frame from the named camera's RTSP stream.
-// Results are cached for SnapshotInterval to avoid hammering the camera on rapid requests.
-// The context controls the ffmpeg subprocess timeout.
-func (m *Manager) Snapshot(ctx context.Context, name string) ([]byte, error) {
-	var cam *config.CameraConfig
-	for i := range m.cfg.Cameras {
-		if m.cfg.Cameras[i].Name == name {
-			cam = &m.cfg.Cameras[i]
-			break
-		}
-	}
-	if cam == nil {
-		return nil, fmt.Errorf("unknown camera %q", name)
-	}
-	key := sanitizeName(name)
-
-	m.snapMu.Lock()
-	defer m.snapMu.Unlock()
-
-	if c := m.snapshots[key]; c != nil && time.Since(c.fetchedAt) < m.SnapshotInterval() {
-		return c.data, nil
-	}
-
-	// -vframes 1: grab exactly one frame
-	// -f image2pipe: write raw image to stdout
-	// -vcodec mjpeg: encode as JPEG
-	// -q:v 5: quality 1 (best) – 31 (worst); 5 is a good balance
+// fetchSnapshot grabs a single JPEG frame from the camera via ffmpeg,
+// scaled down to 240px height (preserving aspect ratio).
+func fetchSnapshot(ctx context.Context, cam config.CameraConfig) ([]byte, error) {
 	args := []string{
 		"-rtsp_transport", "tcp",
-		"-i", rtspURL(*cam),
+		"-i", rtspURL(cam),
 		"-vframes", "1",
+		"-vf", "scale=-2:240",
 		"-f", "image2pipe",
 		"-vcodec", "mjpeg",
 		"-q:v", "5",
@@ -179,9 +190,110 @@ func (m *Manager) Snapshot(ctx context.Context, name string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ffmpeg snapshot: %w", err)
 	}
-
-	m.snapshots[key] = &snapshotCache{data: data, fetchedAt: time.Now()}
 	return data, nil
+}
+
+// runSnapshotLoop continuously captures frames for one camera and publishes
+// them so StreamSnapshot clients receive updates immediately.
+func (m *Manager) runSnapshotLoop(ctx context.Context, cam config.CameraConfig) {
+	key := sanitizeName(cam.Name)
+	interval := m.snapshotInterval()
+	for {
+		snapCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		data, err := fetchSnapshot(snapCtx, cam)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("dvr[%s]: snapshot error: %v", cam.Name, err)
+		} else {
+			if fe := m.frames[key]; fe != nil {
+				fe.publish(data)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(interval):
+		}
+	}
+}
+
+// StreamSnapshot serves a multipart/x-mixed-replace stream for the named camera.
+// It sends the latest cached frame immediately (if any), then pushes a new
+// frame each time the background snapshot loop captures one.
+// The stream runs until the client disconnects or ctx is cancelled.
+func (m *Manager) StreamSnapshot(ctx context.Context, name string, w http.ResponseWriter, r *http.Request) error {
+	key := sanitizeName(name)
+	fe, ok := m.frames[key]
+	if !ok {
+		return fmt.Errorf("unknown camera %q", name)
+	}
+
+	boundary := "snapshotboundary"
+	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary="+boundary)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Connection", "close")
+
+	flusher, canFlush := w.(http.Flusher)
+
+	// Commit the response headers and flush them to the client immediately.
+	// Without this, Go's write buffer holds them until the first data write.
+	w.WriteHeader(http.StatusOK)
+	if canFlush {
+		flusher.Flush()
+	}
+
+	mw := multipart.NewWriter(w)
+	mw.SetBoundary(boundary)
+
+	writePart := func(data []byte) error {
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Type", "image/jpeg")
+		h.Set("Content-Length", fmt.Sprintf("%d", len(data)))
+		pw, err := mw.CreatePart(h)
+		if err != nil {
+			return err
+		}
+		if canFlush {
+			// Flush the boundary+part headers before writing the body so the
+			// client sees them without waiting for the buffer to fill.
+			flusher.Flush()
+		}
+		if _, err := pw.Write(data); err != nil {
+			return err
+		}
+		if canFlush {
+			flusher.Flush()
+		}
+		return nil
+	}
+
+	// Send the cached frame immediately so the thumbnail appears without waiting.
+	data, ready := fe.latest()
+	if len(data) > 0 {
+		if err := writePart(data); err != nil {
+			return nil // client gone
+		}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-r.Context().Done():
+			return nil
+		case <-ready:
+			data, ready = fe.latest()
+			if len(data) == 0 {
+				continue
+			}
+			if err := writePart(data); err != nil {
+				return nil // client gone
+			}
+		}
+	}
 }
 
 // resolveEnv expands a single value that may be an env-var reference.
