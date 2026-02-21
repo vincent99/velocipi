@@ -48,6 +48,12 @@ export default defineConfig({
           proxy.on(
             'proxyRes',
             (proxyRes, req, res: import('http').ServerResponse) => {
+              // Disable Nagle's algorithm on both sockets so small chunks
+              // (multipart boundaries + headers) aren't held waiting for more data.
+              (res.socket as import('net').Socket | null)?.setNoDelay(true);
+              (
+                (proxyRes as any).socket as import('net').Socket | null
+              )?.setNoDelay(true);
               // Copy status and headers through unchanged.
               res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
               // Pipe raw bytes directly — no buffering.

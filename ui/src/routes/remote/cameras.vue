@@ -59,7 +59,15 @@ function startStream(name: string) {
   const video = videoEl.value;
 
   if (Hls.isSupported()) {
-    hls = new Hls({ lowLatencyMode: true });
+    hls = new Hls({
+      lowLatencyMode: true,
+      // Start playback from the live edge (last segment) rather than
+      // the beginning of the playlist window.
+      liveSyncDurationCount: 1,
+      liveMaxLatencyDurationCount: 3,
+      maxBufferLength: 4,
+      maxMaxBufferLength: 8,
+    });
     hls.loadSource(src);
     hls.attachMedia(video);
     hls.on(Hls.Events.ERROR, (_evt, data) => {

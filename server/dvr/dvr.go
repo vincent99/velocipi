@@ -421,7 +421,7 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase,
 
 		teeOut := fmt.Sprintf(
 			"[f=mp4:movflags=+faststart+empty_moov+default_base_moof]%s"+
-				"|[f=hls:hls_time=2:hls_list_size=10:hls_flags=delete_segments+append_list:hls_segment_filename=%s]%s",
+				"|[f=hls:hls_time=2:hls_list_size=3:hls_flags=delete_segments+append_list:hls_segment_filename=%s]%s",
 			mp4File, hlsSeg, playlist,
 		)
 		args := []string{
