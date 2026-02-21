@@ -16,7 +16,6 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/oled"
-	"gopkg.in/yaml.v3"
 )
 
 var upgrader = websocket.Upgrader{
@@ -147,7 +146,9 @@ func screenHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	cfg := config.Load()
+	result := config.Load()
+	cfg := result.Config
+	defaults := result.Defaults
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -188,7 +189,10 @@ func main() {
 				err  error
 			)
 			if r.URL.Query().Get("full") == "true" {
-				data, err = json.Marshal(cfg)
+				data, err = json.Marshal(struct {
+					Config   *config.Config `json:"config"`
+					Defaults *config.Config `json:"defaults"`
+				}{cfg, defaults})
 			} else {
 				data, err = json.Marshal(cfg.UI)
 			}
@@ -204,13 +208,8 @@ func main() {
 				http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			yamlData, err := yaml.Marshal(&updated)
-			if err != nil {
-				http.Error(w, "yaml marshal error: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if err := os.WriteFile("config.yaml", yamlData, 0644); err != nil {
-				http.Error(w, "write error: "+err.Error(), http.StatusInternalServerError)
+			if err := config.SaveOverrides(updated, *defaults); err != nil {
+				http.Error(w, "save error: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 			*cfg = updated

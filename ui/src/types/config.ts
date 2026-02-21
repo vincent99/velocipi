@@ -91,6 +91,11 @@ export interface FullConfig {
   ui: Config;
 }
 
+export interface FullConfigResponse {
+  config: FullConfig;
+  defaults: FullConfig;
+}
+
 export interface PanelMeta {
   name: string;
   icon: string;

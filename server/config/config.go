@@ -1,8 +1,10 @@
 package config
 
 import (
+	"encoding/json"
 	"log"
 	"os"
+	"reflect"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -93,9 +95,9 @@ type OLEDConfig struct {
 
 // Config holds all runtime configuration.
 type Config struct {
-	Addr         string `yaml:"addr"        json:"addr"`
-	AppURL       string `yaml:"appUrl"      json:"appUrl"`
-	I2CDevice    string `yaml:"i2cDevice"   json:"i2cDevice"`
+	Addr         string `yaml:"addr"         json:"addr"`
+	AppURL       string `yaml:"appUrl"       json:"appUrl"`
+	I2CDevice    string `yaml:"i2cDevice"    json:"i2cDevice"`
 	PingInterval string `yaml:"pingInterval" json:"pingInterval"`
 
 	AirSensor   SensorConfig   `yaml:"airSensor"   json:"airSensor"`
@@ -115,19 +117,40 @@ type Config struct {
 	OLEDSPIFreq            physic.Frequency `yaml:"-" json:"-"`
 }
 
-// Load reads config.yaml and parses it.
-// String duration/frequency fields are parsed into their typed counterparts.
-func Load() *Config {
-	var cfg Config
+// LoadResult holds both the effective merged config and the raw defaults.
+type LoadResult struct {
+	Config   *Config // effective merged config (defaults + overrides)
+	Defaults *Config // values from config.default.yaml only
+}
 
-	data, err := os.ReadFile("config.yaml")
+// Load reads config.default.yaml as the baseline, then applies any overrides
+// from config.yaml (if it exists and is valid).
+func Load() *LoadResult {
+	var defaults Config
+
+	data, err := os.ReadFile("config.default.yaml")
 	if err != nil {
 		log.Fatal("config: read error: ", err)
 	}
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := yaml.Unmarshal(data, &defaults); err != nil {
 		log.Fatal("config: parse error: ", err)
 	}
 
+	// Start with a copy of defaults, then layer overrides on top.
+	cfg := defaults
+	if ovData, err := os.ReadFile("config.yaml"); err == nil {
+		if err := yaml.Unmarshal(ovData, &cfg); err != nil {
+			log.Println("config: ignoring malformed config.yaml:", err)
+		}
+	}
+
+	parseDurations(&cfg)
+	parseDurations(&defaults)
+
+	return &LoadResult{Config: &cfg, Defaults: &defaults}
+}
+
+func parseDurations(cfg *Config) {
 	cfg.ExpanderIntervalDur = parseDuration(cfg.Expander.Interval, "expander.interval")
 	cfg.AirSensorIntervalDur = parseDuration(cfg.AirSensor.Interval, "airSensor.interval")
 	cfg.LightSensorIntervalDur = parseDuration(cfg.LightSensor.Interval, "lightSensor.interval")
@@ -137,8 +160,49 @@ func Load() *Config {
 	if err := cfg.OLEDSPIFreq.Set(cfg.OLED.SPISpeed); err != nil {
 		log.Fatalf("config: invalid oled.spiSpeed %q: %v", cfg.OLED.SPISpeed, err)
 	}
+}
 
-	return &cfg
+// SaveOverrides writes only the fields that differ from defaults to config.yaml.
+func SaveOverrides(updated, defaults Config) error {
+	uMap := toMap(updated)
+	dMap := toMap(defaults)
+	diff := diffMaps(uMap, dMap)
+	data, err := yaml.Marshal(diff)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile("config.yaml", data, 0644)
+}
+
+func toMap(v any) map[string]any {
+	b, _ := json.Marshal(v)
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	return m
+}
+
+func diffMaps(override, defaults map[string]any) map[string]any {
+	result := map[string]any{}
+	for k, ov := range override {
+		dv, ok := defaults[k]
+		if !ok {
+			result[k] = ov
+			continue
+		}
+		if om, ok2 := ov.(map[string]any); ok2 {
+			if dm, ok3 := dv.(map[string]any); ok3 {
+				sub := diffMaps(om, dm)
+				if len(sub) > 0 {
+					result[k] = sub
+				}
+				continue
+			}
+		}
+		if !reflect.DeepEqual(ov, dv) {
+			result[k] = ov
+		}
+	}
+	return result
 }
 
 func parseDuration(s, field string) time.Duration {

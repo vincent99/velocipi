@@ -9,10 +9,14 @@ export const remoteMeta: PanelMeta = {
 </script>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import type { FullConfig } from '@/types/config';
+import { ref, provide, onMounted } from 'vue';
+import type { FullConfig, FullConfigResponse } from '@/types/config';
+import SettingsField from '@/components/settings/SettingsField.vue';
+import { settingsKey } from '@/components/settings/settingsContext';
+import SettingsGroup from '@/components/settings/SettingsGroup.vue';
 
 const cfg = ref<FullConfig | null>(null);
+const defaults = ref<FullConfig | null>(null);
 const saving = ref(false);
 const saved = ref(false);
 const error = ref('');
@@ -21,7 +25,9 @@ onMounted(async () => {
   try {
     const r = await fetch('/config?full=true');
     if (!r.ok) throw new Error(await r.text());
-    cfg.value = await r.json();
+    const data: FullConfigResponse = await r.json();
+    cfg.value = data.config;
+    defaults.value = data.defaults;
   } catch (e: unknown) {
     error.value = 'Failed to load config: ' + String(e);
   }
@@ -40,13 +46,59 @@ async function save() {
     });
     if (!r.ok) throw new Error(await r.text());
     saved.value = true;
-    setTimeout(() => { saved.value = false; }, 3000);
+    setTimeout(() => { saved.value = false; }, 4000);
   } catch (e: unknown) {
     error.value = 'Save failed: ' + String(e);
   } finally {
     saving.value = false;
   }
 }
+
+function getPath(path: string): unknown {
+  return path.split('.').reduce((o: any, k) => o?.[k], cfg.value);
+}
+function setPath(path: string, value: unknown) {
+  const keys = path.split('.');
+  const last = keys.pop()!;
+  (keys.reduce((o: any, k) => o[k], cfg.value!) as any)[last] = value;
+}
+function isModified(path: string): boolean {
+  return JSON.stringify(getPath(path)) !==
+    JSON.stringify(path.split('.').reduce((o: any, k) => o?.[k], defaults.value));
+}
+function reset(path: string) {
+  const defVal = path.split('.').reduce((o: any, k) => o?.[k], defaults.value);
+  setPath(path, structuredClone(defVal));
+}
+
+provide(settingsKey, { isModified, reset, getPath, setPath });
+
+const keyMapFields = [
+  { key: 'ui.keyMap.up', label: 'Up' },
+  { key: 'ui.keyMap.down', label: 'Down' },
+  { key: 'ui.keyMap.left', label: 'Left' },
+  { key: 'ui.keyMap.right', label: 'Right' },
+  { key: 'ui.keyMap.enter', label: 'Enter' },
+  { key: 'ui.keyMap.joyLeft', label: 'Joy left' },
+  { key: 'ui.keyMap.joyRight', label: 'Joy right' },
+  { key: 'ui.keyMap.innerLeft', label: 'Inner left' },
+  { key: 'ui.keyMap.innerRight', label: 'Inner right' },
+  { key: 'ui.keyMap.outerLeft', label: 'Outer left' },
+  { key: 'ui.keyMap.outerRight', label: 'Outer right' },
+];
+
+const expanderBitFields = [
+  { key: 'expander.bits.knobCenter', label: 'Knob center' },
+  { key: 'expander.bits.knobInner', label: 'Knob inner (A)' },
+  { key: 'expander.bits.knobOuter', label: 'Knob outer (A)' },
+  { key: 'expander.bits.led', label: 'LED' },
+  { key: 'expander.bits.joyCenter', label: 'Joy center' },
+  { key: 'expander.bits.joyDown', label: 'Joy down' },
+  { key: 'expander.bits.joyUp', label: 'Joy up' },
+  { key: 'expander.bits.joyRight', label: 'Joy right' },
+  { key: 'expander.bits.joyLeft', label: 'Joy left' },
+  { key: 'expander.bits.joyKnob', label: 'Joy knob (A)' },
+];
 </script>
 
 <template>
@@ -54,213 +106,101 @@ async function save() {
     <div v-if="!cfg && !error" class="loading">Loading…</div>
     <div v-if="error" class="error-banner">{{ error }}</div>
 
-    <form v-if="cfg" @submit.prevent="save">
+    <form v-if="cfg && defaults" @submit.prevent="save">
 
       <!-- Server -->
       <section>
         <h2>Server</h2>
-        <div class="field">
-          <label>Listen address</label>
-          <input v-model="cfg.addr" type="text" placeholder="0.0.0.0:8080" />
-        </div>
-        <div class="field">
-          <label>App URL</label>
-          <input v-model="cfg.appUrl" type="text" placeholder="http://localhost:8081/panel/" />
-        </div>
-        <div class="field">
-          <label>I²C device</label>
-          <input v-model="cfg.i2cDevice" type="text" placeholder="/dev/i2c-1" />
-        </div>
-        <div class="field">
-          <label>Ping interval</label>
-          <input v-model="cfg.pingInterval" type="text" placeholder="1s" />
-        </div>
+        <SettingsField label="Listen address" path="addr" placeholder="0.0.0.0:8080" />
+        <SettingsField label="App URL" path="appUrl" placeholder="http://localhost:8081/panel/" />
+        <SettingsField label="I²C device" path="i2cDevice" placeholder="/dev/i2c-1" />
+        <SettingsField label="Ping interval" path="pingInterval" placeholder="1s" />
       </section>
 
       <!-- Display -->
       <section>
         <h2>Display</h2>
-        <div class="field-group">
-          <h3>OLED</h3>
-          <div class="field">
-            <label>SPI port</label>
-            <input v-model="cfg.oled.spiPort" type="text" placeholder="/dev/spidev0.0" />
-          </div>
-          <div class="field">
-            <label>SPI speed</label>
-            <input v-model="cfg.oled.spiSpeed" type="text" placeholder="2.40MHz" />
-          </div>
-          <div class="field">
-            <label>GPIO chip</label>
-            <input v-model="cfg.oled.gpioChip" type="text" placeholder="gpiochip0" />
-          </div>
-          <div class="field">
-            <label>DC pin</label>
-            <input v-model.number="cfg.oled.dcPin" type="number" min="0" />
-          </div>
-          <div class="field">
-            <label>Reset pin</label>
-            <input v-model.number="cfg.oled.resetPin" type="number" min="0" />
-          </div>
-          <div class="field field-checkbox">
-            <label>Flip display</label>
-            <input v-model="cfg.oled.flip" type="checkbox" />
-          </div>
-        </div>
-
-        <div class="field-group">
-          <h3>Screen</h3>
-          <div class="field">
-            <label>FPS</label>
-            <input v-model.number="cfg.screen.fps" type="number" min="1" max="60" />
-          </div>
-          <div class="field">
-            <label>Splash image</label>
-            <input v-model="cfg.screen.splashImage" type="text" placeholder="ui/public/img/logo.png" />
-          </div>
-          <div class="field">
-            <label>Splash duration</label>
-            <input v-model="cfg.screen.splashDuration" type="text" placeholder="2s" />
-          </div>
-        </div>
+        <SettingsGroup title="OLED">
+          <SettingsField label="SPI port" path="oled.spiPort" placeholder="/dev/spidev0.0" />
+          <SettingsField label="SPI speed" path="oled.spiSpeed" placeholder="2.40MHz" />
+          <SettingsField label="GPIO chip" path="oled.gpioChip" placeholder="gpiochip0" />
+          <SettingsField label="DC pin" path="oled.dcPin" type="number" :min="0" />
+          <SettingsField label="Reset pin" path="oled.resetPin" type="number" :min="0" />
+          <SettingsField label="Flip display" path="oled.flip" type="checkbox" />
+        </SettingsGroup>
+        <SettingsGroup title="Screen">
+          <SettingsField label="FPS" path="screen.fps" type="number" :min="1" :max="60" />
+          <SettingsField label="Splash image" path="screen.splashImage" placeholder="ui/public/img/logo.png" />
+          <SettingsField label="Splash duration" path="screen.splashDuration" placeholder="2s" />
+        </SettingsGroup>
       </section>
 
       <!-- UI -->
       <section>
         <h2>UI</h2>
-        <div class="field">
-          <label>Tail number</label>
-          <input v-model="cfg.ui.tail" type="text" placeholder="N711ME" />
-        </div>
-        <div class="field">
-          <label>Header color</label>
-          <div class="color-field">
-            <input v-model="cfg.ui.headerColor" type="color" class="color-swatch" />
-            <input v-model="cfg.ui.headerColor" type="text" class="color-text" placeholder="#3b82f6" />
-          </div>
-        </div>
-
-        <div class="field-group">
-          <h3>Panel</h3>
-          <div class="field">
-            <label>Width (px)</label>
-            <input v-model.number="cfg.ui.panel.width" type="number" min="1" />
-          </div>
-          <div class="field">
-            <label>Height (px)</label>
-            <input v-model.number="cfg.ui.panel.height" type="number" min="1" />
-          </div>
-        </div>
-
-        <div class="field-group">
-          <h3>Nav menu</h3>
-          <div class="field">
-            <label>Hide delay (ms)</label>
-            <input v-model.number="cfg.ui.navMenu.hideDelay" type="number" min="0" />
-          </div>
-          <div class="field">
-            <label>Cell width (px)</label>
-            <input v-model.number="cfg.ui.navMenu.cellWidth" type="number" min="1" />
-          </div>
-        </div>
-
-        <div class="field-group">
-          <h3>Key map</h3>
-          <div class="keymap-grid">
-            <template v-for="(label, key) in {
-              up: 'Up', down: 'Down', left: 'Left', right: 'Right', enter: 'Enter',
-              joyLeft: 'Joy left', joyRight: 'Joy right',
-              innerLeft: 'Inner left', innerRight: 'Inner right',
-              outerLeft: 'Outer left', outerRight: 'Outer right'
-            }" :key="key">
-              <label>{{ label }}</label>
-              <input v-model="(cfg.ui.keyMap as Record<string,string>)[key]" type="text" class="key-input" />
-            </template>
-          </div>
-        </div>
+        <SettingsField label="Tail number" path="ui.tail" placeholder="N711ME" />
+        <SettingsField label="Header color" path="ui.headerColor" type="color" placeholder="#3b82f6" />
+        <SettingsGroup title="Panel">
+          <SettingsField label="Width (px)" path="ui.panel.width" type="number" :min="1" />
+          <SettingsField label="Height (px)" path="ui.panel.height" type="number" :min="1" />
+        </SettingsGroup>
+        <SettingsGroup title="Nav menu">
+          <SettingsField label="Hide delay (ms)" path="ui.navMenu.hideDelay" type="number" :min="0" />
+          <SettingsField label="Cell width (px)" path="ui.navMenu.cellWidth" type="number" :min="1" />
+        </SettingsGroup>
+        <SettingsGroup title="Key map" :columns="2">
+          <SettingsField v-for="f in keyMapFields" :key="f.key" :label="f.label" :path="f.key" />
+        </SettingsGroup>
       </section>
 
       <!-- Hardware -->
       <section>
         <h2>Hardware</h2>
-
-        <div class="field-group">
-          <h3>Air sensor (BME280)</h3>
-          <div class="field">
-            <label>I²C address</label>
-            <input v-model.number="cfg.airSensor.address" type="number" min="0" max="127" />
-          </div>
-          <div class="field">
-            <label>Poll interval</label>
-            <input v-model="cfg.airSensor.interval" type="text" placeholder="1s" />
-          </div>
-        </div>
-
-        <div class="field-group">
-          <h3>Light sensor (VEML6030)</h3>
-          <div class="field">
-            <label>I²C address</label>
-            <input v-model.number="cfg.lightSensor.address" type="number" min="0" max="127" />
-          </div>
-          <div class="field">
-            <label>Poll interval</label>
-            <input v-model="cfg.lightSensor.interval" type="text" placeholder="1s" />
-          </div>
-        </div>
-
-        <div class="field-group">
-          <h3>Expander (SX1509)</h3>
-          <div class="field">
-            <label>I²C address</label>
-            <input v-model.number="cfg.expander.address" type="number" min="0" max="127" />
-          </div>
-          <div class="field">
-            <label>Poll interval</label>
-            <input v-model="cfg.expander.interval" type="text" placeholder="2ms" />
-          </div>
-          <h4>Bit assignments</h4>
-          <div class="keymap-grid">
-            <template v-for="(label, key) in {
-              knobCenter: 'Knob center', knobInner: 'Knob inner (A)',
-              knobOuter: 'Knob outer (A)', led: 'LED',
-              joyCenter: 'Joy center', joyDown: 'Joy down',
-              joyUp: 'Joy up', joyRight: 'Joy right',
-              joyLeft: 'Joy left', joyKnob: 'Joy knob (A)'
-            }" :key="key">
-              <label>{{ label }}</label>
-              <input v-model.number="(cfg.expander.bits as Record<string,number>)[key]" type="number" min="0" max="15" class="key-input" />
-            </template>
-          </div>
-        </div>
+        <SettingsGroup title="Air sensor (BME280)">
+          <SettingsField label="I²C address" path="airSensor.address" type="number" :min="0" :max="127" />
+          <SettingsField label="Poll interval" path="airSensor.interval" placeholder="1s" />
+        </SettingsGroup>
+        <SettingsGroup title="Light sensor (VEML6030)">
+          <SettingsField label="I²C address" path="lightSensor.address" type="number" :min="0" :max="127" />
+          <SettingsField label="Poll interval" path="lightSensor.interval" placeholder="1s" />
+        </SettingsGroup>
+        <SettingsGroup title="Expander (SX1509)">
+          <SettingsField label="I²C address" path="expander.address" type="number" :min="0" :max="127" />
+          <SettingsField label="Poll interval" path="expander.interval" placeholder="2ms" />
+        </SettingsGroup>
+        <SettingsGroup title="Expander bit assignments" :columns="2">
+          <SettingsField v-for="f in expanderBitFields" :key="f.key" :label="f.label" :path="f.key" type="number" :min="0" :max="15" />
+        </SettingsGroup>
       </section>
 
       <!-- Tires -->
       <section>
         <h2>TPMS sensors</h2>
         <p class="hint">One Bluetooth address per line.</p>
-        <div class="field-group">
-          <h3>Nose</h3>
-          <textarea :value="cfg.tires.nose.join('\n')"
-            @input="cfg!.tires.nose = ($event.target as HTMLTextAreaElement).value.split('\n').map(s => s.trim()).filter(Boolean)"
-            rows="2" placeholder="4a:a0:00:00:eb:02" />
-        </div>
-        <div class="field-group">
-          <h3>Left</h3>
-          <textarea :value="cfg.tires.left.join('\n')"
-            @input="cfg!.tires.left = ($event.target as HTMLTextAreaElement).value.split('\n').map(s => s.trim()).filter(Boolean)"
-            rows="2" placeholder="4a:88:00:00:72:70" />
-        </div>
-        <div class="field-group">
-          <h3>Right</h3>
-          <textarea :value="cfg.tires.right.join('\n')"
-            @input="cfg!.tires.right = ($event.target as HTMLTextAreaElement).value.split('\n').map(s => s.trim()).filter(Boolean)"
-            rows="2" placeholder="4a:85:00:00:d7:38" />
-        </div>
+
+        <SettingsGroup v-for="pos in ['nose', 'left', 'right'] as const" :key="pos" :title="pos">
+          <template #header-action>
+            <button
+              v-if="isModified('tires.' + pos)"
+              type="button"
+              class="group-reset"
+              title="Reset to default"
+              @click="reset('tires.' + pos)"
+            ><i class="fi-sr-rotate-left" /></button>
+          </template>
+          <textarea
+            :value="(cfg.tires[pos] as string[]).join('\n')"
+            :class="{ modified: isModified('tires.' + pos) }"
+            rows="2"
+            placeholder="4a:xx:xx:xx:xx:xx"
+            @input="(cfg!.tires[pos] as string[]) = ($event.target as HTMLTextAreaElement).value.split('\n').map(s => s.trim()).filter(Boolean)"
+          />
+        </SettingsGroup>
       </section>
 
-      <!-- Save bar -->
+      <!-- Save -->
       <div class="save-bar">
-        <span v-if="saved" class="saved-msg">Saved. Restart the server to apply changes.</span>
+        <span v-if="saved" class="saved-msg">Saved — restart the server to apply changes.</span>
         <span v-if="error" class="error-msg">{{ error }}</span>
         <button type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
       </div>
@@ -271,17 +211,14 @@ async function save() {
 
 <style scoped lang="scss">
 .settings-page {
-  max-width: 640px;
+  max-width: 600px;
   margin: 0 auto;
-  padding: 1.5rem 1rem 4rem;
+  padding: 1.5rem 1rem 2rem;
   color: #e0e0e0;
   font-size: 0.9rem;
 }
 
-.loading {
-  color: #888;
-  padding: 2rem 0;
-}
+.loading { color: #888; padding: 2rem 0; }
 
 .error-banner {
   background: #5a1a1a;
@@ -305,130 +242,23 @@ section {
   }
 }
 
-.field-group {
-  background: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-
-  h3 {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #aaa;
-    margin: 0 0 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  h4 {
-    font-size: 0.75rem;
-    color: #888;
-    margin: 0.75rem 0 0.5rem;
-  }
-}
-
-.field {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.6rem;
-
-  &:last-child { margin-bottom: 0; }
-
-  label {
-    min-width: 140px;
-    color: #aaa;
-    flex-shrink: 0;
-  }
-
-  input[type="text"],
-  input[type="number"] {
-    flex: 1;
-    background: #2a2a2a;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #e0e0e0;
-    padding: 0.3rem 0.5rem;
-    font-size: 0.85rem;
-    font-family: monospace;
-    min-width: 0;
-
-    &:focus {
-      outline: none;
-      border-color: #666;
-    }
-  }
-
-  &.field-checkbox {
-    input[type="checkbox"] {
-      width: 1.1rem;
-      height: 1.1rem;
-      cursor: pointer;
-      accent-color: #3b82f6;
-    }
-  }
-}
-
-.color-field {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 1;
-}
-
-.color-swatch {
-  width: 2rem !important;
-  height: 2rem !important;
-  padding: 0 !important;
-  border-radius: 4px !important;
-  cursor: pointer;
-  flex: none !important;
-}
-
-.color-text {
-  flex: 1;
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 4px;
-  color: #e0e0e0;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.85rem;
-  font-family: monospace;
-
-  &:focus { outline: none; border-color: #666; }
-}
-
-.keymap-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.4rem 1rem;
-  align-items: center;
-
-  label {
-    color: #aaa;
-    font-size: 0.85rem;
-  }
-}
-
-.key-input {
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 4px;
-  color: #e0e0e0;
-  padding: 0.25rem 0.4rem;
-  font-size: 0.85rem;
-  font-family: monospace;
-  width: 100%;
-  box-sizing: border-box;
-
-  &:focus { outline: none; border-color: #666; }
-}
-
 .hint {
   color: #666;
   font-size: 0.8rem;
   margin: 0 0 0.75rem;
+}
+
+.group-reset {
+  background: none;
+  border: none;
+  color: #3b82f6;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+
+  &:hover { color: #60a5fa; }
 }
 
 textarea {
@@ -444,18 +274,14 @@ textarea {
   box-sizing: border-box;
 
   &:focus { outline: none; border-color: #666; }
+  &.modified { border-color: #3b82f6; }
 }
 
 .save-bar {
-  position: sticky;
-  bottom: 0;
-  background: #1a1a1a;
-  border-top: 1px solid #333;
-  padding: 0.75rem 1rem;
   display: flex;
   align-items: center;
   gap: 1rem;
-  margin: 0 -1rem -4rem;
+  padding-top: 0.5rem;
 
   button {
     margin-left: auto;
@@ -474,13 +300,6 @@ textarea {
   }
 }
 
-.saved-msg {
-  color: #4ade80;
-  font-size: 0.85rem;
-}
-
-.error-msg {
-  color: #f87171;
-  font-size: 0.85rem;
-}
+.saved-msg { color: #4ade80; font-size: 0.85rem; }
+.error-msg { color: #f87171; font-size: 0.85rem; }
 </style>

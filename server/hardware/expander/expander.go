@@ -39,7 +39,7 @@ type Change struct {
 }
 
 func New() (*Expander, error) {
-	cfg := config.Load()
+	cfg := config.Load().Config
 	address := cfg.Expander.Address
 	if address == 0 {
 		address = DEFAULT_ADDRESS

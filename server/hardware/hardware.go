@@ -53,7 +53,7 @@ func LightSensor() *lightsensor.LightSensor {
 
 func TPMS() *tpms.TPMS {
 	tpmsOnce.Do(func() {
-		cfg := config.Load()
+		cfg := config.Load().Config
 		t, err := tpms.Listen(&cfg.Tires)
 		if err != nil {
 			log.Println("hardware: tpms init error:", err)
@@ -65,7 +65,7 @@ func TPMS() *tpms.TPMS {
 
 func Expander() *expander.Expander {
 	expanderOnce.Do(func() {
-		cfg := config.Load()
+		cfg := config.Load().Config
 		e, err := expander.New()
 		if err != nil {
 			log.Println("hardware: expander init error:", err)
@@ -85,7 +85,7 @@ func Expander() *expander.Expander {
 // LED returns the singleton LED controller for the expander's LED pin.
 func LED() *led.Controller {
 	ledOnce.Do(func() {
-		cfg := config.Load()
+		cfg := config.Load().Config
 		ledUnit = led.New(cfg.Expander.Bits.LED)
 	})
 	return ledUnit

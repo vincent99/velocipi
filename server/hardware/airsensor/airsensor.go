@@ -121,7 +121,7 @@ type Reading struct {
 }
 
 func NewAirSensor() (*AirSensor, error) {
-	cfg := config.Load()
+	cfg := config.Load().Config
 	return NewAirSensorWithOptions(&Config{
 		Address:            cfg.AirSensor.Address,
 		Device:             cfg.I2CDevice,
