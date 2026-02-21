@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import type { OutboundWsMsg } from '../types/ws';
 
 const connected = ref(false);
+const dropped = ref(false);
 let ws: WebSocket | null = null;
 const messageHandlers = new Set<(e: MessageEvent) => void>();
 const closeHandlers = new Set<() => void>();
@@ -18,6 +19,7 @@ function connect() {
   ws.onerror = (e) => console.error('ws error', e);
 
   ws.onclose = () => {
+    if (connected.value) dropped.value = true;
     connected.value = false;
     closeHandlers.forEach((h) => h());
     setTimeout(connect, 2000);
@@ -44,6 +46,7 @@ export function useWebSocket() {
     },
     send,
     connected,
+    dropped,
     onMessage(handler: (e: MessageEvent) => void): () => void {
       messageHandlers.add(handler);
       return () => messageHandlers.delete(handler);

@@ -38,10 +38,11 @@ type PanelConfig struct {
 
 // UIConfig holds the subset of config sent to the browser UI via /config.
 type UIConfig struct {
-	Tail    string        `yaml:"tail"    json:"tail"`
-	Panel   PanelConfig   `yaml:"panel"   json:"panel"`
-	NavMenu NavMenuConfig `yaml:"navMenu" json:"navMenu"`
-	KeyMap  KeyMapConfig  `yaml:"keyMap"  json:"keyMap"`
+	Tail        string        `yaml:"tail"        json:"tail"`
+	HeaderColor string        `yaml:"headerColor" json:"headerColor"`
+	Panel       PanelConfig   `yaml:"panel"       json:"panel"`
+	NavMenu     NavMenuConfig `yaml:"navMenu"     json:"navMenu"`
+	KeyMap      KeyMapConfig  `yaml:"keyMap"      json:"keyMap"`
 }
 
 // TireAddresses maps one or more BT addresses to a wheel position label.

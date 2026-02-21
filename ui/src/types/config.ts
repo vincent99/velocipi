@@ -24,6 +24,7 @@ export interface KeyMapConfig {
 
 export interface Config {
   tail: string;
+  headerColor: string;
   panel: PanelConfig;
   navMenu: NavMenuConfig;
   keyMap: KeyMapConfig;

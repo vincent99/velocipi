@@ -55,6 +55,7 @@ tires:
 
 ui:
   tail: "N711ME"
+  headerColor: "#3b82f6"
   panel:
     width: 256
     height: 64
