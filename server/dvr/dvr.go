@@ -116,12 +116,19 @@ type CameraStatusMsg struct {
 	Recording bool   `json:"recording"` // true = actively recording
 }
 
+// streamSession tracks the active camera and switch channel for one StreamActive connection.
+type streamSession struct {
+	activeCam    string
+	switchNotify chan struct{}
+}
+
 // Manager starts and supervises DVR recording for all configured cameras.
 type Manager struct {
 	mu             sync.RWMutex
 	cfg            config.DVRConfig
-	live           map[string]*liveCamera // sanitized name → live state
-	recording      map[string]bool        // sanitized name → recording state
+	live           map[string]*liveCamera    // sanitized name → live state
+	recording      map[string]bool           // sanitized name → recording state
+	sessions       map[string]*streamSession // clientID → per-connection state
 	onStatusChange func(CameraStatusMsg)
 }
 
@@ -138,6 +145,7 @@ func New(cfg config.DVRConfig) *Manager {
 		cfg:       cfg,
 		live:      live,
 		recording: make(map[string]bool),
+		sessions:  make(map[string]*streamSession),
 	}
 }
 
@@ -472,6 +480,102 @@ func (m *Manager) StreamMPEGTS(ctx context.Context, name string, w http.Response
 				flusher.Flush()
 			}
 		}
+	}
+}
+
+// SelectCamera switches the active camera for an existing StreamActive session.
+// clientID must match the id passed to StreamActive when the connection was opened.
+// Returns an error if the camera name or client session is unknown.
+func (m *Manager) SelectCamera(clientID, name string) error {
+	key := sanitizeName(name)
+	m.mu.Lock()
+	if m.live[key] == nil {
+		m.mu.Unlock()
+		return fmt.Errorf("unknown camera %q", name)
+	}
+	sess := m.sessions[clientID]
+	if sess == nil {
+		m.mu.Unlock()
+		return fmt.Errorf("unknown session %q", clientID)
+	}
+	sess.activeCam = key
+	old := sess.switchNotify
+	sess.switchNotify = make(chan struct{})
+	m.mu.Unlock()
+	close(old) // wake the StreamActive goroutine for this session
+	return nil
+}
+
+// StreamActive streams MPEG-TS from initialCamera, then seamlessly swaps to
+// whichever camera SelectCamera specifies — without the client reconnecting.
+// clientID is an arbitrary string the caller uses to identify the session;
+// the same value must be passed to SelectCamera to switch cameras.
+func (m *Manager) StreamActive(ctx context.Context, clientID, initialCamera string, w http.ResponseWriter) error {
+	initKey := sanitizeName(initialCamera)
+	if m.live[initKey] == nil {
+		return fmt.Errorf("unknown camera %q", initialCamera)
+	}
+
+	// Register the session so SelectCamera can find it.
+	sess := &streamSession{
+		activeCam:    initKey,
+		switchNotify: make(chan struct{}),
+	}
+	m.mu.Lock()
+	m.sessions[clientID] = sess
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		delete(m.sessions, clientID)
+		m.mu.Unlock()
+	}()
+
+	w.Header().Set("Content-Type", "video/mp2t")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	flusher, canFlush := w.(http.Flusher)
+	if canFlush {
+		flusher.Flush()
+	}
+
+	for {
+		// Read current camera and notify channel atomically.
+		m.mu.RLock()
+		key := sess.activeCam
+		notify := sess.switchNotify
+		m.mu.RUnlock()
+
+		lc := m.live[key]
+		if lc == nil {
+			return fmt.Errorf("no active camera")
+		}
+
+		ch := lc.ts.subscribe()
+		done := false
+		for !done {
+			select {
+			case <-ctx.Done():
+				lc.ts.unsubscribe(ch)
+				return nil
+			case <-notify:
+				// Camera switched — resubscribe to new broadcaster.
+				done = true
+			case chunk, ok := <-ch:
+				if !ok {
+					done = true // dropped by broadcaster; resubscribe
+					continue
+				}
+				if _, err := w.Write(chunk); err != nil {
+					lc.ts.unsubscribe(ch)
+					return nil // client gone
+				}
+				if canFlush {
+					flusher.Flush()
+				}
+			}
+		}
+		lc.ts.unsubscribe(ch)
 	}
 }
 

@@ -16,6 +16,10 @@ const route = useRoute();
 const router = useRouter();
 const { cameras, cameraList } = useCameraList();
 
+// Stable per-tab identity used to namespace server-side streaming sessions.
+// Avoids crypto.randomUUID() which requires a secure context (HTTPS).
+const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
 // Whether the currently selected camera has audio enabled.
 const selectedAudio = computed(() => {
   const cam = cameraList.value.find((c) => c.name === selected.value);
@@ -58,9 +62,9 @@ function destroyPlayer() {
   }
 }
 
-function startStream(name: string) {
+function startStream() {
   destroyPlayer();
-  if (!videoEl.value || !name) {
+  if (!videoEl.value) {
     return;
   }
 
@@ -74,7 +78,7 @@ function startStream(name: string) {
 
   // Use an absolute URL — mpegts.js fetches inside a Web Worker where
   // relative URLs have no base and fail to parse.
-  const src = `${window.location.origin}/mpegts/${encodeURIComponent(name)}`;
+  const src = `${window.location.origin}/mpegts/active?id=${clientId}&camera=${encodeURIComponent(selected.value)}`;
   player = mpegts.createPlayer(
     {
       type: 'mpegts',
@@ -97,15 +101,33 @@ function startStream(name: string) {
   });
 }
 
+async function selectCamera(name: string) {
+  if (!name) {
+    return;
+  }
+  await fetch(
+    `/mpegts/select?id=${clientId}&camera=${encodeURIComponent(name)}`,
+    {
+      method: 'POST',
+    }
+  );
+}
+
 watch(selected, async (name) => {
   error.value = '';
-  await nextTick();
-  startStream(name);
+  if (player) {
+    // Player already running — switch server-side without reconnecting.
+    await selectCamera(name);
+  } else {
+    // No player yet — start one; the camera is embedded in the connect URL.
+    await nextTick();
+    startStream();
+  }
 });
 
 // Kick off the initial stream if the page loaded with a ?cam= param.
 if (selected.value) {
-  nextTick(() => startStream(selected.value));
+  nextTick(() => startStream());
 }
 
 onUnmounted(destroyPlayer);

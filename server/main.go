@@ -268,6 +268,37 @@ func main() {
 		}
 	})
 
+	// /mpegts/active?id=<clientID>&camera=<name> — persistent MPEG-TS stream
+	// that starts on <name> and follows whichever camera the client selects via
+	// /mpegts/select. Each client tab uses a unique id so selections are independent.
+	mux.HandleFunc("/mpegts/active", func(w http.ResponseWriter, r *http.Request) {
+		clientID := r.URL.Query().Get("id")
+		camera := r.URL.Query().Get("camera")
+		if clientID == "" || camera == "" {
+			http.Error(w, "id and camera params required", http.StatusBadRequest)
+			return
+		}
+		if err := dvrManager.StreamActive(r.Context(), clientID, camera, w); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+		}
+	})
+
+	// /mpegts/select?id=<clientID>&camera=<name> — switches the active camera
+	// for the given client session without reconnecting the stream.
+	mux.HandleFunc("/mpegts/select", func(w http.ResponseWriter, r *http.Request) {
+		clientID := r.URL.Query().Get("id")
+		camera := r.URL.Query().Get("camera")
+		if clientID == "" || camera == "" {
+			http.Error(w, "id and camera params required", http.StatusBadRequest)
+			return
+		}
+		if err := dvrManager.SelectCamera(clientID, camera); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// /snapshot/{camera} — multipart/x-mixed-replace stream of JPEG frames.
 	// The server pushes a new frame each time the background snapshot loop
 	// captures one; browsers update the <img> automatically.
