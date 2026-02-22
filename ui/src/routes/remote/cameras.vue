@@ -7,24 +7,18 @@ export const remoteMeta: PanelMeta = {
 </script>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted, nextTick } from 'vue';
+import { ref, watch, onUnmounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import mpegts from 'mpegts.js';
 import { useCameraList } from '@/composables/useCameraList';
 
 const route = useRoute();
 const router = useRouter();
-const { cameras, cameraList } = useCameraList();
+const { cameras } = useCameraList();
 
 // Stable per-tab identity used to namespace server-side streaming sessions.
 // Avoids crypto.randomUUID() which requires a secure context (HTTPS).
 const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-
-// Whether the currently selected camera has audio enabled.
-const selectedAudio = computed(() => {
-  const cam = cameraList.value.find((c) => c.name === selected.value);
-  return cam?.audio ?? false;
-});
 
 const videoEl = ref<HTMLVideoElement | null>(null);
 const error = ref('');
@@ -51,8 +45,53 @@ watch(
 );
 
 let player: mpegts.Player | null = null;
+let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearStallTimer() {
+  if (stallTimer !== null) {
+    clearTimeout(stallTimer);
+    stallTimer = null;
+  }
+}
+
+// Attempt to resume playback, restarting the whole stream if the video
+// element is truly stuck (readyState too low to play).
+function resumePlayback() {
+  const video = videoEl.value;
+  if (!video || !player) {
+    return;
+  }
+  if (video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+    video.play().catch(() => {});
+  } else {
+    // Buffer is empty / exhausted — full restart is the only reliable fix.
+    startStream();
+  }
+}
+
+// Attach stall-recovery listeners to the video element.
+// Safari can fire 'ended' on a live stream when the buffer runs dry, and
+// 'waiting'/'stalled' when it falls behind. We give it a short grace period
+// then force resume or restart.
+function attachRecoveryListeners(video: HTMLVideoElement) {
+  const recover = () => {
+    clearStallTimer();
+    stallTimer = setTimeout(resumePlayback, 800);
+  };
+  video.addEventListener('stalled', recover);
+  video.addEventListener('waiting', recover);
+  video.addEventListener('ended', recover);
+  // Also chase liveness: if paused for any reason (e.g. Safari autoplay
+  // policy briefly suspending), try to un-pause.
+  video.addEventListener('pause', () => {
+    if (player) {
+      video.play().catch(() => {});
+    }
+  });
+}
 
 function destroyPlayer() {
+  clearStallTimer();
   if (player) {
     player.pause();
     player.unload();
@@ -69,12 +108,15 @@ function startStream() {
   }
 
   const video = videoEl.value;
-  video.muted = !selectedAudio.value;
+  // MPEG-TS stream is video-only; keep muted for Safari autoplay compatibility.
+  video.muted = true;
 
   if (!mpegts.isSupported()) {
     error.value = 'MPEG-TS streaming is not supported in this browser.';
     return;
   }
+
+  attachRecoveryListeners(video);
 
   // Use an absolute URL — mpegts.js fetches inside a Web Worker where
   // relative URLs have no base and fail to parse.
@@ -94,7 +136,7 @@ function startStream() {
   );
   player.attachMediaElement(video);
   player.load();
-  player.play();
+  player.play().catch(() => {});
 
   player.on(mpegts.Events.ERROR, (errType: string, errDetail: string) => {
     error.value = `Stream error: ${errType} ${errDetail}`;
