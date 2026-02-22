@@ -9,7 +9,7 @@ export const remoteMeta: PanelMeta = {
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import Hls from 'hls.js';
+import mpegts from 'mpegts.js';
 import { useCameraList } from '@/composables/useCameraList';
 
 const route = useRoute();
@@ -46,56 +46,55 @@ watch(
   { immediate: true }
 );
 
-let hls: Hls | null = null;
+let player: mpegts.Player | null = null;
 
-function destroyHls() {
-  if (hls) {
-    hls.destroy();
-    hls = null;
+function destroyPlayer() {
+  if (player) {
+    player.pause();
+    player.unload();
+    player.detachMediaElement();
+    player.destroy();
+    player = null;
   }
 }
 
 function startStream(name: string) {
-  destroyHls();
+  destroyPlayer();
   if (!videoEl.value || !name) {
     return;
   }
 
-  const src = `/hls/${encodeURIComponent(name)}/stream.m3u8`;
   const video = videoEl.value;
   video.muted = !selectedAudio.value;
 
-  if (Hls.isSupported()) {
-    hls = new Hls({
-      lowLatencyMode: true,
-      // Always start at the live edge, not the beginning of the playlist window.
-      liveSyncMode: 'edge',
-      // Target 4s behind the live edge (2 × 2s segments). Using explicit
-      // duration avoids multiplying by segment target duration which can vary.
-      liveSyncDuration: 4,
-      // Beyond 8s latency, skip segments to catch back up.
-      liveMaxLatencyDuration: 8,
-      // Allow up to 1.2× playback speed to drift back to the target when
-      // the player falls behind without needing to hard-skip.
-      maxLiveSyncPlaybackRate: 1.2,
-      // Keep the forward buffer tight so we don't drift ahead of live.
-      maxBufferLength: 6,
-      maxMaxBufferLength: 10,
-      // Don't keep a large back-buffer — we're watching live, not seeking.
-      backBufferLength: 10,
-    });
-    hls.loadSource(src);
-    hls.attachMedia(video);
-    hls.on(Hls.Events.ERROR, (_evt, data) => {
-      if (data.fatal) {
-        error.value = 'Stream error: ' + data.type;
-      }
-    });
-  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = src;
-  } else {
-    error.value = 'HLS is not supported in this browser.';
+  if (!mpegts.isSupported()) {
+    error.value = 'MPEG-TS streaming is not supported in this browser.';
+    return;
   }
+
+  // Use an absolute URL — mpegts.js fetches inside a Web Worker where
+  // relative URLs have no base and fail to parse.
+  const src = `${window.location.origin}/mpegts/${encodeURIComponent(name)}`;
+  player = mpegts.createPlayer(
+    {
+      type: 'mpegts',
+      url: src,
+      isLive: true,
+    },
+    {
+      enableWorker: true,
+      liveBufferLatencyChasing: true,
+      liveBufferLatencyMaxLatency: 1.5,
+      liveBufferLatencyMinRemain: 0.3,
+    }
+  );
+  player.attachMediaElement(video);
+  player.load();
+  player.play();
+
+  player.on(mpegts.Events.ERROR, (errType: string, errDetail: string) => {
+    error.value = `Stream error: ${errType} ${errDetail}`;
+  });
 }
 
 watch(selected, async (name) => {
@@ -109,7 +108,7 @@ if (selected.value) {
   nextTick(() => startStream(selected.value));
 }
 
-onUnmounted(destroyHls);
+onUnmounted(destroyPlayer);
 </script>
 
 <template>
@@ -121,7 +120,7 @@ onUnmounted(destroyHls);
     </div>
 
     <div v-if="selected" class="video-wrap">
-      <video ref="videoEl" class="video" autoplay playsinline controls />
+      <video ref="videoEl" class="video" autoplay playsinline />
     </div>
   </div>
 </template>

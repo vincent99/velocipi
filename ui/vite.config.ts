@@ -33,9 +33,23 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: false,
       },
-      '/hls': {
+      '/mpegts': {
         target: 'http://localhost:8080',
         changeOrigin: false,
+        selfHandleResponse: true,
+        configure: (proxy) => {
+          proxy.on(
+            'proxyRes',
+            (proxyRes, req, res: import('http').ServerResponse) => {
+              (res.socket as import('net').Socket | null)?.setNoDelay(true);
+              (
+                (proxyRes as any).socket as import('net').Socket | null
+              )?.setNoDelay(true);
+              res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
+              proxyRes.pipe(res);
+            }
+          );
+        },
       },
       '/snapshot': {
         target: 'http://localhost:8080',

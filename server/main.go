@@ -252,37 +252,19 @@ func main() {
 		json.NewEncoder(w).Encode(infos)
 	})
 
-	// /hls/{camera}/{file} — serve the live HLS playlist/segments produced by
-	// the DVR manager. The manager writes HLS alongside the MKV recordings, so
-	// the playlist is always available once a camera has connected.
 	dvrManager := dvr.New(cfg.DVR)
-	mux.HandleFunc("/hls/", func(w http.ResponseWriter, r *http.Request) {
-		// Path: /hls/{cameraName}/{file}
-		rest := r.URL.Path[len("/hls/"):]
-		slash := -1
-		for i, ch := range rest {
-			if ch == '/' {
-				slash = i
-				break
-			}
-		}
-		if slash < 0 {
+
+	// /mpegts/{camera} — on-demand MPEG-TS stream piped directly from ffmpeg.
+	// The browser plays this with mpegts.js via MSE. The stream runs until the
+	// client disconnects or the server shuts down.
+	mux.HandleFunc("/mpegts/", func(w http.ResponseWriter, r *http.Request) {
+		cameraName := r.URL.Path[len("/mpegts/"):]
+		if cameraName == "" {
 			http.NotFound(w, r)
 			return
 		}
-		cameraName := rest[:slash]
-		file := rest[slash+1:]
-
-		hlsDir, err := dvrManager.HLSDir(cameraName)
-		if err != nil {
+		if err := dvrManager.StreamMPEGTS(r.Context(), cameraName, w); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-
-		if file == "" || file == "stream.m3u8" {
-			http.ServeFile(w, r, filepath.Join(hlsDir, "stream.m3u8"))
-		} else {
-			http.ServeFile(w, r, filepath.Join(hlsDir, file))
 		}
 	})
 

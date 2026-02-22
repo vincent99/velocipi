@@ -4,6 +4,7 @@ dvr:
   recordingsDir: "recordings"
   segmentDuration: 600
   snapshotInterval: 5
+  ffmpegLog: false
   cameras: []
 
 appUrl: "http://localhost:8081/panel/"

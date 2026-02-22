@@ -27,6 +27,7 @@ type DVRConfig struct {
 	RecordingsDir    string         `yaml:"recordingsDir"    json:"recordingsDir"`
 	SegmentDuration  int            `yaml:"segmentDuration"  json:"segmentDuration"`  // seconds
 	SnapshotInterval int            `yaml:"snapshotInterval" json:"snapshotInterval"` // seconds
+	FFmpegLog        bool           `yaml:"ffmpegLog"        json:"ffmpegLog"`        // pipe ffmpeg stderr to server log
 	Cameras          []CameraConfig `yaml:"cameras"          json:"cameras"`
 }
 
