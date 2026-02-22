@@ -95,6 +95,13 @@ export interface CameraStatusMsg {
   recording: boolean;
 }
 
+export interface RecordingReadyMsg {
+  type: 'recordingReady';
+  camera: string;
+  date: string;
+  filename: string;
+}
+
 export type InboundWsMsg =
   | PingMsg
   | AirReadingMsg
@@ -103,7 +110,8 @@ export type InboundWsMsg =
   | LEDStateMsg
   | KeyEventMsg
   | KeyEchoMsg
-  | CameraStatusMsg;
+  | CameraStatusMsg
+  | RecordingReadyMsg;
 
 // Outbound messages (client → server, sent on /ws)
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -183,6 +184,104 @@ func main() {
 		}
 	})
 
+	// /admin — sets or clears the admin cookie then redirects to /remote/home.
+	// /admin       → sets admin=true cookie (1 year)
+	// /admin?off   → clears cookie
+	mux.HandleFunc("/admin", func(w http.ResponseWriter, r *http.Request) {
+		if _, off := r.URL.Query()["off"]; off {
+			http.SetCookie(w, &http.Cookie{Name: "admin", Value: "", MaxAge: -1, Path: "/"})
+		} else {
+			http.SetCookie(w, &http.Cookie{Name: "admin", Value: "true", MaxAge: 86400 * 365, Path: "/"})
+		}
+		http.Redirect(w, r, "/remote/home", http.StatusFound)
+	})
+
+	// /recordings — list, serve, and delete archived MP4 segments.
+	mux.HandleFunc("/recordings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		list, err := dvrManager.ListRecordings()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(list)
+	})
+
+	// /recordings/day/{date} — DELETE removes the entire day's recordings.
+	mux.HandleFunc("/recordings/day/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !isAdmin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		date := r.URL.Path[len("/recordings/day/"):]
+		if err := dvrManager.DeleteDay(date); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// /recordings/hour/{date}/{hour} — DELETE removes all recordings in a given hour.
+	mux.HandleFunc("/recordings/hour/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !isAdmin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		rest := r.URL.Path[len("/recordings/hour/"):]
+		parts := strings.SplitN(rest, "/", 2)
+		if len(parts) != 2 {
+			http.Error(w, "expected /recordings/hour/{date}/{hour}", http.StatusBadRequest)
+			return
+		}
+		if err := dvrManager.DeleteHour(parts[0], parts[1]); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	// /recordings/{date}/{file} — serve or delete a recording file (mp4, _thumb.jpg, _full.jpg).
+	// DELETE /recordings/{date}/{filename-no-ext} — delete single recording.
+	mux.HandleFunc("/recordings/", func(w http.ResponseWriter, r *http.Request) {
+		rest := r.URL.Path[len("/recordings/"):]
+		switch r.Method {
+		case http.MethodDelete:
+			if !isAdmin(r) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			// rest is "{date}/{filename-no-ext}"
+			parts := strings.SplitN(rest, "/", 2)
+			if len(parts) != 2 {
+				http.Error(w, "expected /recordings/{date}/{filename}", http.StatusBadRequest)
+				return
+			}
+			if err := dvrManager.DeleteRecording(parts[1]); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case http.MethodGet:
+			// Serve static files from recordingsDir.
+			// rest is "{date}/{file.ext}"
+			http.ServeFile(w, r, filepath.Join(cfg.DVR.RecordingsDir, rest))
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	mux.Handle("/", spaHandler("ui/dist"))
 	handler := corsMiddleware(mux)
 
@@ -227,6 +326,14 @@ func main() {
 	hub.mu.Unlock()
 	dvrManager.OnStatusChange(func(msg dvr.CameraStatusMsg) {
 		hub.broadcastAll(msg)
+	})
+	dvrManager.OnRecordingReady(func(msg dvr.RecordingReadyMsg) {
+		hub.broadcastAll(RecordingReadyMsg{
+			Type:     msg.Type,
+			Camera:   msg.Camera,
+			Date:     msg.Date,
+			Filename: msg.Filename,
+		})
 	})
 
 	// Start DVR recording for all configured cameras.

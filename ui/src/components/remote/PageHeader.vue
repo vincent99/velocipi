@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useConfig } from '@/composables/useConfig';
 import { useRemoteRoutes } from '@/composables/useRemoteRoutes';
 import { useCameraList } from '@/composables/useCameraList';
+import { useAdmin } from '@/composables/useAdmin';
 import CameraThumbnail from '@/components/remote/CameraThumbnail.vue';
 
 const { config } = useConfig();
@@ -11,6 +12,7 @@ const routes = useRemoteRoutes();
 const route = useRoute();
 const router = useRouter();
 const { cameras } = useCameraList();
+const { isAdmin } = useAdmin();
 
 const menuOpen = ref(false);
 const navEl = ref<HTMLElement | null>(null);
@@ -28,7 +30,12 @@ function onDocClick(e: MouseEvent) {
 onMounted(() => document.addEventListener('click', onDocClick, true));
 onUnmounted(() => document.removeEventListener('click', onDocClick, true));
 
-const headerColor = computed(() => config.value?.headerColor ?? '#b91c1c');
+const headerColor = computed(() => {
+  if (isAdmin && config.value?.adminHeaderColor) {
+    return config.value.adminHeaderColor;
+  }
+  return config.value?.headerColor ?? '#b91c1c';
+});
 const tail = computed(() => config.value?.tail ?? '');
 
 // Keep document title in sync with the tail number.
@@ -102,6 +109,14 @@ function openCamera(name: string) {
           </span>
           <span>{{ r.name }}</span>
         </button>
+        <a
+          v-if="isAdmin"
+          href="/admin?off"
+          class="dropdown-item dropdown-item--admin-off"
+        >
+          <span class="item-icon"><i class="fi-sr-exit" /></span>
+          <span>Leave admin</span>
+        </a>
       </div>
     </div>
   </header>
@@ -200,6 +215,7 @@ function openCamera(name: string) {
   cursor: pointer;
   font-size: 0.9rem;
   text-align: left;
+  text-decoration: none;
 
   &:hover {
     background: #2a2a2a;
@@ -209,6 +225,15 @@ function openCamera(name: string) {
     background: #333;
     color: #fff;
     font-weight: 600;
+  }
+
+  &--admin-off {
+    border-top: 1px solid #333;
+    color: #f87171;
+
+    &:hover {
+      background: #2a1a1a;
+    }
   }
 }
 

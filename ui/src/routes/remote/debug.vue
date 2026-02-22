@@ -4,6 +4,7 @@ export const remoteMeta: PanelMeta = {
   name: 'Debug',
   icon: 'bug',
   sort: 99,
+  admin: true,
 };
 </script>
 

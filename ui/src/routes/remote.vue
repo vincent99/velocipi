@@ -37,7 +37,6 @@ const wsDisconnected = computed(() => dropped.value && !connected.value);
 
 .remote-main {
   flex: 1;
-  padding: 1rem;
   min-height: 0; // required so flex child can shrink and fill without overflow
   display: flex;
   flex-direction: column;

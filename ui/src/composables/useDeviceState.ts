@@ -3,6 +3,7 @@ import { useWebSocket } from '@/composables/useWebSocket';
 import type {
   AirReading,
   LEDStateMsg,
+  RecordingReadyMsg,
   Tire,
   InboundWsMsg,
   LogicalKey,
@@ -16,6 +17,8 @@ const ledState = ref<LEDStateMsg | null>(null);
 const tires = reactive<Map<string, Tire>>(new Map());
 // cameraRecording: camera name → true if actively recording
 const cameraRecording = reactive<Map<string, boolean>>(new Map());
+// lastRecordingReady: fires whenever a segment's thumbnails are ready
+const lastRecordingReady = ref<RecordingReadyMsg | null>(null);
 
 // Key echo: tracks which logical keys are currently "active" for visual feedback.
 // Encoder keys (tap-only) auto-clear after 150ms; held keys clear on keyup.
@@ -90,6 +93,9 @@ function init() {
       case 'cameraStatus':
         cameraRecording.set(msg.name, msg.recording);
         break;
+      case 'recordingReady':
+        lastRecordingReady.value = msg;
+        break;
     }
   });
 
@@ -108,5 +114,6 @@ export function useDeviceState() {
     tires,
     keyEcho,
     cameraRecording,
+    lastRecordingReady,
   };
 }

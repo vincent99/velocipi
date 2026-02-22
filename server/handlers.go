@@ -30,6 +30,12 @@ func spaHandler(dir string) http.Handler {
 	})
 }
 
+// isAdmin reports whether r carries a valid admin cookie.
+func isAdmin(r *http.Request) bool {
+	c, err := r.Cookie("admin")
+	return err == nil && c.Value == "true"
+}
+
 // corsMiddleware adds CORS headers to all responses.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

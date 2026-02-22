@@ -3,7 +3,7 @@ addr: "0.0.0.0:8080"
 dvr:
   recordingsDir: "recordings"
   segmentDuration: 600
-  snapshotInterval: 5
+  thumbnailHeight: 240
   ffmpegLog: false
   cameras: []
 
@@ -61,6 +61,7 @@ tires:
 ui:
   tail: "N711ME"
   headerColor: "#3b82f6"
+  adminHeaderColor: "#dc2626"
   panel:
     width: 256
     height: 64

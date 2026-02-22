@@ -20,7 +20,8 @@
     "dev:go": "air",
     "build": "yarn build:ui && go build -o velocipi ./server",
     "build:ui": "cd ui && yarn build",
-    "build:go": "go build -o velocipi ./server"
+    "build:go": "go build -o velocipi ./server",
+    "thumbnails": "go run ./cmd/thumbnails"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

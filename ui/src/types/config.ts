@@ -26,6 +26,7 @@ export interface KeyMapConfig {
 export interface Config {
   tail: string;
   headerColor: string;
+  adminHeaderColor: string;
   panel: PanelConfig;
   navMenu: NavMenuConfig;
   keyMap: KeyMapConfig;
@@ -78,13 +79,14 @@ export interface CameraConfig {
   username: string;
   password: string;
   audio: boolean;
+  record?: boolean;
   sort?: number;
 }
 
 export interface DVRConfig {
   recordingsDir: string;
   segmentDuration: number; // seconds
-  snapshotInterval: number; // seconds
+  thumbnailHeight: number;
   cameras: CameraConfig[];
 }
 
@@ -119,4 +121,5 @@ export interface PanelMeta {
   icon: string;
   sort?: number;
   headerScreen?: boolean; // default true
+  admin?: boolean; // if true, only shown when admin cookie is present
 }

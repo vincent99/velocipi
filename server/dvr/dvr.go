@@ -2,7 +2,7 @@
 // A single ffmpeg process per camera simultaneously writes archival MP4 segments,
 // fans live MPEG-TS to browser viewers, and captures periodic JPEG thumbnails.
 // All timestamps are UTC. Archival files are organised under per-day
-// subdirectories: <recordingsDir>/<camera>/<yyyy-mm-dd>/<camera>-<hh-mm-ss>.mp4
+// subdirectories: <recordingsDir>/<yyyy-mm-dd>/<yyyy-mm-dd_hh-mm-ss>_<cam>.mp4
 package dvr
 
 import (
@@ -122,14 +122,24 @@ type streamSession struct {
 	switchNotify chan struct{}
 }
 
+// RecordingReadyMsg is broadcast over WebSocket when a segment's thumbnails
+// have been written and the recording entry is ready to display.
+type RecordingReadyMsg struct {
+	Type     string `json:"type"`     // always "recordingReady"
+	Camera   string `json:"camera"`   // original camera name
+	Date     string `json:"date"`     // "2006-01-02"
+	Filename string `json:"filename"` // base filename without extension
+}
+
 // Manager starts and supervises DVR recording for all configured cameras.
 type Manager struct {
-	mu             sync.RWMutex
-	cfg            config.DVRConfig
-	live           map[string]*liveCamera    // sanitized name → live state
-	recording      map[string]bool           // sanitized name → recording state
-	sessions       map[string]*streamSession // clientID → per-connection state
-	onStatusChange func(CameraStatusMsg)
+	mu               sync.RWMutex
+	cfg              config.DVRConfig
+	live             map[string]*liveCamera    // sanitized name → live state
+	recording        map[string]bool           // sanitized name → recording state
+	sessions         map[string]*streamSession // clientID → per-connection state
+	onStatusChange   func(CameraStatusMsg)
+	onRecordingReady func(RecordingReadyMsg)
 }
 
 // New creates a Manager. Call Start to begin recording.
@@ -153,6 +163,12 @@ func New(cfg config.DVRConfig) *Manager {
 // state changes. Must be called before Start.
 func (m *Manager) OnStatusChange(fn func(CameraStatusMsg)) {
 	m.onStatusChange = fn
+}
+
+// OnRecordingReady registers a callback invoked after a segment's thumbnails
+// have been successfully written to disk. Must be called before Start.
+func (m *Manager) OnRecordingReady(fn func(RecordingReadyMsg)) {
+	m.onRecordingReady = fn
 }
 
 // CameraStatuses returns the current recording status of all configured cameras.
@@ -226,11 +242,16 @@ func makeFIFO(path string) error {
 	return syscall.Mkfifo(path, 0600)
 }
 
+// shouldRecord reports whether a camera should write MP4 files to disk.
+// Nil means unset (default true); explicit false disables recording.
+func shouldRecord(cam config.CameraConfig) bool {
+	return cam.Record == nil || *cam.Record
+}
+
 // runCamera allocates per-camera resources (temp dir + FIFOs), starts reader
 // goroutines for the live MPEG-TS and JPEG streams, then enters the recording loop.
 func (m *Manager) runCamera(ctx context.Context, cam config.CameraConfig) {
 	key := sanitizeName(cam.Name)
-	camBase := filepath.Join(m.cfg.RecordingsDir, key)
 
 	tmpDir, err := os.MkdirTemp("", "velocipi-cam-"+key+"-")
 	if err != nil {
@@ -297,7 +318,7 @@ func (m *Manager) runCamera(ctx context.Context, cam config.CameraConfig) {
 		splitJPEGs(f, lc.frame)
 	})
 
-	m.runLoop(ctx, cam, camBase, tsFIFO, jpegFIFO)
+	m.runLoop(ctx, cam, tsFIFO, jpegFIFO)
 }
 
 // splitJPEGs reads a concatenated MJPEG stream from r and publishes each
@@ -334,17 +355,73 @@ func splitJPEGs(r io.Reader, fe *frameEntry) {
 	}
 }
 
+// thumbnailHeight returns the configured thumbnail height, falling back to 240px.
+func (m *Manager) thumbnailHeight() int {
+	if m.cfg.ThumbnailHeight > 0 {
+		return m.cfg.ThumbnailHeight
+	}
+	return 240
+}
+
+// captureSegmentThumbs extracts the first frame of a finished MP4 segment as
+// two JPEG files alongside the MP4: {base}_full.jpg (original resolution) and
+// {base}_thumb.jpg (scaled to thumbnailHeight px tall).
+// On success it fires the onRecordingReady callback.
+func (m *Manager) captureSegmentThumbs(mp4File, cameraName string) {
+	base := strings.TrimSuffix(mp4File, ".mp4")
+	h := fmt.Sprintf("%d", m.thumbnailHeight())
+
+	thumbCmd := exec.Command("ffmpeg",
+		"-i", mp4File,
+		"-vf", "scale=-2:"+h,
+		"-frames:v", "1",
+		"-q:v", "2",
+		"-y", base+"_thumb.jpg",
+	)
+	if err := thumbCmd.Run(); err != nil {
+		log.Printf("dvr: thumb capture failed for %s: %v", mp4File, err)
+		return
+	}
+
+	fullCmd := exec.Command("ffmpeg",
+		"-i", mp4File,
+		"-frames:v", "1",
+		"-q:v", "2",
+		"-y", base+"_full.jpg",
+	)
+	if err := fullCmd.Run(); err != nil {
+		log.Printf("dvr: full capture failed for %s: %v", mp4File, err)
+		return
+	}
+
+	if m.onRecordingReady != nil {
+		// Derive date and filename from the mp4File path.
+		// Path: {recordingsDir}/{date}/{filename}.mp4
+		dir := filepath.Dir(mp4File)
+		date := filepath.Base(dir)
+		filename := strings.TrimSuffix(filepath.Base(mp4File), ".mp4")
+		m.onRecordingReady(RecordingReadyMsg{
+			Type:     "recordingReady",
+			Camera:   cameraName,
+			Date:     date,
+			Filename: filename,
+		})
+	}
+}
+
 // runLoop is the main per-camera restart loop. Each iteration:
 //  1. Computes the UTC start time and determines the current day's subdir.
 //  2. Calculates how many seconds until the next segment boundary (or midnight).
 //  3. Runs a single ffmpeg with -t <duration> writing to:
-//     - one MP4 file for archival
+//     - one MP4 file for archival (if recording is enabled for this camera)
 //     - the MPEG-TS FIFO for live streaming
 //     - the JPEG FIFO for thumbnail snapshots
-//  4. On normal exit (or error), waits up to 5s then restarts.
-func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase, tsFIFO, jpegFIFO string) {
+//  4. On clean exit, captures first-frame thumbnails for the finished MP4.
+//  5. On error, waits up to 5s then restarts.
+func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, jpegFIFO string) {
 	key := sanitizeName(cam.Name)
 	segSecs := m.segmentDur()
+	record := shouldRecord(cam)
 
 	defer m.setRecording(cam.Name, key, false)
 
@@ -360,59 +437,63 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase,
 			duration = 1
 		}
 
-		dayDir := filepath.Join(camBase, now.Format("2006-01-02"))
-		if err := os.MkdirAll(dayDir, 0755); err != nil {
-			log.Printf("dvr[%s]: cannot create day dir: %v", cam.Name, err)
-			m.setRecording(cam.Name, key, false)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(5 * time.Second):
+		dayDir := filepath.Join(m.cfg.RecordingsDir, now.Format("2006-01-02"))
+		if record {
+			if err := os.MkdirAll(dayDir, 0755); err != nil {
+				log.Printf("dvr[%s]: cannot create day dir: %v", cam.Name, err)
+				m.setRecording(cam.Name, key, false)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(5 * time.Second):
+				}
+				continue
 			}
-			continue
 		}
 
-		mp4File := filepath.Join(dayDir, fmt.Sprintf("%s_%s_%s.mp4",
-			sanitizeName(cam.Name), now.Format("2006-01-02-15"), now.Format("03-04-05")))
-		log.Printf("dvr[%s]: starting → %s (%ds)", cam.Name, mp4File, duration)
+		// Filename: {yyyy-mm-dd_hh-mm-ss}_{sanitized-cam-name}.mp4
+		mp4File := filepath.Join(dayDir, fmt.Sprintf("%s_%s.mp4",
+			now.Format("2006-01-02_15-04-05"), sanitizeName(cam.Name)))
+		if record {
+			log.Printf("dvr[%s]: starting → %s (%ds)", cam.Name, mp4File, duration)
+		}
 
-		// ffmpeg writes three outputs from one input:
-		//   1. MP4 file — stream-copy video + AAC audio
-		//   2. MPEG-TS FIFO — stream-copy video for live browser streaming
-		//   3. JPEG FIFO — decoded, scaled, 1/5 fps thumbnails
-		//
-		// -filter_complex splits the decoded video:
-		//   [0:v] → split → [vcopy] used by outputs 0 and 1 via -c:v copy
-		//                → [vthumb] scaled and fps-filtered for JPEG output
-		//
-		// Outputs 0 and 1 use -c:v copy (no decode). Output 2 uses mjpeg.
-		thumbFilter := fmt.Sprintf("[0:v]fps=%s,scale=-2:240[vthumb]", snapshotFPS)
+		// ffmpeg writes two or three outputs from one input:
+		//   0. (if record) MP4 file — stream-copy video + AAC audio
+		//   1. MPEG-TS FIFO — stream-copy video for live browser streaming
+		//   2. JPEG FIFO — decoded, scaled, 1/snapshotFPS fps thumbnails
+		thumbFilter := fmt.Sprintf("[0:v]fps=%s,scale=-2:%d[vthumb]",
+			snapshotFPS, m.thumbnailHeight())
 
 		args := []string{
 			"-rtsp_transport", "tcp",
 			"-i", rtspURL(cam),
 			"-t", fmt.Sprintf("%d", duration),
 			"-filter_complex", thumbFilter,
+		}
+
+		if record {
 			// Output 0: MP4 archival
-			"-map", "0:v", "-c:v", "copy",
+			args = append(args, "-map", "0:v", "-c:v", "copy")
+			if cam.Audio {
+				args = append(args, "-map", "0:a?", "-c:a", "aac")
+			}
+			args = append(args,
+				"-f", "mp4",
+				"-movflags", "+faststart+empty_moov+default_base_moof",
+				"-y", mp4File,
+			)
 		}
+
+		// Output: MPEG-TS FIFO for live streaming
+		args = append(args, "-map", "0:v", "-c:v", "copy")
 		if cam.Audio {
 			args = append(args, "-map", "0:a?", "-c:a", "aac")
 		}
+		args = append(args, "-f", "mpegts", tsFIFO)
+
+		// Output: JPEG thumbnails
 		args = append(args,
-			"-f", "mp4",
-			"-movflags", "+faststart+empty_moov+default_base_moof",
-			"-y", mp4File,
-			// Output 1: MPEG-TS FIFO for live streaming
-			"-map", "0:v", "-c:v", "copy",
-		)
-		if cam.Audio {
-			args = append(args, "-map", "0:a?", "-c:a", "aac")
-		}
-		args = append(args,
-			"-f", "mpegts",
-			tsFIFO,
-			// Output 2: JPEG thumbnails
 			"-map", "[vthumb]", "-c:v", "mjpeg", "-q:v", "5",
 			"-f", "image2pipe",
 			jpegFIFO,
@@ -424,8 +505,10 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase,
 			cmd.Stderr = os.Stderr
 		}
 		m.setRecording(cam.Name, key, true)
-		if err := cmd.Run(); err != nil && ctx.Err() == nil {
-			log.Printf("dvr[%s]: stopped (%v), retrying in 5s", cam.Name, err)
+		runErr := cmd.Run()
+
+		if runErr != nil && ctx.Err() == nil {
+			log.Printf("dvr[%s]: stopped (%v), retrying in 5s", cam.Name, runErr)
 			m.setRecording(cam.Name, key, false)
 			select {
 			case <-ctx.Done():
@@ -433,6 +516,11 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, camBase,
 			case <-time.After(5 * time.Second):
 			}
 			continue
+		}
+
+		// Clean exit (segment boundary rollover): capture first-frame thumbnails.
+		if runErr == nil && record {
+			go m.captureSegmentThumbs(mp4File, cam.Name)
 		}
 
 		select {

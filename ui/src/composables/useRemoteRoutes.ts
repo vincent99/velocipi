@@ -1,4 +1,5 @@
 import type { PanelMeta } from '@/types/config';
+import { useAdmin } from '@/composables/useAdmin';
 
 export interface RemoteRoute {
   path: string;
@@ -9,6 +10,8 @@ export interface RemoteRoute {
 }
 
 const modules = import.meta.glob('../routes/remote/**/*.vue', { eager: true });
+
+const { isAdmin } = useAdmin();
 
 const routes: RemoteRoute[] = Object.entries(modules)
   .map(([file, mod]) => {
@@ -23,6 +26,10 @@ const routes: RemoteRoute[] = Object.entries(modules)
       icon: '□',
     };
 
+    if (meta.admin && !isAdmin) {
+      return null;
+    }
+
     return {
       path,
       name: meta.name,
@@ -31,6 +38,7 @@ const routes: RemoteRoute[] = Object.entries(modules)
       headerScreen: meta.headerScreen ?? true,
     };
   })
+  .filter((r): r is RemoteRoute => r !== null)
   .sort((a, b) => {
     if (a.sort !== b.sort) {
       return a.sort - b.sort;

@@ -18,17 +18,18 @@ type CameraConfig struct {
 	Port     int    `yaml:"port"     json:"port"`
 	Username string `yaml:"username" json:"username"`
 	Password string `yaml:"password" json:"password"`
-	Audio    bool   `yaml:"audio"    json:"audio"` // record and stream audio (default false)
+	Audio    bool   `yaml:"audio"    json:"audio"`                    // record and stream audio (default false)
+	Record   *bool  `yaml:"record,omitempty" json:"record,omitempty"` // nil or true = record; false = skip
 	Sort     *int   `yaml:"sort,omitempty" json:"sort,omitempty"`
 }
 
 // DVRConfig holds settings for the DVR recording subsystem.
 type DVRConfig struct {
-	RecordingsDir    string         `yaml:"recordingsDir"    json:"recordingsDir"`
-	SegmentDuration  int            `yaml:"segmentDuration"  json:"segmentDuration"`  // seconds
-	SnapshotInterval int            `yaml:"snapshotInterval" json:"snapshotInterval"` // seconds
-	FFmpegLog        bool           `yaml:"ffmpegLog"        json:"ffmpegLog"`        // pipe ffmpeg stderr to server log
-	Cameras          []CameraConfig `yaml:"cameras"          json:"cameras"`
+	RecordingsDir   string         `yaml:"recordingsDir"   json:"recordingsDir"`
+	SegmentDuration int            `yaml:"segmentDuration" json:"segmentDuration"` // seconds
+	ThumbnailHeight int            `yaml:"thumbnailHeight" json:"thumbnailHeight"` // px height for snapshot + segment thumbnails
+	FFmpegLog       bool           `yaml:"ffmpegLog"       json:"ffmpegLog"`       // pipe ffmpeg stderr to server log
+	Cameras         []CameraConfig `yaml:"cameras"         json:"cameras"`
 }
 
 // NavMenuConfig holds display settings for the panel navigation menu.
@@ -60,11 +61,12 @@ type PanelConfig struct {
 
 // UIConfig holds the subset of config sent to the browser UI via /config.
 type UIConfig struct {
-	Tail        string        `yaml:"tail"        json:"tail"`
-	HeaderColor string        `yaml:"headerColor" json:"headerColor"`
-	Panel       PanelConfig   `yaml:"panel"       json:"panel"`
-	NavMenu     NavMenuConfig `yaml:"navMenu"     json:"navMenu"`
-	KeyMap      KeyMapConfig  `yaml:"keyMap"      json:"keyMap"`
+	Tail             string        `yaml:"tail"             json:"tail"`
+	HeaderColor      string        `yaml:"headerColor"      json:"headerColor"`
+	AdminHeaderColor string        `yaml:"adminHeaderColor" json:"adminHeaderColor"`
+	Panel            PanelConfig   `yaml:"panel"            json:"panel"`
+	NavMenu          NavMenuConfig `yaml:"navMenu"          json:"navMenu"`
+	KeyMap           KeyMapConfig  `yaml:"keyMap"           json:"keyMap"`
 }
 
 // TireAddresses maps one or more BT addresses to a wheel position label.

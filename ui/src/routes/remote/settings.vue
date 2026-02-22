@@ -4,6 +4,7 @@ export const remoteMeta: PanelMeta = {
   name: 'Settings',
   icon: 'settings-sliders/',
   sort: 99,
+  admin: true,
 };
 </script>
 
@@ -217,6 +218,12 @@ const expanderBitFields = [
           type="color"
           placeholder="#3b82f6"
         />
+        <SettingsField
+          label="Admin header color"
+          path="ui.adminHeaderColor"
+          type="color"
+          placeholder="#dc2626"
+        />
         <SettingsGroup title="Panel">
           <SettingsField
             label="Width (px)"
@@ -328,10 +335,10 @@ const expanderBitFields = [
           :min="10"
         />
         <SettingsField
-          label="Snapshot interval (seconds)"
-          path="dvr.snapshotInterval"
+          label="Thumbnail height (px)"
+          path="dvr.thumbnailHeight"
           type="number"
-          :min="1"
+          :min="60"
         />
         <div class="cameras-header">
           <span class="cameras-title">Cameras</span>
@@ -346,6 +353,7 @@ const expanderBitFields = [
                 username: '',
                 password: '',
                 audio: false,
+                record: undefined,
                 sort: undefined,
               })
             "
@@ -392,6 +400,18 @@ const expanderBitFields = [
             <label class="audio-label"
               ><span>Audio</span
               ><input v-model="cam.audio" type="checkbox" class="audio-check"
+            /></label>
+            <label class="audio-label"
+              ><span>Record</span
+              ><input
+                :checked="cam.record !== false"
+                type="checkbox"
+                class="audio-check"
+                @change="
+                  cam.record = ($event.target as HTMLInputElement).checked
+                    ? undefined
+                    : false
+                "
             /></label>
             <label
               >Username<input v-model="cam.username" placeholder="(optional)"

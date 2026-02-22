@@ -41,6 +41,13 @@ type KeyEchoMsg struct {
 	Key       string `json:"key"`       // logical key name
 }
 
+type RecordingReadyMsg struct {
+	Type     string `json:"type"`     // always "recordingReady"
+	Camera   string `json:"camera"`   // original camera name
+	Date     string `json:"date"`     // "2006-01-02"
+	Filename string `json:"filename"` // base filename without extension
+}
+
 // Inbound message types from websocket clients.
 
 type inboundMsg struct {
