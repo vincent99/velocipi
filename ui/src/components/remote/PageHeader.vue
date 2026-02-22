@@ -85,7 +85,7 @@ function openCamera(name: string) {
         <span class="current-icon">
           <i
             v-if="currentRoute?.icon.length > 1"
-            :class="`fi-sr-${currentRoute.icon}`"
+            :class="`fi-${currentRoute.iconStyle}-${currentRoute.icon}`"
           />
           <template v-else>{{ currentRoute?.icon }}</template>
         </span>
@@ -104,7 +104,10 @@ function openCamera(name: string) {
           @click="navigate(r.path)"
         >
           <span class="item-icon">
-            <i v-if="r.icon.length > 1" :class="`fi-sr-${r.icon}`" />
+            <i
+              v-if="r.icon.length > 1"
+              :class="`fi-${r.iconStyle}-${r.icon}`"
+            />
             <template v-else>{{ r.icon }}</template>
           </span>
           <span>{{ r.name }}</span>

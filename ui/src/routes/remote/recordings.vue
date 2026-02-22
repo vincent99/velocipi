@@ -2,7 +2,8 @@
 import type { PanelMeta } from '@/types/config';
 export const remoteMeta: PanelMeta = {
   name: 'Recordings',
-  icon: 'video-recording',
+  icon: 'film',
+  iconStyle: 'rr',
   sort: 5,
 };
 </script>

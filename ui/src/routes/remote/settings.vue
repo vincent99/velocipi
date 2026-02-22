@@ -2,7 +2,7 @@
 import type { PanelMeta } from '@/types/config';
 export const remoteMeta: PanelMeta = {
   name: 'Settings',
-  icon: 'settings-sliders/',
+  icon: 'settings-sliders',
   sort: 99,
   admin: true,
 };

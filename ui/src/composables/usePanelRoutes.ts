@@ -4,6 +4,7 @@ export interface PanelRoute {
   path: string;
   name: string;
   icon: string;
+  iconStyle: string;
   sort?: number;
 }
 
@@ -22,7 +23,13 @@ const routes: PanelRoute[] = Object.entries(modules)
       icon: '□',
     };
 
-    return { path, name: meta.name, icon: meta.icon, sort: meta.sort ?? 0 };
+    return {
+      path,
+      name: meta.name,
+      icon: meta.icon,
+      iconStyle: meta.iconStyle ?? 'sr',
+      sort: meta.sort ?? 0,
+    };
   })
   .sort((a, b) => {
     if (a.sort !== b.sort) {

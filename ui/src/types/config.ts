@@ -119,6 +119,7 @@ export interface FullConfigResponse {
 export interface PanelMeta {
   name: string;
   icon: string;
+  iconStyle?: string; // uicons style prefix: 'sr' (default), 'rr', 'ss', 'rs', 'br', 'bs', etc.
   sort?: number;
   headerScreen?: boolean; // default true
   admin?: boolean; // if true, only shown when admin cookie is present

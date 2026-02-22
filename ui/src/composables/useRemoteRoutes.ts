@@ -5,6 +5,7 @@ export interface RemoteRoute {
   path: string;
   name: string;
   icon: string;
+  iconStyle: string;
   sort: number;
   headerScreen: boolean;
 }
@@ -34,6 +35,7 @@ const routes: RemoteRoute[] = Object.entries(modules)
       path,
       name: meta.name,
       icon: meta.icon,
+      iconStyle: meta.iconStyle ?? 'sr',
       sort: meta.sort ?? 0,
       headerScreen: meta.headerScreen ?? true,
     };

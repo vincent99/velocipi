@@ -100,7 +100,10 @@ onUnmounted(() => {
             :style="{ width: `${cellWidth}px` }"
           >
             <span class="nav-icon">
-              <i v-if="p.icon.length > 1" :class="`fi-sr-${p.icon}`" />
+              <i
+                v-if="p.icon.length > 1"
+                :class="`fi-${p.iconStyle}-${p.icon}`"
+              />
               <template v-else>{{ p.icon }}</template>
             </span>
             <span class="nav-name">{{ p.name }}</span>
