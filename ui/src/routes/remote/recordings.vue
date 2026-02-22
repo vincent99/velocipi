@@ -2,7 +2,7 @@
 import type { PanelMeta } from '@/types/config';
 export const remoteMeta: PanelMeta = {
   name: 'Recordings',
-  icon: 'film-alt',
+  icon: 'video-recording',
   sort: 5,
 };
 </script>
@@ -166,6 +166,35 @@ const dateDayOffset = computed(() => {
   return map;
 });
 
+// --- Fullscreen playback ---
+
+function playFullscreen(url: string) {
+  const video = document.createElement('video');
+  video.src = url;
+  video.controls = true;
+  video.style.cssText =
+    'position:fixed;inset:0;width:100%;height:100%;background:#000;z-index:9999';
+  document.body.appendChild(video);
+
+  function cleanup() {
+    video.pause();
+    document.body.removeChild(video);
+    document.removeEventListener('fullscreenchange', onFsChange);
+  }
+
+  function onFsChange() {
+    if (!document.fullscreenElement) {
+      cleanup();
+    }
+  }
+
+  document.addEventListener('fullscreenchange', onFsChange);
+  video
+    .requestFullscreen()
+    .then(() => video.play())
+    .catch(cleanup);
+}
+
 // --- Delete actions ---
 
 async function deleteRecording(rec: RecordingFile) {
@@ -319,6 +348,11 @@ async function deleteDay() {
                   :href="`/recordings/${rec.date}/${rec.filename}.mp4`"
                   target="_blank"
                   class="thumb-link"
+                  @click.prevent="
+                    playFullscreen(
+                      `/recordings/${rec.date}/${rec.filename}.mp4`
+                    )
+                  "
                 >
                   <img
                     v-if="rec.hasThumb"

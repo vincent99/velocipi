@@ -368,10 +368,13 @@ func (m *Manager) thumbnailHeight() int {
 // {base}_thumb.jpg (scaled to thumbnailHeight px tall).
 // On success it fires the onRecordingReady callback.
 func (m *Manager) captureSegmentThumbs(mp4File, cameraName string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	base := strings.TrimSuffix(mp4File, ".mp4")
 	h := fmt.Sprintf("%d", m.thumbnailHeight())
 
-	thumbCmd := exec.Command("ffmpeg",
+	thumbCmd := exec.CommandContext(ctx, "ffmpeg",
 		"-i", mp4File,
 		"-vf", "scale=-2:"+h,
 		"-frames:v", "1",
@@ -383,7 +386,7 @@ func (m *Manager) captureSegmentThumbs(mp4File, cameraName string) {
 		return
 	}
 
-	fullCmd := exec.Command("ffmpeg",
+	fullCmd := exec.CommandContext(ctx, "ffmpeg",
 		"-i", mp4File,
 		"-frames:v", "1",
 		"-q:v", "2",
