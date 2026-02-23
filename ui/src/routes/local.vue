@@ -1,0 +1,13 @@
+<template>
+  <RouterView />
+</template>
+
+<style lang="scss">
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  overflow: hidden;
+}
+</style>
