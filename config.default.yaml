@@ -7,7 +7,6 @@ dvr:
   ffmpegLog: false
   cameras: []
 
-appUrl: "http://localhost:8081/panel/"
 i2cDevice: "/dev/i2c-1"
 pingInterval: "1s"
 
@@ -68,6 +67,7 @@ ui:
   navMenu:
     hideDelay: 2000
     cellWidth: 64
+    longPressMs: 1000
   keyMap:
     up: ArrowUp
     down: ArrowDown

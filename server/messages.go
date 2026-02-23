@@ -48,10 +48,19 @@ type RecordingReadyMsg struct {
 	Filename string `json:"filename"` // base filename without extension
 }
 
+type LocalCameraMsg struct {
+	Type   string `json:"type"`   // always "localCamera"
+	Camera string `json:"camera"` // current panel camera name
+}
+
 // Inbound message types from websocket clients.
 
 type inboundMsg struct {
 	Type string `json:"type"`
+}
+
+type inboundSetLocalCameraMsg struct {
+	Camera string `json:"camera"`
 }
 
 type inboundKeyMsg struct {

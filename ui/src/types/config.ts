@@ -6,6 +6,7 @@ export interface PanelConfig {
 export interface NavMenuConfig {
   hideDelay: number; // ms
   cellWidth: number; // px
+  longPressMs: number; // ms to hold enter before it counts as a long press (cancel)
 }
 
 export interface KeyMapConfig {

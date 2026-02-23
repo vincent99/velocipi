@@ -65,6 +65,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	go hub.sendTpms(c)
 	go hub.sendLEDState(c)
 	go hub.sendCameraStatuses(c)
+	go hub.sendLocalCamera(c)
 
 	// Write pump: drains c.send and writes to the WebSocket connection.
 	go func() {
@@ -107,6 +108,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			var nm inboundNavigateMsg
 			if err := json.Unmarshal(data, &nm); err == nil {
 				go hub.navigate(nm.Path)
+			}
+		case "setLocalCamera":
+			var pm inboundSetLocalCameraMsg
+			if err := json.Unmarshal(data, &pm); err == nil {
+				go hub.setLocalCamera(pm.Camera)
 			}
 		}
 	}

@@ -102,6 +102,11 @@ export interface RecordingReadyMsg {
   filename: string;
 }
 
+export interface LocalCameraMsg {
+  type: 'localCamera';
+  camera: string;
+}
+
 export type InboundWsMsg =
   | PingMsg
   | AirReadingMsg
@@ -111,7 +116,8 @@ export type InboundWsMsg =
   | KeyEventMsg
   | KeyEchoMsg
   | CameraStatusMsg
-  | RecordingReadyMsg;
+  | RecordingReadyMsg
+  | LocalCameraMsg;
 
 // Outbound messages (client → server, sent on /ws)
 
@@ -136,4 +142,14 @@ export interface NavigateMsg {
   path: string;
 }
 
-export type OutboundWsMsg = ReloadMsg | KeyMsg | LEDControlMsg | NavigateMsg;
+export interface SetLocalCameraMsg {
+  type: 'setLocalCamera';
+  camera: string;
+}
+
+export type OutboundWsMsg =
+  | ReloadMsg
+  | KeyMsg
+  | LEDControlMsg
+  | NavigateMsg
+  | SetLocalCameraMsg;

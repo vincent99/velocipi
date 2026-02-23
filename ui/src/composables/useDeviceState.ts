@@ -19,6 +19,8 @@ const tires = reactive<Map<string, Tire>>(new Map());
 const cameraRecording = reactive<Map<string, boolean>>(new Map());
 // lastRecordingReady: fires whenever a segment's thumbnails are ready
 const lastRecordingReady = ref<RecordingReadyMsg | null>(null);
+// localCamera: the camera currently shown on the local display
+const localCamera = ref<string>('');
 
 // Key echo: tracks which logical keys are currently "active" for visual feedback.
 // Encoder keys (tap-only) auto-clear after 150ms; held keys clear on keyup.
@@ -96,6 +98,9 @@ function init() {
       case 'recordingReady':
         lastRecordingReady.value = msg;
         break;
+      case 'localCamera':
+        localCamera.value = msg.camera;
+        break;
     }
   });
 
@@ -115,5 +120,6 @@ export function useDeviceState() {
     keyEcho,
     cameraRecording,
     lastRecordingReady,
+    localCamera,
   };
 }

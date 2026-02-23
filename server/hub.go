@@ -28,6 +28,7 @@ type Hub struct {
 	cfg           *config.Config
 	oled          *oled.OLED
 	dvrManager    *dvr.Manager
+	localCamera   string // name of the camera shown on the local display
 
 	lastFrameMu sync.RWMutex
 	lastFrame   []byte // most recent decoded PNG from the screencast
@@ -163,6 +164,29 @@ func (h *Hub) sendLEDState(c *client) {
 	case c.send <- data:
 	default:
 	}
+}
+
+// sendLocalCamera sends the current panel camera name to a single client.
+func (h *Hub) sendLocalCamera(c *client) {
+	h.mu.RLock()
+	name := h.localCamera
+	h.mu.RUnlock()
+	data, err := json.Marshal(LocalCameraMsg{Type: "localCamera", Camera: name})
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
+	}
+}
+
+// setLocalCamera updates the panel camera and broadcasts the change to all clients.
+func (h *Hub) setLocalCamera(name string) {
+	h.mu.Lock()
+	h.localCamera = name
+	h.mu.Unlock()
+	h.broadcastAll(LocalCameraMsg{Type: "localCamera", Camera: name})
 }
 
 // handleLEDMsg controls the expander LED from a websocket message.

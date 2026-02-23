@@ -7,6 +7,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -338,6 +339,37 @@ func main() {
 
 	// Start DVR recording for all configured cameras.
 	dvrManager.Start(ctx)
+
+	// Initialize localCamera to the first camera (same sort as /cameras handler).
+	if len(cfg.DVR.Cameras) > 0 {
+		sorted := make([]config.CameraConfig, len(cfg.DVR.Cameras))
+		copy(sorted, cfg.DVR.Cameras)
+		sort.Slice(sorted, func(i, j int) bool {
+			si := math.MaxInt
+			sj := math.MaxInt
+			if sorted[i].Sort != nil {
+				si = *sorted[i].Sort
+			}
+			if sorted[j].Sort != nil {
+				sj = *sorted[j].Sort
+			}
+			if si != sj {
+				return si < sj
+			}
+			return strings.ToLower(sorted[i].Name) < strings.ToLower(sorted[j].Name)
+		})
+		hub.mu.Lock()
+		hub.localCamera = sorted[0].Name
+		hub.mu.Unlock()
+	}
+
+	// Launch Chromium window on the local display showing the camera page.
+	// AppURL is http://localhost:<VELOCIPI_PORT>/panel/ so strip the path.
+	displayBase := cfg.AppURL
+	if u, err := url.Parse(cfg.AppURL); err == nil {
+		displayBase = u.Scheme + "://" + u.Host
+	}
+	go launchDisplayWindow(ctx, displayBase+"/local/camera")
 
 	// Block until signal.
 	<-ctx.Done()

@@ -34,8 +34,9 @@ type DVRConfig struct {
 
 // NavMenuConfig holds display settings for the panel navigation menu.
 type NavMenuConfig struct {
-	HideDelay int `yaml:"hideDelay" json:"hideDelay"` // ms
-	CellWidth int `yaml:"cellWidth" json:"cellWidth"` // px
+	HideDelay   int `yaml:"hideDelay"   json:"hideDelay"`   // ms
+	CellWidth   int `yaml:"cellWidth"   json:"cellWidth"`   // px
+	LongPressMs int `yaml:"longPressMs" json:"longPressMs"` // ms hold for long-press cancel
 }
 
 // KeyMapConfig maps logical key names to the JS key values used in DOM events.
@@ -118,7 +119,6 @@ type OLEDConfig struct {
 // Config holds all runtime configuration.
 type Config struct {
 	Addr         string `yaml:"addr"         json:"addr"`
-	AppURL       string `yaml:"appUrl"       json:"appUrl"`
 	I2CDevice    string `yaml:"i2cDevice"    json:"i2cDevice"`
 	PingInterval string `yaml:"pingInterval" json:"pingInterval"`
 
@@ -132,6 +132,7 @@ type Config struct {
 	UI          UIConfig       `yaml:"ui"          json:"ui"`
 
 	// Parsed values — not serialized, populated by Load()
+	AppURL                 string           `yaml:"-" json:"-"` // http://localhost:<VELOCIPI_PORT>/panel/
 	ExpanderIntervalDur    time.Duration    `yaml:"-" json:"-"`
 	AirSensorIntervalDur   time.Duration    `yaml:"-" json:"-"`
 	LightSensorIntervalDur time.Duration    `yaml:"-" json:"-"`
@@ -169,6 +170,14 @@ func Load() *LoadResult {
 
 	parseDurations(&cfg)
 	parseDurations(&defaults)
+
+	// Build AppURL from VELOCIPI_PORT (default 8080).
+	port := os.Getenv("VELOCIPI_PORT")
+	if port == "" {
+		port = "8080"
+	}
+	cfg.AppURL = "http://localhost:" + port + "/panel/"
+	defaults.AppURL = cfg.AppURL
 
 	return &LoadResult{Config: &cfg, Defaults: &defaults}
 }
