@@ -21,6 +21,8 @@ const cameraRecording = reactive<Map<string, boolean>>(new Map());
 const lastRecordingReady = ref<RecordingReadyMsg | null>(null);
 // localCamera: the camera currently shown on the local display
 const localCamera = ref<string>('');
+// destTimezone: IANA timezone for the "Dest" clock on the panel
+const destTimezone = ref<string>('America/New_York');
 
 // Key echo: tracks which logical keys are currently "active" for visual feedback.
 // Encoder keys (tap-only) auto-clear after 150ms; held keys clear on keyup.
@@ -121,5 +123,6 @@ export function useDeviceState() {
     cameraRecording,
     lastRecordingReady,
     localCamera,
+    destTimezone,
   };
 }

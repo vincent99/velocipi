@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { provide, ref } from 'vue';
+import { provide, ref, computed } from 'vue';
 import { usePanelGrid, PANEL_GRID_KEY } from '@/composables/usePanelGrid';
+import { useConfig } from '@/composables/useConfig';
 import type { PanelGridContext } from '@/composables/usePanelGrid';
 
 // Per-control callbacks registered by index.
@@ -41,10 +42,19 @@ const context: PanelGridContext = {
 };
 
 provide(PANEL_GRID_KEY, context);
+
+const { config } = useConfig();
+
+const cssVars = computed(() => ({
+  '--panel-bg': config.value?.panel.background ?? '#000000',
+  '--panel-control-bg': config.value?.panel.controlBg ?? '#222222',
+  '--panel-control-border': config.value?.panel.controlBorder ?? '#666666',
+  '--panel-text': config.value?.panel.controlText ?? '#ffffff',
+}));
 </script>
 
 <template>
-  <div class="panel-grid">
+  <div class="panel-grid" :style="cssVars">
     <slot />
   </div>
 </template>
@@ -58,6 +68,6 @@ provide(PANEL_GRID_KEY, context);
   grid-template-columns: repeat(16, 1fr);
   grid-template-rows: repeat(4, 1fr);
   gap: 1px;
-  background: #111;
+  background: var(--panel-bg, #000000);
 }
 </style>

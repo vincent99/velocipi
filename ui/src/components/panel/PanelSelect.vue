@@ -162,6 +162,6 @@ onMounted(() => {
 }
 
 .select-empty {
-  color: #555;
+  opacity: 0.4;
 }
 </style>

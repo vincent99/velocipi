@@ -1,6 +1,14 @@
+export type TimeFormat = string;
+
 export interface PanelConfig {
   width: number;
   height: number;
+  background: string;
+  controlBg: string;
+  controlBorder: string;
+  controlText: string;
+  homeTimezone: string;
+  timeFormat: TimeFormat;
 }
 
 export interface NavMenuConfig {

@@ -12,13 +12,19 @@ import { ref, computed } from 'vue';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { useDeviceState } from '@/composables/useDeviceState';
 import { useCameraList } from '@/composables/useCameraList';
+import { useConfig } from '@/composables/useConfig';
+import { useTime, formatTz, formatUtcClock } from '@/composables/useTime';
 import PanelGrid from '@/components/panel/PanelGrid.vue';
 import PanelSelect from '@/components/panel/PanelSelect.vue';
+import PanelValue from '@/components/panel/PanelValue.vue';
 import type { SelectOption } from '@/components/panel/PanelSelect.vue';
 
 const { send } = useWebSocket();
-const { localCamera } = useDeviceState();
+const { localCamera, destTimezone } = useDeviceState();
 const { cameras } = useCameraList();
+const { config } = useConfig();
+const { now } = useTime();
+const timeLabelWidth = 26;
 
 const cameraOptions = computed<SelectOption[]>(() =>
   cameras.value.map((name) => ({
@@ -55,6 +61,24 @@ const volumeOptions: SelectOption[] = [
   { name: 'Med', value: 'med' },
   { name: 'High', value: 'high' },
 ];
+
+// Clock computeds — recompute whenever `now` ticks.
+const timeFormat = computed(() => config.value?.panel.timeFormat ?? '12h');
+const homeTimezone = computed(
+  () => config.value?.panel.homeTimezone ?? 'America/Phoenix'
+);
+const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+const localTime = computed(() =>
+  formatTz(now.value, localTz, timeFormat.value, false)
+);
+const homeTime = computed(() =>
+  formatTz(now.value, homeTimezone.value, timeFormat.value, false)
+);
+const destTime = computed(() =>
+  formatTz(now.value, destTimezone.value, timeFormat.value, false)
+);
+const utcTime = computed(() => formatUtcClock(now.value));
 </script>
 
 <template>
@@ -90,24 +114,62 @@ const volumeOptions: SelectOption[] = [
       :options="modeOptions"
     />
 
-    <!-- Volume: columns 9-12, rows 1-1 (1-row) -->
+    <!-- Volume: columns 9-11, rows 1 (1-row) -->
     <PanelSelect
       v-model="volumeVal"
       :col="9"
       :row="1"
-      :col-span="4"
+      :col-span="3"
       :row-span="1"
       :options="volumeOptions"
     />
 
-    <!-- Volume again as 4-row: columns 13-16, all 4 rows -->
+    <!-- Mode dummy 3-row: columns 9-11, rows 2-4 -->
     <PanelSelect
       v-model="modeVal"
-      :col="13"
-      :row="1"
-      :col-span="4"
-      :row-span="4"
+      :col="9"
+      :row="2"
+      :col-span="3"
+      :row-span="3"
       :options="modeOptions"
+    />
+
+    <!-- Clocks: columns 12-16 (5 wide), one row each -->
+    <PanelValue
+      :col="12"
+      :row="1"
+      :col-span="5"
+      label="Local"
+      :model-value="localTime"
+      value-align="left"
+      :min-label-width="timeLabelWidth"
+    />
+    <PanelValue
+      :col="12"
+      :row="2"
+      :col-span="5"
+      label="Home"
+      :model-value="homeTime"
+      value-align="left"
+      :min-label-width="timeLabelWidth"
+    />
+    <PanelValue
+      :col="12"
+      :row="3"
+      :col-span="5"
+      label="Dest"
+      :model-value="destTime"
+      value-align="left"
+      :min-label-width="timeLabelWidth"
+    />
+    <PanelValue
+      :col="12"
+      :row="4"
+      :col-span="5"
+      label="UTC"
+      :model-value="utcTime"
+      value-align="left"
+      :min-label-width="timeLabelWidth"
     />
   </PanelGrid>
 </template>

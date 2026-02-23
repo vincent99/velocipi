@@ -54,10 +54,16 @@ type KeyMapConfig struct {
 	OuterRight string `yaml:"outerRight" json:"outerRight"`
 }
 
-// PanelConfig holds the physical dimensions of the OLED panel display.
+// PanelConfig holds the physical dimensions and color scheme of the OLED panel display.
 type PanelConfig struct {
-	Width  int `yaml:"width"  json:"width"`
-	Height int `yaml:"height" json:"height"`
+	Width         int    `yaml:"width"           json:"width"`
+	Height        int    `yaml:"height"          json:"height"`
+	Background    string `yaml:"background"      json:"background"`    // page background
+	ControlBg     string `yaml:"controlBg"       json:"controlBg"`     // interactive control background
+	ControlBorder string `yaml:"controlBorder"   json:"controlBorder"` // interactive control border
+	ControlText   string `yaml:"controlText"     json:"controlText"`   // control text color
+	HomeTimezone  string `yaml:"homeTimezone"    json:"homeTimezone"`  // IANA tz for "Home" clock
+	TimeFormat    string `yaml:"timeFormat"      json:"timeFormat"`    // dayjs format string e.g. "hh:mm:ssa", "HH:mm:ss"
 }
 
 // UIConfig holds the subset of config sent to the browser UI via /config.

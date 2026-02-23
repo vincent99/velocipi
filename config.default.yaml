@@ -64,6 +64,12 @@ ui:
   panel:
     width: 256
     height: 64
+    background: "#000000"
+    controlBg: "#222222"
+    controlBorder: "#666666"
+    controlText: "#ffffff"
+    homeTimezone: "America/Phoenix"
+    timeFormat: "hh:mm:ss a"
   navMenu:
     hideDelay: 2000
     cellWidth: 64

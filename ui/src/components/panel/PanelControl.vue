@@ -62,10 +62,10 @@ const gridStyle = computed(() => ({
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border: 1px solid #333;
+  border: 1px solid var(--panel-control-border, #666666);
   border-radius: 2px;
-  background: #000;
-  color: #ccc;
+  background: var(--panel-control-bg, #222222);
+  color: var(--panel-text, #ffffff);
   font-size: 11px;
   box-sizing: border-box;
   transition:
@@ -74,14 +74,13 @@ const gridStyle = computed(() => ({
     color 0.05s;
 
   &.selected {
-    border: 2px solid #888;
-    background: #1a1a1a;
+    border: 2px solid var(--panel-text, #ffffff);
   }
 
   &.active {
-    border: 2px solid #fff;
-    background: #fff;
-    color: #000;
+    border: 2px solid var(--panel-text, #ffffff);
+    background: var(--panel-text, #ffffff);
+    color: var(--panel-control-bg, #222222);
   }
 }
 </style>
