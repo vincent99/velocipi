@@ -121,24 +121,30 @@ function formatUtc(t: string): string {
   return s === '00' ? `${h}:${m}Z` : `${h}:${m}:${s}Z`;
 }
 
-// Format a Date as local HH:MM:SS.
+// Format a Date as local time in 12-hour format (e.g. "10:09:48pm").
 function formatLocal(dt: Date): string {
-  return dt.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  });
+  return dt
+    .toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    })
+    .toLowerCase();
 }
 
-// Return local HH:MM for a UTC hour label (using the first minute of that hour).
+// Return local hour label for a UTC hour (using the first minute of that hour).
+// Format: "10pm" or "10:30pm" if minutes are non-zero.
 function localHourLabel(date: string, utcHour: string): string {
   const dt = recToUtcDate(date, `${utcHour}-00-00`);
-  return dt.toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  return dt
+    .toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+    .toLowerCase()
+    .replace(':00', '');
 }
 
 // Day offset (+1, -1, 0) between local date and UTC date for a given recording.
@@ -153,19 +159,6 @@ function localDayOffset(date: string, startTime: string): number {
   }
   return 0;
 }
-
-// For a given UTC date, the dominant local day offset (sign of the majority,
-// or the first non-zero one found). Used to annotate the sidebar date label.
-const dateDayOffset = computed(() => {
-  const map = new Map<string, number>();
-  for (const d of dates.value) {
-    const recs = recordings.value.filter((r) => r.date === d);
-    const offset =
-      recs.length > 0 ? localDayOffset(recs[0].date, recs[0].startTime) : 0;
-    map.set(d, offset);
-  }
-  return map;
-});
 
 // --- Fullscreen playback ---
 
@@ -292,10 +285,7 @@ async function deleteDay() {
             :class="{ active: d === selectedDate }"
             @click="selectDate(d)"
           >
-            {{ d
-            }}<sup v-if="dateDayOffset.get(d)" class="day-offset">{{
-              dateDayOffset.get(d)! > 0 ? '+1' : '−1'
-            }}</sup>
+            {{ d }}
           </li>
         </ul>
       </aside>
@@ -333,9 +323,18 @@ async function deleteDay() {
           <!-- Per-hour rows -->
           <div v-for="hour in hours" :key="hour" class="tl-hour-row">
             <div class="tl-time-col tl-hour-label">
-              <span class="tl-local-time">{{
-                localHourLabel(selectedDate, hour)
-              }}</span>
+              <span class="tl-local-time"
+                >{{ localHourLabel(selectedDate, hour)
+                }}<sup
+                  v-if="localDayOffset(selectedDate, `${hour}-00-00`)"
+                  class="day-offset"
+                  >{{
+                    localDayOffset(selectedDate, `${hour}-00-00`) > 0
+                      ? '+1'
+                      : '−1'
+                  }}</sup
+                ></span
+              >
               <span class="tl-utc-time">({{ hour }}:00Z)</span>
             </div>
             <div v-for="cam in cameras" :key="cam" class="tl-cam-col tl-cell">

@@ -7,7 +7,7 @@ export const remoteMeta: PanelMeta = {
 </script>
 
 <script setup lang="ts">
-import { ref, watch, onUnmounted, nextTick } from 'vue';
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import mpegts from 'mpegts.js';
 import { useCameraList } from '@/composables/useCameraList';
@@ -172,7 +172,11 @@ if (selected.value) {
   nextTick(() => startStream());
 }
 
-onUnmounted(destroyPlayer);
+onMounted(() => window.addEventListener('beforeunload', destroyPlayer));
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', destroyPlayer);
+  destroyPlayer();
+});
 </script>
 
 <template>
@@ -191,9 +195,8 @@ onUnmounted(destroyPlayer);
 
 <style scoped lang="scss">
 .cameras-page {
-  // Counteract remote-main's 1rem padding so the video fills edge-to-edge.
-  margin: -1rem;
-  height: calc(100% + 2rem);
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   color: #e0e0e0;

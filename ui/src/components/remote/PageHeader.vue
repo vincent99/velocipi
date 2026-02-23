@@ -62,24 +62,85 @@ function navigate(path: string) {
 }
 
 function openCamera(name: string) {
+  menuOpen.value = false;
   router.push({ path: '/remote/cameras', query: { cam: name } });
 }
+
+// Merged item list for the box layout.
+// - Routes with sort < 0 (Home) come first
+// - Camera items slot in at sort = 0
+// - Routes with sort >= 0 follow; /remote/cameras is excluded since cameras
+//   are represented individually as live-thumbnail boxes
+type HeaderItem =
+  | { kind: 'route'; route: (typeof routes)[0] }
+  | { kind: 'camera'; name: string };
+
+const mergedItems = computed<HeaderItem[]>(() => {
+  const before = routes.filter(
+    (r) => r.path !== '/remote/cameras' && r.sort < 0
+  );
+  const after = routes.filter(
+    (r) => r.path !== '/remote/cameras' && r.sort >= 0
+  );
+  return [
+    ...before.map((r) => ({ kind: 'route' as const, route: r })),
+    ...cameras.value.map((n) => ({ kind: 'camera' as const, name: n })),
+    ...after.map((r) => ({ kind: 'route' as const, route: r })),
+  ];
+});
 </script>
 
 <template>
   <header class="page-header" :style="{ background: headerColor }">
-    <!-- Camera thumbnails on the left -->
-    <div v-if="cameras.length > 0" class="header-cameras">
-      <CameraThumbnail
-        v-for="cam in cameras"
-        :key="cam"
-        :name="cam"
-        :selected="cam === activeCam"
-        @select="openCamera"
-      />
+    <!-- Wide layout: flat row of equal-sized boxes -->
+    <div class="header-boxes">
+      <template
+        v-for="item in mergedItems"
+        :key="item.kind === 'camera' ? 'cam:' + item.name : item.route.path"
+      >
+        <!-- Camera box -->
+        <div
+          v-if="item.kind === 'camera'"
+          class="nav-box nav-box--camera"
+          :class="{ active: item.name === activeCam }"
+          @click="openCamera(item.name)"
+        >
+          <CameraThumbnail
+            :name="item.name"
+            :selected="item.name === activeCam"
+          />
+        </div>
+
+        <!-- Route box -->
+        <div
+          v-else
+          class="nav-box nav-box--route"
+          :class="{ active: item.route.path === route.path }"
+          @click="navigate(item.route.path)"
+        >
+          <span class="box-icon">
+            <i
+              v-if="item.route.icon.length > 1"
+              :class="`fi-${item.route.iconStyle}-${item.route.icon}`"
+            />
+            <template v-else>{{ item.route.icon }}</template>
+          </span>
+          <span class="box-label">{{ item.route.name }}</span>
+        </div>
+      </template>
+
+      <!-- Leave admin box -->
+      <a
+        v-if="isAdmin"
+        href="/admin?off"
+        class="nav-box nav-box--route nav-box--admin-off"
+      >
+        <span class="box-icon"><i class="fi-sr-exit" /></span>
+        <span class="box-label">Leave admin</span>
+      </a>
     </div>
 
-    <!-- Right: hamburger menu, always last in flow -->
+    <!-- Small-screen layout: hamburger dropdown -->
     <div ref="navEl" class="header-nav">
       <button class="hamburger" @click="menuOpen = !menuOpen">
         <span class="current-icon">
@@ -96,29 +157,49 @@ function openCamera(name: string) {
       </button>
 
       <div v-if="menuOpen" class="dropdown">
-        <button
-          v-for="r in routes"
-          :key="r.path"
-          class="dropdown-item"
-          :class="{ active: r.path === route.path }"
-          @click="navigate(r.path)"
+        <template
+          v-for="item in mergedItems"
+          :key="item.kind === 'camera' ? 'cam:' + item.name : item.route.path"
         >
-          <span class="item-icon">
-            <i
-              v-if="r.icon.length > 1"
-              :class="`fi-${r.iconStyle}-${r.icon}`"
+          <!-- Camera box -->
+          <div
+            v-if="item.kind === 'camera'"
+            class="nav-box nav-box--camera"
+            :class="{ active: item.name === activeCam }"
+            @click="openCamera(item.name)"
+          >
+            <CameraThumbnail
+              :name="item.name"
+              :selected="item.name === activeCam"
             />
-            <template v-else>{{ r.icon }}</template>
-          </span>
-          <span>{{ r.name }}</span>
-        </button>
+          </div>
+
+          <!-- Route box -->
+          <div
+            v-else
+            class="nav-box nav-box--route"
+            :class="{ active: item.route.path === route.path }"
+            @click="navigate(item.route.path)"
+          >
+            <span class="box-icon">
+              <i
+                v-if="item.route.icon.length > 1"
+                :class="`fi-${item.route.iconStyle}-${item.route.icon}`"
+              />
+              <template v-else>{{ item.route.icon }}</template>
+            </span>
+            <span class="box-label">{{ item.route.name }}</span>
+          </div>
+        </template>
+
+        <!-- Leave admin box -->
         <a
           v-if="isAdmin"
           href="/admin?off"
-          class="dropdown-item dropdown-item--admin-off"
+          class="nav-box nav-box--route nav-box--admin-off"
         >
-          <span class="item-icon"><i class="fi-sr-exit" /></span>
-          <span>Leave admin</span>
+          <span class="box-icon"><i class="fi-sr-exit" /></span>
+          <span class="box-label">Leave admin</span>
         </a>
       </div>
     </div>
@@ -128,30 +209,115 @@ function openCamera(name: string) {
 <style scoped lang="scss">
 .page-header {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
+  align-items: flex-start;
+  padding: 0.5rem;
   color: #fff;
   position: relative;
   box-sizing: border-box;
-  // No fixed height — grows to fit if content wraps to a second row.
+  width: 100%;
 }
 
-.header-cameras {
+// ── Wide layout: box grid ──────────────────────────────────────────────────
+
+.header-boxes {
   display: flex;
-  align-items: stretch;
-  gap: 0.5rem;
-  height: 64px;
   flex-wrap: wrap;
-  flex-shrink: 1;
-  min-width: 0;
+  gap: 0.5rem;
+  // Hidden on small screens
+  @media (max-width: 767px) {
+    display: none;
+  }
 }
+
+.nav-box {
+  // 16:9 aspect ratio at a fixed height of 64px → width ~114px
+  height: 64px;
+  aspect-ratio: 16 / 9;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 4px;
+  overflow: hidden;
+  box-sizing: border-box;
+  text-decoration: none;
+
+  &:hover {
+    outline: 2px solid rgba(255, 255, 255, 0.5);
+  }
+
+  &.active {
+    outline: 2px solid #fff;
+  }
+}
+
+.nav-box--camera {
+  // CameraThumbnail fills the box
+  :deep(.cam-thumb) {
+    width: 100%;
+    height: 100%;
+  }
+
+  :deep(.thumb-img) {
+    width: 100%;
+    height: 100%;
+    min-width: unset;
+    object-fit: cover;
+  }
+}
+
+.nav-box--route {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  &.active {
+    background: rgba(255, 255, 255, 0.15);
+  }
+}
+
+.nav-box--admin-off {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #f87171;
+
+  &:hover {
+    background: rgba(90, 26, 26, 0.5);
+  }
+}
+
+.box-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.box-label {
+  font-size: 0.6rem;
+  line-height: 1.1;
+  text-align: center;
+  padding: 0 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+// ── Small-screen layout: hamburger ────────────────────────────────────────
 
 .header-nav {
   flex-shrink: 0;
-  position: relative;
+  position: static;
   margin-left: auto;
+  // Hidden on wide screens
+  @media (min-width: 768px) {
+    display: none;
+  }
 }
 
 .hamburger {
@@ -197,52 +363,14 @@ function openCamera(name: string) {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  background: #1a1a1a;
+  background: #111;
   border: 1px solid #333;
   border-radius: 6px;
-  overflow: hidden;
-  min-width: 160px;
+  padding: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 0.5rem;
   z-index: 100;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-}
-
-.dropdown-item {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  background: none;
-  border: none;
-  color: #eee;
-  cursor: pointer;
-  font-size: 0.9rem;
-  text-align: left;
-  text-decoration: none;
-
-  &:hover {
-    background: #2a2a2a;
-  }
-
-  &.active {
-    background: #333;
-    color: #fff;
-    font-weight: 600;
-  }
-
-  &--admin-off {
-    border-top: 1px solid #333;
-    color: #f87171;
-
-    &:hover {
-      background: #2a1a1a;
-    }
-  }
-}
-
-.item-icon {
-  width: 1.2rem;
-  text-align: center;
-  flex-shrink: 0;
 }
 </style>

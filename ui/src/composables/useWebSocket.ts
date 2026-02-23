@@ -4,8 +4,13 @@ import type { OutboundWsMsg } from '@/types/ws';
 const connected = ref(false);
 const dropped = ref(false);
 let ws: WebSocket | null = null;
+let unloading = false;
 const messageHandlers = new Set<(e: MessageEvent) => void>();
 const closeHandlers = new Set<() => void>();
+
+window.addEventListener('beforeunload', () => {
+  unloading = true;
+});
 
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
@@ -19,6 +24,9 @@ function connect() {
   ws.onerror = (e) => console.error('ws error', e);
 
   ws.onclose = () => {
+    if (unloading) {
+      return;
+    }
     if (connected.value) {
       dropped.value = true;
     }
