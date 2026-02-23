@@ -4,7 +4,12 @@ import { useConfig } from '@/composables/useConfig';
 
 // Provided to child PanelControl components via inject.
 export interface PanelGridContext {
-  registerControl: (col: number, row: number) => number; // returns the control's stable slot index
+  registerControl: (
+    col: number,
+    row: number,
+    colSpan: number,
+    rowSpan: number
+  ) => number; // returns the control's stable slot index
   selectedIndex: Ref<number>;
   activeIndex: Ref<number | null>;
   registerCallbacks: (
@@ -44,8 +49,16 @@ export function usePanelGrid(options?: {
   const longPressMs = computed(() => config.value?.navMenu.longPressMs ?? 1000);
   const usesJoystick = options?.usesJoystick ?? false;
 
-  // Each slot holds the stable index assigned at registration time plus its grid position.
-  const slots = ref<{ index: number; col: number; row: number }[]>([]);
+  // Each slot holds the stable index assigned at registration time plus its grid position and span.
+  const slots = ref<
+    {
+      index: number;
+      col: number;
+      row: number;
+      colSpan: number;
+      rowSpan: number;
+    }[]
+  >([]);
   const controlCount = ref(0);
   const selectedIndex = ref(0);
   const activeIndex = ref<number | null>(null);
@@ -58,7 +71,9 @@ export function usePanelGrid(options?: {
   );
 
   let enterDownAt: number | null = null;
-  let joyDownAt: number | null = null;
+  // Joystick hold timers. null = key not held; timer id = key held, not yet fired; -1 = timer already fired.
+  let joyDownTimer: ReturnType<typeof setTimeout> | null | -1 = null;
+  let joyUpTimer: ReturnType<typeof setTimeout> | null | -1 = null;
 
   function deactivate(confirm: boolean) {
     const idx = activeIndex.value;
@@ -78,15 +93,21 @@ export function usePanelGrid(options?: {
     return slots.value.find((s) => s.index === index);
   }
 
+  // Returns true if two ranges [a, a+spanA) and [b, b+spanB) overlap.
+  function rangesOverlap(a: number, spanA: number, b: number, spanB: number) {
+    return a < b + spanB && a + spanA > b;
+  }
+
   // Among all slots, find the best candidate in a spatial direction from the current selection.
-  // Strategy: must be strictly on the correct side, prefer the closest on the primary axis,
-  // break ties with the secondary axis distance.
+  // Sort key: (overlaps secondary axis ? 0 : 1, primary distance, secondary distance).
+  // This ensures controls that share column/row range are preferred over distant ones.
   function moveSelection(dir: 'up' | 'down' | 'left' | 'right') {
     const cur = slotOf(selectedIndex.value);
     if (!cur) {
       return;
     }
     let best: (typeof slots.value)[0] | null = null;
+    let bestOverlap = 1;
     let bestPrimary = Infinity;
     let bestSecondary = Infinity;
 
@@ -97,31 +118,40 @@ export function usePanelGrid(options?: {
       let primary: number;
       let secondary: number;
       let valid: boolean;
+      let overlap: number;
       if (dir === 'up') {
         valid = s.row < cur.row;
-        primary = cur.row - s.row;
+        primary = cur.row - (s.row + s.rowSpan - 1);
         secondary = Math.abs(s.col - cur.col);
+        overlap = rangesOverlap(cur.col, cur.colSpan, s.col, s.colSpan) ? 0 : 1;
       } else if (dir === 'down') {
-        valid = s.row > cur.row;
-        primary = s.row - cur.row;
+        valid = s.row + s.rowSpan - 1 > cur.row + cur.rowSpan - 1;
+        primary = s.row - (cur.row + cur.rowSpan - 1);
         secondary = Math.abs(s.col - cur.col);
+        overlap = rangesOverlap(cur.col, cur.colSpan, s.col, s.colSpan) ? 0 : 1;
       } else if (dir === 'left') {
         valid = s.col < cur.col;
-        primary = cur.col - s.col;
+        primary = cur.col - (s.col + s.colSpan - 1);
         secondary = Math.abs(s.row - cur.row);
+        overlap = rangesOverlap(cur.row, cur.rowSpan, s.row, s.rowSpan) ? 0 : 1;
       } else {
-        valid = s.col > cur.col;
-        primary = s.col - cur.col;
+        valid = s.col + s.colSpan - 1 > cur.col + cur.colSpan - 1;
+        primary = s.col - (cur.col + cur.colSpan - 1);
         secondary = Math.abs(s.row - cur.row);
+        overlap = rangesOverlap(cur.row, cur.rowSpan, s.row, s.rowSpan) ? 0 : 1;
       }
       if (!valid) {
         continue;
       }
       if (
-        primary < bestPrimary ||
-        (primary === bestPrimary && secondary < bestSecondary)
+        overlap < bestOverlap ||
+        (overlap === bestOverlap && primary < bestPrimary) ||
+        (overlap === bestOverlap &&
+          primary === bestPrimary &&
+          secondary < bestSecondary)
       ) {
         best = s;
+        bestOverlap = overlap;
         bestPrimary = primary;
         bestSecondary = secondary;
       }
@@ -176,14 +206,30 @@ export function usePanelGrid(options?: {
         e.preventDefault();
         if (activeIndex.value === null) {
           moveSelection('up');
+        } else if (joyUpTimer === null) {
+          // Hold up while active: cancel after longPressMs.
+          joyUpTimer = setTimeout(() => {
+            joyUpTimer = -1;
+            deactivate(false);
+          }, longPressMs.value);
         }
-        // While active, up is handled on keyup (cancel).
       } else if (e.key === km.down) {
         e.preventDefault();
-        if (activeIndex.value === null) {
-          joyDownAt = Date.now();
+        if (activeIndex.value !== null) {
+          // Hold down while active: confirm after longPressMs.
+          if (joyDownTimer === null) {
+            joyDownTimer = setTimeout(() => {
+              joyDownTimer = -1;
+              deactivate(true);
+            }, longPressMs.value);
+          }
+        } else if (joyDownTimer === null) {
+          // Hold down while inactive: activate after longPressMs.
+          joyDownTimer = setTimeout(() => {
+            joyDownTimer = -1;
+            activeIndex.value = selectedIndex.value;
+          }, longPressMs.value);
         }
-        // While active, down is handled on keyup (confirm).
       } else if (e.key === km.left || e.key === km.joyLeft) {
         e.preventDefault();
         if (activeIndex.value !== null) {
@@ -228,23 +274,32 @@ export function usePanelGrid(options?: {
     if (!usesJoystick) {
       if (e.key === km.down) {
         e.preventDefault();
-        if (activeIndex.value !== null) {
-          deactivate(true); // any press down while active = confirm
-        } else {
-          if (joyDownAt === null) {
-            return;
-          }
-          const held = Date.now() - joyDownAt;
-          joyDownAt = null;
-          if (held >= longPressMs.value) {
-            activeIndex.value = selectedIndex.value; // long press down = activate
+        if (joyDownTimer === -1) {
+          // Timer already fired — action already taken, just reset.
+          joyDownTimer = null;
+        } else if (joyDownTimer !== null) {
+          // Released before longPressMs fired.
+          clearTimeout(joyDownTimer);
+          joyDownTimer = null;
+          if (activeIndex.value !== null) {
+            deactivate(true); // short press down while active = confirm
           } else {
-            moveSelection('down'); // short press down = move selection down
+            moveSelection('down'); // short press down while inactive = move
           }
         }
-      } else if (e.key === km.up && activeIndex.value !== null) {
+      } else if (e.key === km.up) {
         e.preventDefault();
-        deactivate(false); // any press up while active = cancel
+        if (joyUpTimer === -1) {
+          // Timer already fired — action already taken, just reset.
+          joyUpTimer = null;
+        } else if (joyUpTimer !== null) {
+          // Released before longPressMs fired — short press up while active = cancel immediately.
+          clearTimeout(joyUpTimer);
+          joyUpTimer = null;
+          if (activeIndex.value !== null) {
+            deactivate(false);
+          }
+        }
       }
     }
   }
@@ -257,12 +312,23 @@ export function usePanelGrid(options?: {
   onUnmounted(() => {
     document.removeEventListener('keydown', onKeyDown);
     document.removeEventListener('keyup', onKeyUp);
+    if (joyDownTimer !== null && joyDownTimer !== -1) {
+      clearTimeout(joyDownTimer);
+    }
+    if (joyUpTimer !== null && joyUpTimer !== -1) {
+      clearTimeout(joyUpTimer);
+    }
   });
 
-  function registerControl(col: number, row: number): number {
+  function registerControl(
+    col: number,
+    row: number,
+    colSpan = 1,
+    rowSpan = 1
+  ): number {
     const idx = controlCount.value;
     controlCount.value++;
-    slots.value.push({ index: idx, col, row });
+    slots.value.push({ index: idx, col, row, colSpan, rowSpan });
     return idx;
   }
 

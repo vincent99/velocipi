@@ -67,9 +67,9 @@ const gridStyle = computed(() => ({
   overflow: hidden;
   box-sizing: border-box;
   // Non-interactive: border matches background so grid cells align with bordered controls.
-  border: 1px solid var(--panel-bg);
-  background: var(--panel-bg);
-  color: var(--panel-text);
+  border: 1px solid var(--panel-control-bg, #000000);
+  background: var(--panel-control-bg, #000000);
+  color: var(--panel-control-text, #ffffff);
   font-size: 11px;
   gap: 2px;
 

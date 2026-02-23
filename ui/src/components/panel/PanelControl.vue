@@ -25,7 +25,12 @@ if (!grid) {
   throw new Error('PanelControl must be used inside PanelGrid');
 }
 
-const index = grid.registerControl(props.col, props.row);
+const index = grid.registerControl(
+  props.col,
+  props.row,
+  props.colSpan,
+  props.rowSpan
+);
 
 onMounted(() => {
   grid.registerCallbacks(
@@ -62,10 +67,10 @@ const gridStyle = computed(() => ({
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  border: 1px solid var(--panel-control-border, #666666);
+  border: 1px solid var(--panel-control-border, #444444);
   border-radius: 2px;
-  background: var(--panel-control-bg, #222222);
-  color: var(--panel-text, #ffffff);
+  background: var(--panel-control-bg, #000000);
+  color: var(--panel-control-text, #ffffff);
   font-size: 11px;
   box-sizing: border-box;
   transition:
@@ -74,13 +79,15 @@ const gridStyle = computed(() => ({
     color 0.05s;
 
   &.selected {
-    border: 2px solid var(--panel-text, #ffffff);
+    border: 2px solid var(--panel-selected-border, #888888);
+    background: var(--panel-selected-bg, #444444);
+    color: var(--panel-selected-text, #ffffff);
   }
 
   &.active {
-    border: 2px solid var(--panel-text, #ffffff);
-    background: var(--panel-text, #ffffff);
-    color: var(--panel-control-bg, #222222);
+    border: 2px solid var(--panel-active-border, #888888);
+    background: var(--panel-active-bg, #ffffff);
+    color: var(--panel-active-text, #000000);
   }
 }
 </style>

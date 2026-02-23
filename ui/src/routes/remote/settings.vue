@@ -237,6 +237,51 @@ const expanderBitFields = [
             type="number"
             :min="1"
           />
+          <SettingsField
+            label="Control background"
+            path="ui.panel.controlBackground"
+            type="color"
+          />
+          <SettingsField
+            label="Control border"
+            path="ui.panel.controlBorder"
+            type="color"
+          />
+          <SettingsField
+            label="Control text"
+            path="ui.panel.controlText"
+            type="color"
+          />
+          <SettingsField
+            label="Selected background"
+            path="ui.panel.selectedBackground"
+            type="color"
+          />
+          <SettingsField
+            label="Selected border"
+            path="ui.panel.selectedBorder"
+            type="color"
+          />
+          <SettingsField
+            label="Selected text"
+            path="ui.panel.selectedText"
+            type="color"
+          />
+          <SettingsField
+            label="Active background"
+            path="ui.panel.activeBackground"
+            type="color"
+          />
+          <SettingsField
+            label="Active border"
+            path="ui.panel.activeBorder"
+            type="color"
+          />
+          <SettingsField
+            label="Active text"
+            path="ui.panel.activeText"
+            type="color"
+          />
         </SettingsGroup>
         <SettingsGroup title="Nav menu">
           <SettingsField

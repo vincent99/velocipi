@@ -3,10 +3,15 @@ export type TimeFormat = string;
 export interface PanelConfig {
   width: number;
   height: number;
-  background: string;
-  controlBg: string;
+  controlBackground: string;
   controlBorder: string;
   controlText: string;
+  selectedBackground: string;
+  selectedBorder: string;
+  selectedText: string;
+  activeBackground: string;
+  activeBorder: string;
+  activeText: string;
   homeTimezone: string;
   timeFormat: TimeFormat;
 }

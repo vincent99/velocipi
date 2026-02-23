@@ -24,8 +24,8 @@ const grid = usePanelGrid({
 });
 
 const context: PanelGridContext = {
-  registerControl(col: number, row: number) {
-    return grid.registerControl(col, row);
+  registerControl(col: number, row: number, colSpan: number, rowSpan: number) {
+    return grid.registerControl(col, row, colSpan, rowSpan);
   },
   selectedIndex: grid.selectedIndex,
   activeIndex: grid.activeIndex,
@@ -45,12 +45,20 @@ provide(PANEL_GRID_KEY, context);
 
 const { config } = useConfig();
 
-const cssVars = computed(() => ({
-  '--panel-bg': config.value?.panel.background ?? '#000000',
-  '--panel-control-bg': config.value?.panel.controlBg ?? '#222222',
-  '--panel-control-border': config.value?.panel.controlBorder ?? '#666666',
-  '--panel-text': config.value?.panel.controlText ?? '#ffffff',
-}));
+const cssVars = computed(() => {
+  const p = config.value?.panel;
+  return {
+    '--panel-control-bg': p?.controlBackground ?? '#000000',
+    '--panel-control-border': p?.controlBorder ?? '#444444',
+    '--panel-control-text': p?.controlText ?? '#ffffff',
+    '--panel-selected-bg': p?.selectedBackground ?? '#444444',
+    '--panel-selected-border': p?.selectedBorder ?? '#888888',
+    '--panel-selected-text': p?.selectedText ?? '#ffffff',
+    '--panel-active-bg': p?.activeBackground ?? '#ffffff',
+    '--panel-active-border': p?.activeBorder ?? '#888888',
+    '--panel-active-text': p?.activeText ?? '#000000',
+  };
+});
 </script>
 
 <template>
@@ -68,6 +76,6 @@ const cssVars = computed(() => ({
   grid-template-columns: repeat(16, 1fr);
   grid-template-rows: repeat(4, 1fr);
   gap: 1px;
-  background: var(--panel-bg, #000000);
+  background: var(--panel-control-bg, #000000);
 }
 </style>
