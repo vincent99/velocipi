@@ -70,121 +70,123 @@ function pointerup(key: LogicalKey) {
 
 <template>
   <KeyRelay />
-  <div
-    ref="shellRef"
-    class="vp-shell"
-    :style="{ transform: `scale(${scale})`, transformOrigin: 'top left' }"
-  >
-    <!-- Left cluster: joystick grid with LED in top-right cell -->
-    <div class="joy-grid">
-      <div />
-      <button
-        class="ctrl-btn"
-        :class="{ active: active('up') }"
-        @pointerdown="pointerdown('up', $event)"
-        @pointerup="pointerup('up')"
-        @pointercancel="pointerup('up')"
-      >
-        <i class="fi-sr-angle-up" />
-      </button>
-      <div class="led-cell">
-        <div class="led-circle" :class="ledMode" />
-      </div>
-      <button
-        class="ctrl-btn"
-        :class="{ active: active('left') }"
-        @pointerdown="pointerdown('left', $event)"
-        @pointerup="pointerup('left')"
-        @pointercancel="pointerup('left')"
-      >
-        <i class="fi-sr-angle-left" />
-      </button>
-      <div class="enc-ring">
+  <div style="margin: 1rem">
+    <div
+      ref="shellRef"
+      class="vp-shell"
+      :style="{ transform: `scale(${scale})`, transformOrigin: 'top left' }"
+    >
+      <!-- Left cluster: joystick grid with LED in top-right cell -->
+      <div class="joy-grid">
+        <div />
         <button
-          class="enc-half enc-half-l"
-          :class="{ active: active('joy-left') }"
-          @click="press('joy-left')"
+          class="ctrl-btn"
+          :class="{ active: active('up') }"
+          @pointerdown="pointerdown('up', $event)"
+          @pointerup="pointerup('up')"
+          @pointercancel="pointerup('up')"
         >
-          <span class="mirror">⤸</span>
+          <i class="fi-sr-angle-up" />
         </button>
+        <div class="led-cell">
+          <div class="led-circle" :class="ledMode" />
+        </div>
         <button
-          class="enc-half enc-half-r"
-          :class="{ active: active('joy-right') }"
-          @click="press('joy-right')"
+          class="ctrl-btn"
+          :class="{ active: active('left') }"
+          @pointerdown="pointerdown('left', $event)"
+          @pointerup="pointerup('left')"
+          @pointercancel="pointerup('left')"
         >
-          ⤸
+          <i class="fi-sr-angle-left" />
         </button>
-      </div>
-      <button
-        class="ctrl-btn"
-        :class="{ active: active('right') }"
-        @pointerdown="pointerdown('right', $event)"
-        @pointerup="pointerup('right')"
-        @pointercancel="pointerup('right')"
-      >
-        <i class="fi-sr-angle-right" />
-      </button>
-      <div />
-      <button
-        class="ctrl-btn"
-        :class="{ active: active('down') }"
-        @pointerdown="pointerdown('down', $event)"
-        @pointerup="pointerup('down')"
-        @pointercancel="pointerup('down')"
-      >
-        <i class="fi-sr-angle-down" />
-      </button>
-      <div />
-    </div>
-
-    <!-- Center: screen -->
-    <div class="vp-center">
-      <div class="screen-box">
-        <ScreenViewer :show-led="false" />
-      </div>
-    </div>
-
-    <!-- Right cluster: two concentric encoder rings, each split left/right -->
-    <div class="vp-right">
-      <div class="enc-ring enc-ring-outer">
-        <button
-          class="enc-half enc-half-l enc-half-outer"
-          :class="{ active: active('outer-left') }"
-          @click="press('outer-left')"
-        >
-          <span class="mirror">⤸</span>
-        </button>
-        <button
-          class="enc-half enc-half-r enc-half-outer"
-          :class="{ active: active('outer-right') }"
-          @click="press('outer-right')"
-        >
-          ⤸
-        </button>
-        <div class="enc-ring enc-ring-inner">
+        <div class="enc-ring">
           <button
             class="enc-half enc-half-l"
-            :class="{ active: active('inner-left') }"
-            @click="press('inner-left')"
+            :class="{ active: active('joy-left') }"
+            @click="press('joy-left')"
           >
             <span class="mirror">⤸</span>
           </button>
           <button
             class="enc-half enc-half-r"
-            :class="{ active: active('inner-right') }"
-            @click="press('inner-right')"
+            :class="{ active: active('joy-right') }"
+            @click="press('joy-right')"
           >
             ⤸
           </button>
+        </div>
+        <button
+          class="ctrl-btn"
+          :class="{ active: active('right') }"
+          @pointerdown="pointerdown('right', $event)"
+          @pointerup="pointerup('right')"
+          @pointercancel="pointerup('right')"
+        >
+          <i class="fi-sr-angle-right" />
+        </button>
+        <div />
+        <button
+          class="ctrl-btn"
+          :class="{ active: active('down') }"
+          @pointerdown="pointerdown('down', $event)"
+          @pointerup="pointerup('down')"
+          @pointercancel="pointerup('down')"
+        >
+          <i class="fi-sr-angle-down" />
+        </button>
+        <div />
+      </div>
+
+      <!-- Center: screen -->
+      <div class="vp-center">
+        <div class="screen-box">
+          <ScreenViewer :show-led="false" />
+        </div>
+      </div>
+
+      <!-- Right cluster: two concentric encoder rings, each split left/right -->
+      <div class="vp-right">
+        <div class="enc-ring enc-ring-outer">
           <button
-            class="knob-enter"
-            :class="{ active: active('enter') }"
-            @pointerdown.stop="pointerdown('enter', $event)"
-            @pointerup.stop="pointerup('enter')"
-            @pointercancel.stop="pointerup('enter')"
+            class="enc-half enc-half-l enc-half-outer"
+            :class="{ active: active('outer-left') }"
+            @click="press('outer-left')"
           >
-            ●
+            <span class="mirror">⤸</span>
           </button>
+          <button
+            class="enc-half enc-half-r enc-half-outer"
+            :class="{ active: active('outer-right') }"
+            @click="press('outer-right')"
+          >
+            ⤸
+          </button>
+          <div class="enc-ring enc-ring-inner">
+            <button
+              class="enc-half enc-half-l"
+              :class="{ active: active('inner-left') }"
+              @click="press('inner-left')"
+            >
+              <span class="mirror">⤸</span>
+            </button>
+            <button
+              class="enc-half enc-half-r"
+              :class="{ active: active('inner-right') }"
+              @click="press('inner-right')"
+            >
+              ⤸
+            </button>
+            <button
+              class="knob-enter"
+              :class="{ active: active('enter') }"
+              @pointerdown.stop="pointerdown('enter', $event)"
+              @pointerup.stop="pointerup('enter')"
+              @pointercancel.stop="pointerup('enter')"
+            >
+              ●
+            </button>
+          </div>
         </div>
       </div>
     </div>

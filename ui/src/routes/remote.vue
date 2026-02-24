@@ -26,7 +26,7 @@ const wsDisconnected = computed(() => dropped.value && !connected.value);
 
 <style scoped lang="scss">
 .remote-layout {
-  height: 100vh;
+  min-height: 100vh;
   background: #111;
   color: #eee;
   display: flex;

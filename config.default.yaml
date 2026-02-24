@@ -65,15 +65,15 @@ ui:
   panel:
     width: 256
     height: 64
-    controlBackground: "#000"
-    controlBorder: "#444"
-    controlText: "#fff"
-    selectedBackground: "#222"
-    selectedBorder: "#888"
-    selectedText: "#fff"
-    activeBackground: "#fff"
-    activeBorder: "#888"
-    activeText: "#000"
+    controlBackground: "#000000"
+    controlBorder: "#444444"
+    controlText: "#ffffff"
+    selectedBackground: "#222222"
+    selectedBorder: "#888888"
+    selectedText: "#ffffff"
+    activeBackground: "#ffffff"
+    activeBorder: "#888888"
+    activeText: "#000000"
     homeTimezone: "America/Phoenix"
     timeFormat: "hh:mm:ssa"
   navMenu:

@@ -36,3 +36,5 @@ dist
 velocipi
 config.yaml
 recordings
+music
+music.sqlite

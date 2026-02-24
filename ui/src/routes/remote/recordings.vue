@@ -549,7 +549,7 @@ async function deleteSession() {
 }
 
 .tl-actions-col {
-  width: 80px;
+  width: 120px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
