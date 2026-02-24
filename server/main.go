@@ -222,8 +222,8 @@ func main() {
 		json.NewEncoder(w).Encode(list)
 	})
 
-	// /recordings/day/{date} — DELETE removes the entire day's recordings.
-	mux.HandleFunc("/recordings/day/", func(w http.ResponseWriter, r *http.Request) {
+	// /recordings/session/{session} — DELETE removes an entire session directory.
+	mux.HandleFunc("/recordings/session/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -232,15 +232,15 @@ func main() {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		date := r.URL.Path[len("/recordings/day/"):]
-		if err := dvrManager.DeleteDay(date); err != nil {
+		session := r.URL.Path[len("/recordings/session/"):]
+		if err := dvrManager.DeleteSession(session); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// /recordings/hour/{date}/{hour} — DELETE removes all recordings in a given hour.
+	// /recordings/hour/{session}/{hour} — DELETE removes all recordings in a given hour.
 	mux.HandleFunc("/recordings/hour/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -253,7 +253,7 @@ func main() {
 		rest := r.URL.Path[len("/recordings/hour/"):]
 		parts := strings.SplitN(rest, "/", 2)
 		if len(parts) != 2 {
-			http.Error(w, "expected /recordings/hour/{date}/{hour}", http.StatusBadRequest)
+			http.Error(w, "expected /recordings/hour/{session}/{hour}", http.StatusBadRequest)
 			return
 		}
 		if err := dvrManager.DeleteHour(parts[0], parts[1]); err != nil {
@@ -263,8 +263,8 @@ func main() {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// /recordings/{date}/{file} — serve or delete a recording file (mp4, _thumb.jpg, _full.jpg).
-	// DELETE /recordings/{date}/{filename-no-ext} — delete single recording.
+	// /recordings/{session}/{file} — serve or delete a recording file (mp4, _thumb.jpg, _full.jpg).
+	// DELETE /recordings/{session}/{filename-no-ext} — delete single recording.
 	mux.HandleFunc("/recordings/", func(w http.ResponseWriter, r *http.Request) {
 		rest := r.URL.Path[len("/recordings/"):]
 		switch r.Method {
@@ -273,20 +273,20 @@ func main() {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
-			// rest is "{date}/{filename-no-ext}"
+			// rest is "{session}/{filename-no-ext}"
 			parts := strings.SplitN(rest, "/", 2)
 			if len(parts) != 2 {
-				http.Error(w, "expected /recordings/{date}/{filename}", http.StatusBadRequest)
+				http.Error(w, "expected /recordings/{session}/{filename}", http.StatusBadRequest)
 				return
 			}
-			if err := dvrManager.DeleteRecording(parts[1]); err != nil {
+			if err := dvrManager.DeleteRecording(parts[0], parts[1]); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
 		case http.MethodGet:
 			// Serve static files from recordingsDir.
-			// rest is "{date}/{file.ext}"
+			// rest is "{session}/{file.ext}"
 			http.ServeFile(w, r, filepath.Join(cfg.DVR.RecordingsDir, rest))
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -342,7 +342,7 @@ func main() {
 		hub.broadcastAll(RecordingReadyMsg{
 			Type:     msg.Type,
 			Camera:   msg.Camera,
-			Date:     msg.Date,
+			Session:  msg.Session,
 			Filename: msg.Filename,
 		})
 	})

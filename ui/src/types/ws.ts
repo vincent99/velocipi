@@ -98,7 +98,7 @@ export interface CameraStatusMsg {
 export interface RecordingReadyMsg {
   type: 'recordingReady';
   camera: string;
-  date: string;
+  session: string;
   filename: string;
 }
 

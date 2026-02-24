@@ -127,7 +127,7 @@ type streamSession struct {
 type RecordingReadyMsg struct {
 	Type     string `json:"type"`     // always "recordingReady"
 	Camera   string `json:"camera"`   // original camera name
-	Date     string `json:"date"`     // "2006-01-02"
+	Session  string `json:"session"`  // session directory name, e.g. "2026-02-23" or "2026-02-23-01"
 	Filename string `json:"filename"` // base filename without extension
 }
 
@@ -135,6 +135,7 @@ type RecordingReadyMsg struct {
 type Manager struct {
 	mu               sync.RWMutex
 	cfg              config.DVRConfig
+	sessionDir       string                    // chosen at Start: {recordingsDir}/{yyyy-mm-dd[-NN]}
 	live             map[string]*liveCamera    // sanitized name → live state
 	recording        map[string]bool           // sanitized name → recording state
 	sessions         map[string]*streamSession // clientID → per-connection state
@@ -198,6 +199,37 @@ func (m *Manager) setRecording(name, key string, recording bool) {
 	}
 }
 
+// pickSessionDir selects a unique session directory name under root.
+// It starts with "yyyy-mm-dd" and appends "-01", "-02", … until it finds a
+// name that does not already exist, then creates and returns that directory.
+func pickSessionDir(root string) (string, error) {
+	base := time.Now().UTC().Format("2006-01-02")
+	candidate := filepath.Join(root, base)
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		if err := os.MkdirAll(candidate, 0755); err != nil {
+			return "", err
+		}
+		return candidate, nil
+	}
+	for i := 1; i <= 99; i++ {
+		candidate = filepath.Join(root, fmt.Sprintf("%s-%02d", base, i))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			if err := os.MkdirAll(candidate, 0755); err != nil {
+				return "", err
+			}
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("dvr: could not find a unique session directory under %s", root)
+}
+
+// SessionDir returns the session directory chosen at Start.
+func (m *Manager) SessionDir() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.sessionDir
+}
+
 // Start launches the background recording loop for each camera.
 // It returns immediately; all loops run until ctx is cancelled.
 func (m *Manager) Start(ctx context.Context) {
@@ -208,6 +240,15 @@ func (m *Manager) Start(ctx context.Context) {
 		log.Println("dvr: cannot create recordings dir:", err)
 		return
 	}
+	dir, err := pickSessionDir(m.cfg.RecordingsDir)
+	if err != nil {
+		log.Println("dvr:", err)
+		return
+	}
+	m.mu.Lock()
+	m.sessionDir = dir
+	m.mu.Unlock()
+	log.Println("dvr: session dir:", dir)
 	for _, cam := range m.cfg.Cameras {
 		go m.runCamera(ctx, cam)
 	}
@@ -398,15 +439,15 @@ func (m *Manager) captureSegmentThumbs(mp4File, cameraName string) {
 	}
 
 	if m.onRecordingReady != nil {
-		// Derive date and filename from the mp4File path.
-		// Path: {recordingsDir}/{date}/{filename}.mp4
+		// Derive session and filename from the mp4File path.
+		// Path: {recordingsDir}/{session}/{filename}.mp4
 		dir := filepath.Dir(mp4File)
-		date := filepath.Base(dir)
+		session := filepath.Base(dir)
 		filename := strings.TrimSuffix(filepath.Base(mp4File), ".mp4")
 		m.onRecordingReady(RecordingReadyMsg{
 			Type:     "recordingReady",
 			Camera:   cameraName,
-			Date:     date,
+			Session:  session,
 			Filename: filename,
 		})
 	}
@@ -440,22 +481,12 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, 
 			duration = 1
 		}
 
-		dayDir := filepath.Join(m.cfg.RecordingsDir, now.Format("2006-01-02"))
-		if record {
-			if err := os.MkdirAll(dayDir, 0755); err != nil {
-				log.Printf("dvr[%s]: cannot create day dir: %v", cam.Name, err)
-				m.setRecording(cam.Name, key, false)
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(5 * time.Second):
-				}
-				continue
-			}
-		}
+		m.mu.RLock()
+		sessDir := m.sessionDir
+		m.mu.RUnlock()
 
 		// Filename: {yyyy-mm-dd_hh-mm-ss}_{sanitized-cam-name}.mp4
-		mp4File := filepath.Join(dayDir, fmt.Sprintf("%s_%s.mp4",
+		mp4File := filepath.Join(sessDir, fmt.Sprintf("%s_%s.mp4",
 			now.Format("2006-01-02_15-04-05"), sanitizeName(cam.Name)))
 		if record {
 			log.Printf("dvr[%s]: starting → %s (%ds)", cam.Name, mp4File, duration)

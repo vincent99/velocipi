@@ -16,6 +16,7 @@ import { useDeviceState } from '@/composables/useDeviceState';
 
 interface RecordingFile {
   camera: string;
+  session: string;
   date: string;
   startTime: string;
   filename: string;
@@ -55,8 +56,9 @@ watch(lastRecordingReady, (msg) => {
   if (!exists) {
     recordings.value.push({
       camera: msg.camera,
-      date: msg.date,
-      startTime: msg.filename.slice(11, 19), // "hh-mm-ss" from "yyyy-mm-dd_hh-mm-ss_cam"
+      session: msg.session,
+      date: msg.filename.slice(0, 10), // "yyyy-mm-dd" from "yyyy-mm-dd_hh-mm-ss_cam"
+      startTime: msg.filename.slice(11, 19), // "hh-mm-ss"
       filename: msg.filename,
       hasThumb: true,
       hasFull: true,
@@ -64,35 +66,35 @@ watch(lastRecordingReady, (msg) => {
   }
 });
 
-// All unique dates sorted descending.
-const dates = computed(() => {
-  const set = new Set(recordings.value.map((r) => r.date));
+// All unique sessions sorted descending.
+const sessions = computed(() => {
+  const set = new Set(recordings.value.map((r) => r.session));
   return [...set].sort((a, b) => b.localeCompare(a));
 });
 
-const selectedDate = computed(
-  () => (route.query.date as string) || dates.value[0] || ''
+const selectedSession = computed(
+  () => (route.query.session as string) || sessions.value[0] || ''
 );
 
-function selectDate(d: string) {
-  router.replace({ query: { date: d } });
+function selectSession(s: string) {
+  router.replace({ query: { session: s } });
 }
 
-// Recordings for the selected date.
-const dayRecordings = computed(() =>
-  recordings.value.filter((r) => r.date === selectedDate.value)
+// Recordings for the selected session.
+const sessionRecordings = computed(() =>
+  recordings.value.filter((r) => r.session === selectedSession.value)
 );
 
-// Unique camera names for the selected date, sorted alphabetically.
+// Unique camera names for the selected session, sorted alphabetically.
 const cameras = computed(() => {
-  const set = new Set(dayRecordings.value.map((r) => r.camera));
+  const set = new Set(sessionRecordings.value.map((r) => r.camera));
   return [...set].sort((a, b) => a.localeCompare(b));
 });
 
 // Recordings grouped by camera.
 const byCam = computed(() => {
   const map = new Map<string, RecordingFile[]>();
-  for (const rec of dayRecordings.value) {
+  for (const rec of sessionRecordings.value) {
     const list = map.get(rec.camera) ?? [];
     list.push(rec);
     map.set(rec.camera, list);
@@ -100,12 +102,12 @@ const byCam = computed(() => {
   return map;
 });
 
-// Hours that have at least one recording on the selected day.
+// Hours that have at least one recording in the selected session, sorted descending.
 const hours = computed(() => {
   const set = new Set(
-    dayRecordings.value.map((r) => r.startTime.split('-')[0])
+    sessionRecordings.value.map((r) => r.startTime.split('-')[0])
   );
-  return [...set].sort();
+  return [...set].sort((a, b) => b.localeCompare(a));
 });
 
 // Parse a recording's UTC date+startTime into a Date object.
@@ -133,7 +135,7 @@ function formatLocal(dt: Date): string {
     .toLowerCase();
 }
 
-// Return local hour label for a UTC hour (using the first minute of that hour).
+// Return local hour label for a UTC date+hour (using the first minute of that hour).
 // Format: "10pm" or "10:30pm" if minutes are non-zero.
 function localHourLabel(date: string, utcHour: string): string {
   const dt = recToUtcDate(date, `${utcHour}-00-00`);
@@ -158,6 +160,15 @@ function localDayOffset(date: string, startTime: string): number {
     return -1;
   }
   return 0;
+}
+
+// For an hour row we need a representative date. Pick the date from the first
+// recording in this session that falls in this hour.
+function dateForHour(hour: string): string {
+  const rec = sessionRecordings.value.find((r) =>
+    r.startTime.startsWith(hour ?? '')
+  );
+  return rec?.date ?? selectedSession.value.slice(0, 10);
 }
 
 // --- Fullscreen playback ---
@@ -200,7 +211,7 @@ async function deleteRecording(rec: RecordingFile) {
     return;
   }
   try {
-    const r = await fetch(`/recordings/${rec.date}/${rec.filename}`, {
+    const r = await fetch(`/recordings/${rec.session}/${rec.filename}`, {
       method: 'DELETE',
     });
     if (!r.ok) {
@@ -215,48 +226,50 @@ async function deleteRecording(rec: RecordingFile) {
 }
 
 async function deleteHour(hour: string) {
-  if (!selectedDate.value) {
+  if (!selectedSession.value) {
     return;
   }
+  const date = dateForHour(hour);
   if (
     !confirm(
-      `Delete all recordings for ${localHourLabel(selectedDate.value, hour)} (${hour}:00Z)?`
+      `Delete all recordings for ${localHourLabel(date, hour)} (${hour}:00Z)?`
     )
   ) {
     return;
   }
   try {
-    const r = await fetch(`/recordings/hour/${selectedDate.value}/${hour}`, {
+    const r = await fetch(`/recordings/hour/${selectedSession.value}/${hour}`, {
       method: 'DELETE',
     });
     if (!r.ok) {
       throw new Error(await r.text());
     }
     recordings.value = recordings.value.filter(
-      (x) => !(x.date === selectedDate.value && x.startTime.startsWith(hour))
+      (x) =>
+        !(x.session === selectedSession.value && x.startTime.startsWith(hour))
     );
   } catch (e: unknown) {
     alert('Delete failed: ' + String(e));
   }
 }
 
-async function deleteDay() {
-  const date = selectedDate.value;
-  if (!date) {
+async function deleteSession() {
+  const sess = selectedSession.value;
+  if (!sess) {
     return;
   }
-  if (!confirm(`Delete all recordings for ${date}?`)) {
+  if (!confirm(`Delete all recordings for session ${sess}?`)) {
     return;
   }
   try {
-    const r = await fetch(`/recordings/day/${date}`, { method: 'DELETE' });
+    const r = await fetch(`/recordings/session/${sess}`, { method: 'DELETE' });
     if (!r.ok) {
       throw new Error(await r.text());
     }
-    recordings.value = recordings.value.filter((x) => x.date !== date);
-    // Navigate to next available date.
-    const next = dates.value.find((d) => d !== date);
-    router.replace({ query: next ? { date: next } : {} });
+    recordings.value = recordings.value.filter((x) => x.session !== sess);
+    // Navigate to next available session.
+    const next = sessions.value.find((s) => s !== sess);
+    router.replace({ query: next ? { session: next } : {} });
   } catch (e: unknown) {
     alert('Delete failed: ' + String(e));
   }
@@ -267,25 +280,25 @@ async function deleteDay() {
   <div class="recordings-page">
     <div v-if="loading" class="status-msg">Loading…</div>
     <div v-else-if="error" class="error-msg">{{ error }}</div>
-    <div v-else-if="dates.length === 0" class="status-msg">
+    <div v-else-if="sessions.length === 0" class="status-msg">
       No recordings found.
     </div>
 
     <div v-else class="layout">
-      <!-- Sidebar: date list -->
+      <!-- Sidebar: session list -->
       <aside class="sidebar">
         <div class="sidebar-header">
-          <span class="sidebar-title">Dates</span>
+          <span class="sidebar-title">Sessions</span>
         </div>
-        <ul class="date-list">
+        <ul class="session-list">
           <li
-            v-for="d in dates"
-            :key="d"
-            class="date-item"
-            :class="{ active: d === selectedDate }"
-            @click="selectDate(d)"
+            v-for="s in sessions"
+            :key="s"
+            class="session-item"
+            :class="{ active: s === selectedSession }"
+            @click="selectSession(s)"
           >
-            {{ d }}
+            {{ s }}
           </li>
         </ul>
       </aside>
@@ -293,13 +306,13 @@ async function deleteDay() {
       <!-- Timeline body -->
       <main class="timeline-wrap">
         <div
-          v-if="!selectedDate || dayRecordings.length === 0"
+          v-if="!selectedSession || sessionRecordings.length === 0"
           class="status-msg"
         >
-          No recordings for this date.
+          No recordings for this session.
         </div>
         <div v-else class="timeline">
-          <!-- Header row: camera names + optional delete-day button -->
+          <!-- Header row: camera names + optional delete-session button -->
           <div class="tl-header">
             <div class="tl-time-col"></div>
             <div
@@ -311,11 +324,11 @@ async function deleteDay() {
             </div>
             <div v-if="isAdmin" class="tl-actions-col">
               <button
-                class="del-day-btn"
-                title="Delete entire day"
-                @click="deleteDay"
+                class="del-session-btn"
+                title="Delete entire session"
+                @click="deleteSession"
               >
-                <i class="fi-sr-trash" /> Delete day
+                <i class="fi-sr-trash" /> Delete session
               </button>
             </div>
           </div>
@@ -324,12 +337,20 @@ async function deleteDay() {
           <div v-for="hour in hours" :key="hour" class="tl-hour-row">
             <div class="tl-time-col tl-hour-label">
               <span class="tl-local-time"
-                >{{ localHourLabel(selectedDate, hour ?? '')
+                >{{ localHourLabel(dateForHour(hour ?? ''), hour ?? '')
                 }}<sup
-                  v-if="localDayOffset(selectedDate, `${hour ?? ''}-00-00`)"
+                  v-if="
+                    localDayOffset(
+                      dateForHour(hour ?? ''),
+                      `${hour ?? ''}-00-00`
+                    )
+                  "
                   class="day-offset"
                   >{{
-                    localDayOffset(selectedDate, `${hour ?? ''}-00-00`) > 0
+                    localDayOffset(
+                      dateForHour(hour ?? ''),
+                      `${hour ?? ''}-00-00`
+                    ) > 0
                       ? '+1'
                       : '−1'
                   }}</sup
@@ -345,18 +366,18 @@ async function deleteDay() {
                 :key="rec.filename"
               >
                 <a
-                  :href="`/recordings/${rec.date}/${rec.filename}.mp4`"
+                  :href="`/recordings/${rec.session}/${rec.filename}.mp4`"
                   target="_blank"
                   class="thumb-link"
                   @click.prevent="
                     playFullscreen(
-                      `/recordings/${rec.date}/${rec.filename}.mp4`
+                      `/recordings/${rec.session}/${rec.filename}.mp4`
                     )
                   "
                 >
                   <img
                     v-if="rec.hasThumb"
-                    :src="`/recordings/${rec.date}/${rec.filename}_thumb.jpg`"
+                    :src="`/recordings/${rec.session}/${rec.filename}_thumb.jpg`"
                     class="thumb-img"
                     :alt="rec.filename"
                   />
@@ -445,7 +466,7 @@ async function deleteDay() {
   letter-spacing: 0.05em;
 }
 
-.date-list {
+.session-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -453,7 +474,7 @@ async function deleteDay() {
   flex: 1;
 }
 
-.date-item {
+.session-item {
   padding: 0.5rem 0.75rem;
   cursor: pointer;
   font-size: 0.8rem;
@@ -604,7 +625,7 @@ async function deleteDay() {
   }
 }
 
-.del-day-btn {
+.del-session-btn {
   background: none;
   border: 1px solid #ef4444;
   border-radius: 4px;
