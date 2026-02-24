@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@flaticon/flaticon-uicons": "^3.3.1",
-    "@fontsource/roboto": "^5.2.9",
+    "@fontsource/roboto": "^5.2.10",
     "dayjs": "^1.11.19",
     "hls.js": "^1.6.15",
     "mpegts.js": "^1.8.0",
