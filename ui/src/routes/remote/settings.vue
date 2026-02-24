@@ -151,6 +151,11 @@ const expanderBitFields = [
         <h2>Display</h2>
         <SettingsGroup title="OLED">
           <SettingsField
+            label="Driver"
+            path="oled.driver"
+            placeholder="ssd1327"
+          />
+          <SettingsField
             label="SPI port"
             path="oled.spiPort"
             placeholder="/dev/spidev0.0"
@@ -166,8 +171,8 @@ const expanderBitFields = [
             placeholder="gpiochip0"
           />
           <SettingsField
-            label="DC pin"
-            path="oled.dcPin"
+            label="Status pin"
+            path="oled.statusPin"
             type="number"
             :min="0"
           />

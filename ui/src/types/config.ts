@@ -72,10 +72,11 @@ export interface ExpanderConfig {
 }
 
 export interface OLEDConfig {
+  driver: string; // "ssd1327" or "ge256x64b"
   spiPort: string;
   spiSpeed: string;
   gpioChip: string;
-  dcPin: number;
+  statusPin: number;
   resetPin: number;
   flip: boolean;
 }

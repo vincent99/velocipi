@@ -145,8 +145,8 @@ const mergedItems = computed<HeaderItem[]>(() => {
       <button class="hamburger" @click="menuOpen = !menuOpen">
         <span class="current-icon">
           <i
-            v-if="currentRoute?.icon.length > 1"
-            :class="`fi-${currentRoute.iconStyle}-${currentRoute.icon}`"
+            v-if="(currentRoute?.icon?.length ?? 0) > 1"
+            :class="`fi-${currentRoute?.iconStyle}-${currentRoute?.icon}`"
           />
           <template v-else>{{ currentRoute?.icon }}</template>
         </span>

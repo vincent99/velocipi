@@ -5,6 +5,9 @@ import { useConfig } from '@/composables/useConfig';
 import { usePanelRoutes } from '@/composables/usePanelRoutes';
 
 const panels = usePanelRoutes();
+function isIconClass(icon: string | undefined): boolean {
+  return (icon?.length ?? 0) > 1;
+}
 const route = useRoute();
 const router = useRouter();
 const { config } = useConfig();
@@ -65,7 +68,8 @@ function onKeyDown(e: KeyboardEvent) {
     selectedIndex.value = Math.max(selectedIndex.value - 1, 0);
   }
 
-  router.push(panels[selectedIndex.value].path);
+  const target = panels[selectedIndex.value];
+  if (target) router.push(target.path);
   resetTimer();
 }
 
@@ -101,7 +105,7 @@ onUnmounted(() => {
           >
             <span class="nav-icon">
               <i
-                v-if="p.icon.length > 1"
+                v-if="isIconClass(p.icon)"
                 :class="`fi-${p.iconStyle}-${p.icon}`"
               />
               <template v-else>{{ p.icon }}</template>

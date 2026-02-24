@@ -40,7 +40,7 @@ export default defineConfig({
         configure: (proxy) => {
           proxy.on(
             'proxyRes',
-            (proxyRes, req, res: import('http').ServerResponse) => {
+            (proxyRes, _req, res: import('http').ServerResponse) => {
               (res.socket as import('net').Socket | null)?.setNoDelay(true);
               (
                 (proxyRes as any).socket as import('net').Socket | null
@@ -69,7 +69,7 @@ export default defineConfig({
         configure: (proxy) => {
           proxy.on(
             'proxyRes',
-            (proxyRes, req, res: import('http').ServerResponse) => {
+            (proxyRes, _req, res: import('http').ServerResponse) => {
               // Disable Nagle's algorithm on both sockets so small chunks
               // (multipart boundaries + headers) aren't held waiting for more data.
               (res.socket as import('net').Socket | null)?.setNoDelay(true);

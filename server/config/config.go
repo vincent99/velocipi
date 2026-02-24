@@ -119,12 +119,13 @@ type ScreenConfig struct {
 }
 
 type OLEDConfig struct {
-	SPIPort  string `yaml:"spiPort"  json:"spiPort"`
-	SPISpeed string `yaml:"spiSpeed" json:"spiSpeed"`
-	GPIOChip string `yaml:"gpioChip" json:"gpioChip"`
-	DCPin    int    `yaml:"dcPin"    json:"dcPin"`
-	ResetPin int    `yaml:"resetPin" json:"resetPin"`
-	Flip     bool   `yaml:"flip"     json:"flip"`
+	Driver    string `yaml:"driver"    json:"driver"` // "ssd1327" or "ge256x64b"
+	SPIPort   string `yaml:"spiPort"   json:"spiPort"`
+	SPISpeed  string `yaml:"spiSpeed"  json:"spiSpeed"`
+	GPIOChip  string `yaml:"gpioChip"  json:"gpioChip"`
+	StatusPin int    `yaml:"statusPin" json:"statusPin"`
+	ResetPin  int    `yaml:"resetPin"  json:"resetPin"`
+	Flip      bool   `yaml:"flip"      json:"flip"`
 }
 
 // Config holds all runtime configuration.

@@ -21,6 +21,7 @@ func initBrowser(ctx context.Context) (context.Context, context.CancelFunc) {
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("password-store", "basic"),
 		chromedp.WindowSize(256, 64),
 		chromedp.ExecPath("/usr/bin/chromium-headless-shell"),
 	)

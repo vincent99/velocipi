@@ -4,8 +4,8 @@
 // Wiring:
 //
 //	SPI MOSI/CLK/CS → standard SPI bus pins
-//	DC pin          → GPIO output (low = command, high = data)
-//	Reset pin       → GPIO output (low = reset, high = run)
+//	StatusPin       → GPIO output (low = command, high = data)
+//	ResetPin        → GPIO output (low = reset, high = run)
 package oled
 
 import (
@@ -51,14 +51,18 @@ const (
 
 	enableExternalVSL           = 0x00
 	enhancedLowGrayScaleQuality = 0xf8
-	reservedEnhancement         = 0x00
-	commandsUnlock              = 0x12
+	// reservedEnhancement is the correct first byte for the Enhancement B
+	// command (0xd1). Bit layout per datasheet: 1000_0010. Using 0xa2
+	// (1010_0010) incorrectly sets the reserved bit 5 and causes streaky
+	// grayscale rendering.
+	reservedEnhancement = 0x82
+	commandsUnlock      = 0x12
 
 	// columnOffset is the hardware column offset for this panel.
 	columnOffset = 0x1c
 )
 
-// Config holds the hardware configuration for the OLED.
+// Config holds the hardware configuration for an OLED display.
 type Config struct {
 	// SPIPort is the spidev path, e.g. "/dev/spidev0.0".
 	SPIPort string
@@ -66,16 +70,18 @@ type Config struct {
 	SPISpeed physic.Frequency
 	// GPIOChip is the gpiochip device, e.g. "gpiochip0".
 	GPIOChip string
-	// DCPin is the BCM GPIO line number for the data/command pin.
-	DCPin int
+	// StatusPin is the BCM GPIO line number for the status/auxiliary pin.
+	// SSD1327: data/command select output (low=command, high=data).
+	// Noritake GE256X64B: SBUSY input (high=busy, low=ready).
+	StatusPin int
 	// ResetPin is the BCM GPIO line number for the reset pin.
 	ResetPin int
 	// Flip reverses the frame buffer before writing (180° rotation).
 	Flip bool
 }
 
-// OLED drives a 4-bit grayscale SSD1327 display over SPI.
-type OLED struct {
+// SSD1327 drives a 4-bit grayscale SSD1327 display over SPI.
+type SSD1327 struct {
 	cfg      Config
 	width    int
 	height   int
@@ -87,9 +93,9 @@ type OLED struct {
 	frameNum int64
 }
 
-// New opens the SPI bus and GPIO lines, then initialises the display.
+// NewSSD1327 opens the SPI bus and GPIO lines, then initialises the display.
 // The caller supplies width and height in pixels.
-func New(cfg Config, width, height int) (*OLED, error) {
+func NewSSD1327(cfg Config, width, height int) (*SSD1327, error) {
 	if _, err := host.Init(); err != nil {
 		return nil, err
 	}
@@ -110,7 +116,7 @@ func New(cfg Config, width, height int) (*OLED, error) {
 		chip = "gpiochip0"
 	}
 
-	dcLine, err := gpiocdev.RequestLine(chip, cfg.DCPin,
+	dcLine, err := gpiocdev.RequestLine(chip, cfg.StatusPin,
 		gpiocdev.AsOutput(0),
 		gpiocdev.WithPullUp,
 	)
@@ -129,7 +135,7 @@ func New(cfg Config, width, height int) (*OLED, error) {
 		return nil, err
 	}
 
-	o := &OLED{
+	o := &SSD1327{
 		cfg:      cfg,
 		width:    width,
 		height:   height,
@@ -149,7 +155,7 @@ func New(cfg Config, width, height int) (*OLED, error) {
 }
 
 // Close puts the display to sleep and releases all hardware resources.
-func (o *OLED) Close() {
+func (o *SSD1327) Close() {
 	o.writeCmd(displaySleepOn)
 	o.spiPort.Close()
 	o.dcLine.Close()
@@ -157,7 +163,7 @@ func (o *OLED) Close() {
 }
 
 // Init resets the display and sends the full initialisation sequence.
-func (o *OLED) Init() error {
+func (o *SSD1327) Init() error {
 	if err := o.Reset(); err != nil {
 		return err
 	}
@@ -180,12 +186,21 @@ func (o *OLED) Init() error {
 		enhancedLowGrayScaleQuality|0x05,
 	)
 	o.writeCmd(setContrastCurrent, 0xff)
-	o.writeCmd(masterCurrentControl, 0xf)
+	// 0x9 = ~56% of max current. The maximum (0xf) causes significant
+	// voltage drop across the panel's internal wiring when many pixels on
+	// the same row are lit simultaneously, making dense rows appear darker
+	// than sparse rows with the same gray value. Reducing peak current
+	// shrinks the droop and improves row-to-row uniformity. Raise if the
+	// display is too dim; lower further if streaking persists.
+	o.writeCmd(masterCurrentControl, 0xF)
 	o.writeCmd(selectDefaultLinearGrayScaleTable)
-	o.writeCmd(setPhaseLength, 0xe2)
+	// 0xe4: phase1=4 (reset), phase2=14 (pre-charge).
+	// Phase1=2 (the minimum) is too short for some panels and leaves
+	// residual charge in OLED cells, showing as streaky grayscale.
+	o.writeCmd(setPhaseLength, 0xe4)
 	o.writeCmd(setSecondPrechargePeriod, 0x8)
 	o.writeCmd(displayEnhancementB,
-		reservedEnhancement|0xa2,
+		reservedEnhancement, // 0x82; do NOT OR with 0xa2 — that would set the reserved bit 5 and revert to default
 		0x20,
 	)
 	o.writeCmd(setPrechargeVoltage, 0x1f)
@@ -198,12 +213,12 @@ func (o *OLED) Init() error {
 }
 
 // SetBrightness sets the display contrast (0–255).
-func (o *OLED) SetBrightness(b byte) {
+func (o *SSD1327) SetBrightness(b byte) {
 	o.writeCmd(setContrastCurrent, b)
 }
 
 // Reset pulses the reset pin low for 200 ms then releases it.
-func (o *OLED) Reset() error {
+func (o *SSD1327) Reset() error {
 	if err := o.rstLine.SetValue(0); err != nil {
 		return err
 	}
@@ -225,7 +240,7 @@ func (o *OLED) Reset() error {
 // Blit converts img to 4-bit grayscale and writes it to the display using
 // double buffering. num alternates between frames (even / odd) to avoid
 // tearing while the panel scrolls to the new buffer.
-func (o *OLED) Blit(img image.Image) {
+func (o *SSD1327) Blit(img image.Image) {
 	bounds := img.Bounds()
 	buf := o.frameBuf
 
@@ -271,25 +286,25 @@ func (o *OLED) Blit(img image.Image) {
 }
 
 // Width returns the display width in pixels.
-func (o *OLED) Width() int { return o.width }
+func (o *SSD1327) Width() int { return o.width }
 
 // Height returns the display height in pixels.
-func (o *OLED) Height() int { return o.height }
+func (o *SSD1327) Height() int { return o.height }
 
 // -------------------------------------------------------------------------
 // Private helpers
 // -------------------------------------------------------------------------
 
-func (o *OLED) spiWrite(data []byte) {
+func (o *SSD1327) spiWrite(data []byte) {
 	_ = o.spiConn.Tx(data, nil)
 }
 
-func (o *OLED) writeData(data []byte) {
+func (o *SSD1327) writeData(data []byte) {
 	_ = o.dcLine.SetValue(1)
 	o.spiWrite(data)
 }
 
-func (o *OLED) writeCmd(cmd byte, data ...byte) {
+func (o *SSD1327) writeCmd(cmd byte, data ...byte) {
 	_ = o.dcLine.SetValue(0)
 	o.spiWrite([]byte{cmd})
 	if len(data) > 0 {
@@ -297,15 +312,15 @@ func (o *OLED) writeCmd(cmd byte, data ...byte) {
 	}
 }
 
-func (o *OLED) setColumnAddress(start, end int) {
+func (o *SSD1327) setColumnAddress(start, end int) {
 	o.writeCmd(setColumnAddress, byte(start), byte(end))
 }
 
-func (o *OLED) setRowAddress(start, end int) {
+func (o *SSD1327) setRowAddress(start, end int) {
 	o.writeCmd(setRowAddress, byte(start), byte(end))
 }
 
-func (o *OLED) setAddress(x0, y0, x1, y1 int) {
+func (o *SSD1327) setAddress(x0, y0, x1, y1 int) {
 	o.setRowAddress(y0, y1)
 	o.setColumnAddress(x0+columnOffset, x1+columnOffset)
 	o.writeCmd(writeRAM)
@@ -324,8 +339,9 @@ func toGray(c interface{ RGBA() (r, g, b, a uint32) }) byte {
 	gf := float64(g>>8) * 0.59
 	bf := float64(b>>8) * 0.11
 	af := float64(a>>8) / 255.0
-	gray := math.Round((rf+gf+bf)*af) / 16.0
-	v := byte(gray)
+	// Divide by 17 (= 255/15) so that [0,255] maps uniformly to [0,15].
+	// Round before truncating so quantisation is symmetric around each step.
+	v := byte(math.Round((rf + gf + bf) * af / 17.0))
 	if v > 15 {
 		v = 15
 	}

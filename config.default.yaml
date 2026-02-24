@@ -34,7 +34,8 @@ lightSensor:
   interval: "1s"
 
 oled:
-  dcPin: 5
+  driver: "ssd1327"
+  statusPin: 5
   flip: true
   gpioChip: "gpiochip0"
   resetPin: 6

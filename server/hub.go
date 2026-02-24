@@ -26,7 +26,7 @@ type Hub struct {
 	screenClients map[*client]struct{}
 	browserCtx    context.Context
 	cfg           *config.Config
-	oled          *oled.OLED
+	oled          oled.Display
 	dvrManager    *dvr.Manager
 	localCamera   string // name of the camera shown on the local display
 
@@ -34,7 +34,7 @@ type Hub struct {
 	lastFrame   []byte // most recent decoded PNG from the screencast
 }
 
-func newHub(browserCtx context.Context, cfg *config.Config, o *oled.OLED) *Hub {
+func newHub(browserCtx context.Context, cfg *config.Config, o oled.Display) *Hub {
 	h := &Hub{
 		clients:       make(map[*client]struct{}),
 		screenClients: make(map[*client]struct{}),

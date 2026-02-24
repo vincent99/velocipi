@@ -24,6 +24,7 @@ func launchDisplayWindow(ctx context.Context, url string) {
 		"--noerrdialogs",
 		"--disable-session-crashed-bubble",
 		"--check-for-update-interval=31536000",
+		"--password-store=basic",
 		"--app=" + url,
 	}
 

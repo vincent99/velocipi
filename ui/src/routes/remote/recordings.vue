@@ -110,8 +110,8 @@ const hours = computed(() => {
 
 // Parse a recording's UTC date+startTime into a Date object.
 function recToUtcDate(date: string, startTime: string): Date {
-  const [y, mo, d] = date.split('-').map(Number);
-  const [h, m, s] = startTime.split('-').map(Number);
+  const [y = 0, mo = 1, d = 1] = date.split('-').map(Number);
+  const [h = 0, m = 0, s = 0] = startTime.split('-').map(Number);
   return new Date(Date.UTC(y, mo - 1, d, h, m, s));
 }
 
@@ -324,12 +324,12 @@ async function deleteDay() {
           <div v-for="hour in hours" :key="hour" class="tl-hour-row">
             <div class="tl-time-col tl-hour-label">
               <span class="tl-local-time"
-                >{{ localHourLabel(selectedDate, hour)
+                >{{ localHourLabel(selectedDate, hour ?? '')
                 }}<sup
-                  v-if="localDayOffset(selectedDate, `${hour}-00-00`)"
+                  v-if="localDayOffset(selectedDate, `${hour ?? ''}-00-00`)"
                   class="day-offset"
                   >{{
-                    localDayOffset(selectedDate, `${hour}-00-00`) > 0
+                    localDayOffset(selectedDate, `${hour ?? ''}-00-00`) > 0
                       ? '+1'
                       : '−1'
                   }}</sup
@@ -340,7 +340,7 @@ async function deleteDay() {
             <div v-for="cam in cameras" :key="cam" class="tl-cam-col tl-cell">
               <template
                 v-for="rec in (byCam.get(cam) ?? []).filter((r) =>
-                  r.startTime.startsWith(hour)
+                  r.startTime.startsWith(hour ?? '')
                 )"
                 :key="rec.filename"
               >
@@ -381,7 +381,7 @@ async function deleteDay() {
               <button
                 class="del-hour-btn"
                 :title="`Delete ${hour}:00 recordings`"
-                @click="deleteHour(hour)"
+                @click="deleteHour(hour ?? '')"
               >
                 <i class="fi-sr-trash" />
               </button>

@@ -36,18 +36,28 @@ func main() {
 	}
 
 	// Initialise the OLED display. Non-fatal if the hardware isn't present.
-	var display *oled.OLED
-	if o, err := oled.New(oled.Config{
-		SPIPort:  cfg.OLED.SPIPort,
-		SPISpeed: cfg.OLEDSPIFreq,
-		GPIOChip: cfg.OLED.GPIOChip,
-		DCPin:    cfg.OLED.DCPin,
-		ResetPin: cfg.OLED.ResetPin,
-		Flip:     cfg.OLED.Flip,
-	}, cfg.UI.Panel.Width, cfg.UI.Panel.Height); err != nil {
-		log.Println("oled: init error (continuing without display):", err)
-	} else {
-		display = o
+	var display oled.Display
+	oledCfg := oled.Config{
+		SPIPort:   cfg.OLED.SPIPort,
+		SPISpeed:  cfg.OLEDSPIFreq,
+		GPIOChip:  cfg.OLED.GPIOChip,
+		StatusPin: cfg.OLED.StatusPin,
+		ResetPin:  cfg.OLED.ResetPin,
+		Flip:      cfg.OLED.Flip,
+	}
+	switch cfg.OLED.Driver {
+	case "ge256x64b":
+		if o, err := oled.NewGE256X64B(oledCfg, cfg.UI.Panel.Width, cfg.UI.Panel.Height); err != nil {
+			log.Println("oled: init error (continuing without display):", err)
+		} else {
+			display = o
+		}
+	default: // "ssd1327" or empty
+		if o, err := oled.NewSSD1327(oledCfg, cfg.UI.Panel.Width, cfg.UI.Panel.Height); err != nil {
+			log.Println("oled: init error (continuing without display):", err)
+		} else {
+			display = o
+		}
 	}
 
 	// Initialize hub immediately so wsHandler is never called with a nil hub.

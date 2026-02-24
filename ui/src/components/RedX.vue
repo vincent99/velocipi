@@ -4,6 +4,10 @@ defineProps<{
   strokeWidth?: number;
   reloadButton?: boolean;
 }>();
+
+function reload() {
+  location.reload();
+}
 </script>
 
 <template>
@@ -17,7 +21,7 @@ defineProps<{
       <button
         v-if="reloadButton"
         class="reload-btn"
-        @click="() => location.reload()"
+        @click="reload"
       >
         <i class="fi-sr-rotate-right" />
       </button>
