@@ -476,10 +476,6 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, 
 
 		now := time.Now().UTC()
 		boundary := nextBoundary(now, segSecs)
-		duration := int(boundary.Sub(now).Seconds())
-		if duration <= 0 {
-			duration = 1
-		}
 
 		m.mu.RLock()
 		sessDir := m.sessionDir
@@ -489,7 +485,7 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, 
 		mp4File := filepath.Join(sessDir, fmt.Sprintf("%s_%s.mp4",
 			now.Format("2006-01-02_15-04-05"), sanitizeName(cam.Name)))
 		if record {
-			log.Printf("dvr[%s]: starting → %s (%ds)", cam.Name, mp4File, duration)
+			log.Printf("dvr[%s]: starting → %s (until %s)", cam.Name, mp4File, boundary.Format("15:04:05Z"))
 		}
 
 		// ffmpeg writes two or three outputs from one input:
@@ -502,7 +498,6 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, 
 		args := []string{
 			"-rtsp_transport", "tcp",
 			"-i", rtspURL(cam),
-			"-t", fmt.Sprintf("%d", duration),
 			"-filter_complex", thumbFilter,
 		}
 
@@ -533,15 +528,23 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, 
 			jpegFIFO,
 		)
 
-		cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+		// Use a deadline context so ffmpeg is killed exactly at the segment
+		// boundary. We cannot rely on ffmpeg's -t flag alone because FIFO
+		// outputs block indefinitely and prevent a clean exit.
+		segCtx, cancelSeg := context.WithDeadline(ctx, boundary)
+		cmd := exec.CommandContext(segCtx, "ffmpeg", args...)
 		cmd.Stdout = nil
 		if m.cfg.FFmpegLog {
 			cmd.Stderr = os.Stderr
 		}
 		m.setRecording(cam.Name, key, true)
 		runErr := cmd.Run()
+		cancelSeg()
 
-		if runErr != nil && ctx.Err() == nil {
+		// Distinguish clean boundary rollover (deadline elapsed, parent ctx still alive)
+		// from a genuine error (camera offline, etc.).
+		boundaryReached := segCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
+		if runErr != nil && !boundaryReached {
 			log.Printf("dvr[%s]: stopped (%v), retrying in 5s", cam.Name, runErr)
 			m.setRecording(cam.Name, key, false)
 			select {
@@ -552,8 +555,8 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, 
 			continue
 		}
 
-		// Clean exit (segment boundary rollover): capture first-frame thumbnails.
-		if runErr == nil && record {
+		// Boundary rollover: capture first-frame thumbnails.
+		if boundaryReached && record {
 			go m.captureSegmentThumbs(mp4File, cam.Name)
 		}
 

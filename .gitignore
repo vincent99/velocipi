@@ -38,3 +38,4 @@ config.yaml
 recordings
 music
 music.sqlite
+.claude/
