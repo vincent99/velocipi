@@ -20,6 +20,7 @@ import (
 	"github.com/vincent99/velocipi/server/dvr"
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/oled"
+	"github.com/vincent99/velocipi/server/music"
 )
 
 func main() {
@@ -349,6 +350,16 @@ func main() {
 
 	// Start DVR recording for all configured cameras.
 	dvrManager.Start(ctx)
+
+	// Initialize music subsystem (requires mpv in PATH; disabled gracefully otherwise).
+	musicDB, musicEnabled := music.InitDB(cfg.Music, "schemas")
+	if musicEnabled {
+		defer musicDB.Close()
+		player := music.NewPlayer(musicDB, cfg.Music, hub)
+		hub.SetMusicPlayer(player)
+		go player.Run(ctx)
+		music.RegisterRoutes(mux, musicDB, player, *cfg, isAdmin)
+	}
 
 	// Initialize localCamera to the first camera (same sort as /cameras handler).
 	if len(cfg.DVR.Cameras) > 0 {

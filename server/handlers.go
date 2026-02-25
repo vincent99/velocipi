@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/gorilla/websocket"
+	"github.com/vincent99/velocipi/server/music"
 )
 
 var upgrader = websocket.Upgrader{
@@ -66,6 +67,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	go hub.sendLEDState(c)
 	go hub.sendCameraStatuses(c)
 	go hub.sendLocalCamera(c)
+	go hub.sendMusicState(c)
 
 	// Write pump: drains c.send and writes to the WebSocket connection.
 	go func() {
@@ -113,6 +115,16 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			var pm inboundSetLocalCameraMsg
 			if err := json.Unmarshal(data, &pm); err == nil {
 				go hub.setLocalCamera(pm.Camera)
+			}
+		case "musicControl":
+			hub.mu.RLock()
+			mp := hub.musicPlayer
+			hub.mu.RUnlock()
+			if mp != nil {
+				var mc inboundMusicControlMsg
+				if err := json.Unmarshal(data, &mc); err == nil {
+					go mp.Control(music.ControlMsg{Action: mc.Action, Value: mc.Value, Str: mc.Str})
+				}
 			}
 		}
 	}

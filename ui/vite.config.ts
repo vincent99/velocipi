@@ -51,6 +51,10 @@ export default defineConfig({
           );
         },
       },
+      '/music': {
+        target: 'http://localhost:8080',
+        changeOrigin: false,
+      },
       '/recordings': {
         target: 'http://localhost:8080',
         changeOrigin: false,

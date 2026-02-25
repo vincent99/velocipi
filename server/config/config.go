@@ -23,6 +23,14 @@ type CameraConfig struct {
 	Sort     *int   `yaml:"sort,omitempty" json:"sort,omitempty"`
 }
 
+// MusicConfig holds settings for the music player subsystem.
+type MusicConfig struct {
+	MusicDir             string `yaml:"musicDir"             json:"musicDir"`
+	Volume               int    `yaml:"volume"               json:"volume"`
+	AlbumRequiredPercent int    `yaml:"albumRequiredPercent" json:"albumRequiredPercent"`
+	MinDbVersion         int    `yaml:"minDbVersion"         json:"minDbVersion"`
+}
+
 // DVRConfig holds settings for the DVR recording subsystem.
 type DVRConfig struct {
 	RecordingsDir   string         `yaml:"recordingsDir"   json:"recordingsDir"`
@@ -136,6 +144,7 @@ type Config struct {
 
 	AirSensor   SensorConfig   `yaml:"airSensor"   json:"airSensor"`
 	DVR         DVRConfig      `yaml:"dvr"         json:"dvr"`
+	Music       MusicConfig    `yaml:"music"       json:"music"`
 	Expander    ExpanderConfig `yaml:"expander"    json:"expander"`
 	LightSensor SensorConfig   `yaml:"lightSensor" json:"lightSensor"`
 	OLED        OLEDConfig     `yaml:"oled"        json:"oled"`

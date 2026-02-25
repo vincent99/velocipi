@@ -59,6 +59,12 @@ type inboundMsg struct {
 	Type string `json:"type"`
 }
 
+type inboundMusicControlMsg struct {
+	Action string  `json:"action"`          // play|pause|stop|next|prev|seek|skipForward|skipBack|setVolume|setShuffle|setRepeat
+	Value  float64 `json:"value,omitempty"` // seek: absolute sec; skipForward/skipBack: delta sec; setVolume: 0-100
+	Str    string  `json:"str,omitempty"`   // setRepeat: "off"|"song"|"queue"
+}
+
 type inboundSetLocalCameraMsg struct {
 	Camera string `json:"camera"`
 }

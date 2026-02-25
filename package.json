@@ -21,6 +21,7 @@
     "build": "yarn build:ui && go build -o velocipi ./server",
     "build:ui": "cd ui && yarn build",
     "build:go": "go build -o velocipi ./server",
+    "musicsync": "go run ./cmd/musicsync",
     "thumbnails": "go run ./cmd/thumbnails"
   },
   "devDependencies": {

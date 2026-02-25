@@ -107,6 +107,17 @@ export interface LocalCameraMsg {
   camera: string;
 }
 
+export interface MusicStateMsg {
+  type: 'musicState';
+  currentSongId: number | null;
+  queueIndex: number;
+  status: 'playing' | 'paused' | 'stopped';
+  shuffle: boolean;
+  repeat: 'off' | 'song' | 'queue';
+  elapsedSec: number;
+  queueLength: number;
+}
+
 export type InboundWsMsg =
   | PingMsg
   | AirReadingMsg
@@ -117,7 +128,8 @@ export type InboundWsMsg =
   | KeyEchoMsg
   | CameraStatusMsg
   | RecordingReadyMsg
-  | LocalCameraMsg;
+  | LocalCameraMsg
+  | MusicStateMsg;
 
 // Outbound messages (client → server, sent on /ws)
 
@@ -147,9 +159,28 @@ export interface SetLocalCameraMsg {
   camera: string;
 }
 
+export interface MusicControlMsg {
+  type: 'musicControl';
+  action:
+    | 'play'
+    | 'pause'
+    | 'stop'
+    | 'next'
+    | 'prev'
+    | 'seek'
+    | 'skipForward'
+    | 'skipBack'
+    | 'setVolume'
+    | 'setShuffle'
+    | 'setRepeat';
+  value?: number; // seek: absolute seconds; skipForward/skipBack: delta seconds; setVolume: 0-100
+  str?: string; // setRepeat: 'off'|'song'|'queue'; setShuffle: 'true'|'false'
+}
+
 export type OutboundWsMsg =
   | ReloadMsg
   | KeyMsg
   | LEDControlMsg
   | NavigateMsg
-  | SetLocalCameraMsg;
+  | SetLocalCameraMsg
+  | MusicControlMsg;

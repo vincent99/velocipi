@@ -37,5 +37,6 @@ velocipi
 config.yaml
 recordings
 music
-music.sqlite
+music.sqlite*
 .claude/
+backup

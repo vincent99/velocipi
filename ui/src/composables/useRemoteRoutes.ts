@@ -22,10 +22,17 @@ const routes: RemoteRoute[] = Object.entries(modules)
       .replace(/\/index$/, '');
 
     const path = '/remote/' + stripped;
-    const meta = (mod as { remoteMeta?: PanelMeta }).remoteMeta ?? {
-      name: stripped,
-      icon: '□',
-    };
+    // Skip nested child routes (e.g. music/songs, music/albums).
+    // Only top-level route files (no '/' in stripped path) appear in the nav.
+    if (stripped.includes('/')) {
+      return null;
+    }
+
+    const meta = (mod as { remoteMeta?: PanelMeta }).remoteMeta;
+    // Files without remoteMeta are not top-level nav entries.
+    if (!meta) {
+      return null;
+    }
 
     if (meta.admin && !isAdmin) {
       return null;

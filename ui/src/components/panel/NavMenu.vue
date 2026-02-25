@@ -69,7 +69,9 @@ function onKeyDown(e: KeyboardEvent) {
   }
 
   const target = panels[selectedIndex.value];
-  if (target) router.push(target.path);
+  if (target) {
+    router.push(target.path);
+  }
   resetTimer();
 }
 

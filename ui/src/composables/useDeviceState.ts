@@ -3,6 +3,7 @@ import { useWebSocket } from '@/composables/useWebSocket';
 import type {
   AirReading,
   LEDStateMsg,
+  MusicStateMsg,
   RecordingReadyMsg,
   Tire,
   InboundWsMsg,
@@ -21,6 +22,8 @@ const cameraRecording = reactive<Map<string, boolean>>(new Map());
 const lastRecordingReady = ref<RecordingReadyMsg | null>(null);
 // localCamera: the camera currently shown on the local display
 const localCamera = ref<string>('');
+// musicState: current music player state broadcast from server
+const musicState = ref<MusicStateMsg | null>(null);
 // destTimezone: IANA timezone for the "Dest" clock on the panel
 const destTimezone = ref<string>('America/New_York');
 
@@ -103,6 +106,9 @@ function init() {
       case 'localCamera':
         localCamera.value = msg.camera;
         break;
+      case 'musicState':
+        musicState.value = msg;
+        break;
     }
   });
 
@@ -124,5 +130,6 @@ export function useDeviceState() {
     lastRecordingReady,
     localCamera,
     destTimezone,
+    musicState,
   };
 }

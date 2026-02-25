@@ -13,6 +13,7 @@ import (
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/oled"
+	"github.com/vincent99/velocipi/server/music"
 )
 
 type client struct {
@@ -28,7 +29,8 @@ type Hub struct {
 	cfg           *config.Config
 	oled          oled.Display
 	dvrManager    *dvr.Manager
-	localCamera   string // name of the camera shown on the local display
+	localCamera   string                 // name of the camera shown on the local display
+	musicPlayer   music.PlayerController // nil if music subsystem is disabled
 
 	lastFrameMu sync.RWMutex
 	lastFrame   []byte // most recent decoded PNG from the screencast
@@ -172,6 +174,38 @@ func (h *Hub) sendLocalCamera(c *client) {
 	name := h.localCamera
 	h.mu.RUnlock()
 	data, err := json.Marshal(LocalCameraMsg{Type: "localCamera", Camera: name})
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
+	}
+}
+
+// SetMusicPlayer stores the music player controller so hub can delegate
+// musicControl WebSocket messages and send initial state to new clients.
+func (h *Hub) SetMusicPlayer(p music.PlayerController) {
+	h.mu.Lock()
+	h.musicPlayer = p
+	h.mu.Unlock()
+}
+
+// BroadcastAll is the exported wrapper for broadcastAll, satisfying the
+// music.Broadcaster interface without an import cycle.
+func (h *Hub) BroadcastAll(msg any) {
+	h.broadcastAll(msg)
+}
+
+// sendMusicState sends the current player state to a single newly-connected client.
+func (h *Hub) sendMusicState(c *client) {
+	h.mu.RLock()
+	p := h.musicPlayer
+	h.mu.RUnlock()
+	if p == nil {
+		return
+	}
+	data, err := json.Marshal(p.StateMsg())
 	if err != nil {
 		return
 	}

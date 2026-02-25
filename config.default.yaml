@@ -58,6 +58,12 @@ tires:
     - "4a:85:00:00:d7:38"
     - "99633f0c-d627-5f15-7d5d-f171b5a745e7"
 
+music:
+  musicDir: "music"
+  volume: 100
+  albumRequiredPercent: 50
+  minDbVersion: 1
+
 ui:
   tail: "N711ME"
   headerColor: "#3b82f6"

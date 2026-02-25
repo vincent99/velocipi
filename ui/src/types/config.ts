@@ -111,6 +111,13 @@ export interface TireAddresses {
   right: string[];
 }
 
+export interface MusicConfig {
+  musicDir: string;
+  volume: number;
+  albumRequiredPercent: number;
+  minDbVersion: number;
+}
+
 export interface FullConfig {
   addr: string;
   appUrl: string;
@@ -124,6 +131,7 @@ export interface FullConfig {
   screen: ScreenConfig;
   tires: TireAddresses;
   ui: Config;
+  music: MusicConfig;
 }
 
 export interface FullConfigResponse {

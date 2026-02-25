@@ -481,6 +481,36 @@ const expanderBitFields = [
         </p>
       </section>
 
+      <!-- Music -->
+      <section>
+        <h2>Music</h2>
+        <SettingsField
+          label="Music directory"
+          path="music.musicDir"
+          placeholder="music"
+        />
+        <SettingsField
+          label="Volume (%)"
+          path="music.volume"
+          type="number"
+          :min="0"
+          :max="100"
+        />
+        <SettingsField
+          label="Album required % (tracks present)"
+          path="music.albumRequiredPercent"
+          type="number"
+          :min="0"
+          :max="100"
+        />
+        <SettingsField
+          label="Min DB version"
+          path="music.minDbVersion"
+          type="number"
+          :min="1"
+        />
+      </section>
+
       <!-- Tires -->
       <section>
         <h2>TPMS sensors</h2>
