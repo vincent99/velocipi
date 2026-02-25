@@ -57,3 +57,14 @@ export interface SongsResponse {
   songs: Song[];
   total: number;
 }
+
+export interface QueueEntryResponse {
+  songId: number;
+  song: Song | null;
+  originalIndex: number;
+}
+
+export interface QueueResponse {
+  currentIndex: number;
+  entries: QueueEntryResponse[];
+}

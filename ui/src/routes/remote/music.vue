@@ -11,6 +11,9 @@ export const remoteMeta: PanelMeta = {
 import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
+import { useLocalPref } from '@/composables/useLocalPreferences';
+import QueueRow from '@/components/remote/QueueRow.vue';
+import type { QueueResponse } from '@/types/music';
 
 const route = useRoute();
 const router = useRouter();
@@ -25,7 +28,48 @@ const {
   seek,
   setShuffle,
   setRepeat,
+  enqueue,
+  appendQueue,
+  removeFromQueue,
+  jumpToIndex,
+  moveInQueue,
 } = useMusicPlayer();
+
+// Resizable sidebar widths — persisted in localStorage
+const navWidth = useLocalPref('music.navWidth', 110);
+const sidebarWidth = useLocalPref('music.sidebarWidth', 200);
+
+function startResize(side: 'left' | 'right', e: MouseEvent | TouchEvent) {
+  e.preventDefault();
+  const startX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+  const startWidth = side === 'left' ? navWidth.value : sidebarWidth.value;
+
+  function onMove(ev: MouseEvent | TouchEvent) {
+    const x = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
+    const delta = x - startX;
+    const newW = Math.max(
+      60,
+      Math.min(320, startWidth + (side === 'left' ? delta : -delta))
+    );
+    if (side === 'left') {
+      navWidth.value = newW;
+    } else {
+      sidebarWidth.value = newW;
+    }
+  }
+
+  function onUp() {
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('touchmove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    window.removeEventListener('touchend', onUp);
+  }
+
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('touchmove', onMove, { passive: false });
+  window.addEventListener('mouseup', onUp);
+  window.addEventListener('touchend', onUp);
+}
 
 // Redirect /remote/music → /remote/music/songs
 watch(
@@ -82,27 +126,199 @@ const navLinks = [
   { to: '/remote/music/artists', label: 'Artists' },
   { to: '/remote/music/genres', label: 'Genres' },
   { to: '/remote/music/decades', label: 'Decades' },
+  { to: '/remote/music/search', label: 'Search' },
 ];
+
+// Queue data
+const queueData = ref<QueueResponse | null>(null);
+const queueLoading = ref(false);
+
+async function fetchQueue() {
+  if (queueLoading.value) {
+    return;
+  }
+  queueLoading.value = true;
+  try {
+    const r = await fetch('/music/queue');
+    if (r.ok) {
+      queueData.value = await r.json();
+    }
+  } catch {
+    // ignore
+  } finally {
+    queueLoading.value = false;
+  }
+}
+
+// Refresh queue whenever queue length or index changes
+watch(
+  () => [musicState.value?.queueLength, musicState.value?.queueIndex],
+  () => {
+    if (rightTab.value === 'queue') {
+      fetchQueue();
+    }
+  },
+  { immediate: true }
+);
+
+// Also fetch when switching to queue tab
+watch(rightTab, (tab) => {
+  if (tab === 'queue') {
+    fetchQueue();
+  }
+});
+
+async function handleQueueEnqueue(songId: number) {
+  await enqueue([songId]);
+  fetchQueue();
+}
+
+async function handleQueueAppend(songId: number) {
+  await appendQueue([songId]);
+  fetchQueue();
+}
+
+async function handleQueueRemove(originalIndex: number) {
+  // Find the queue index for this originalIndex
+  if (!queueData.value) {
+    return;
+  }
+  const idx = queueData.value.entries.findIndex(
+    (e) => e.originalIndex === originalIndex
+  );
+  if (idx < 0) {
+    return;
+  }
+  await removeFromQueue(idx);
+  fetchQueue();
+}
+
+function handleQueuePlay(queueIndex: number) {
+  jumpToIndex(queueIndex);
+}
+
+// ── Queue drag-and-drop ───────────────────────────────────────────────────────
+
+interface DropTarget {
+  index: number;
+  position: 'above' | 'below';
+}
+const dropTarget = ref<DropTarget | null>(null);
+const draggingQueueIndex = ref<number | null>(null);
+
+function handleQueueDragStart(queueIndex: number) {
+  draggingQueueIndex.value = queueIndex;
+  dropTarget.value = null;
+}
+
+function handleQueueDragOver(queueIndex: number, position: 'above' | 'below') {
+  dropTarget.value = { index: queueIndex, position };
+}
+
+function handleQueueDragEnd() {
+  draggingQueueIndex.value = null;
+  dropTarget.value = null;
+}
+
+async function handleQueueRowDrop(
+  onto: number,
+  position: 'above' | 'below',
+  from: number
+) {
+  dropTarget.value = null;
+  draggingQueueIndex.value = null;
+  let toIndex = position === 'above' ? onto : onto + 1;
+  // Adjust for removal of the source row
+  if (from < toIndex) {
+    toIndex--;
+  }
+  if (from !== toIndex) {
+    await moveInQueue(from, toIndex);
+    fetchQueue();
+  }
+}
+
+async function handleQueueSongsDrop(
+  onto: number,
+  position: 'above' | 'below',
+  songIds: number[]
+) {
+  dropTarget.value = null;
+  const insertAfter = position === 'above' ? onto - 1 : onto;
+  await insertSongsAtQueuePosition(songIds, insertAfter);
+  fetchQueue();
+}
+
+// Handle drops onto the empty queue area (below all rows)
+async function handleQueueListDrop(e: DragEvent) {
+  e.preventDefault();
+  dropTarget.value = null;
+  const dt = e.dataTransfer;
+  if (!dt) {
+    return;
+  }
+  const songStr = dt.getData('application/x-song-ids');
+  if (songStr !== '') {
+    const songIds: number[] = JSON.parse(songStr);
+    await appendQueue(songIds);
+    fetchQueue();
+  }
+}
+
+function handleQueueListDragOver(e: DragEvent) {
+  if (e.dataTransfer?.types.includes('application/x-song-ids')) {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'move';
+    }
+  }
+}
+
+// Insert songIds starting at afterIndex+1 by appending then moving into position.
+async function insertSongsAtQueuePosition(
+  songIds: number[],
+  afterIndex: number
+) {
+  await appendQueue(songIds);
+  // Re-fetch to know current length
+  const r = await fetch('/music/queue');
+  if (!r.ok) {
+    return;
+  }
+  const q = await r.json();
+  const totalAfterAppend: number = q.entries.length;
+  const numNew = songIds.length;
+  // Songs were appended at indices [totalAfterAppend-numNew .. totalAfterAppend-1].
+  // Move them one by one to [afterIndex+1 .. afterIndex+numNew].
+  // After moving song i to position afterIndex+1+i, the remaining songs are
+  // still at the tail, but the tail start shifts by 1 each time.
+  for (let i = 0; i < numNew; i++) {
+    const fromIdx = totalAfterAppend - numNew + i;
+    const toIdx = afterIndex + 1 + i;
+    if (fromIdx !== toIdx) {
+      await moveInQueue(fromIdx, toIdx);
+    }
+  }
+}
+
+// ── Header search ─────────────────────────────────────────────────────────────
+
+const searchQuery = ref('');
+
+function submitSearch() {
+  const q = searchQuery.value.trim();
+  if (!q) {
+    return;
+  }
+  router.push({ path: '/remote/music/search', query: { q } });
+  searchQuery.value = '';
+}
 </script>
 
 <template>
   <div class="music-layout">
-    <!-- Header: now-playing + controls -->
+    <!-- Header: controls + now-playing + progress -->
     <div class="music-header">
-      <div class="now-playing">
-        <img
-          v-if="currentSong?.coverId"
-          :src="`/music/cover/${currentSong.coverId}`"
-          class="header-thumb"
-          alt=""
-        />
-        <div v-else class="header-thumb-placeholder"></div>
-        <div class="now-playing-info">
-          <div class="now-playing-title">{{ currentSong?.title || '—' }}</div>
-          <div class="now-playing-artist">{{ currentSong?.artist || '' }}</div>
-        </div>
-      </div>
-
       <div class="transport">
         <button
           class="ctrl-btn"
@@ -131,6 +347,59 @@ const navLinks = [
         </button>
       </div>
 
+      <div class="now-playing">
+        <img
+          v-if="currentSong?.coverId"
+          :src="`/music/cover/${currentSong.coverId}`"
+          class="header-thumb"
+          alt=""
+        />
+        <div v-else class="header-thumb-placeholder"></div>
+        <div class="now-playing-info">
+          <div class="now-playing-title">
+            <RouterLink
+              v-if="currentSong?.album && currentSong?.artist"
+              :to="{
+                path: '/remote/music/albums',
+                query: { artist: currentSong.artist, album: currentSong.album },
+              }"
+              class="np-link"
+              >{{ currentSong.title || '—' }}</RouterLink
+            >
+            <template v-else>{{ currentSong?.title || '—' }}</template>
+          </div>
+          <div class="now-playing-sub">
+            <RouterLink
+              v-if="currentSong?.artist"
+              :to="{
+                path: '/remote/music/artists',
+                query: { artist: currentSong.artist },
+              }"
+              class="np-link"
+              >{{ currentSong.artist }}</RouterLink
+            >
+            <template v-if="currentSong?.album">
+              <span class="np-sep">—</span>
+              <RouterLink
+                :to="{
+                  path: '/remote/music/albums',
+                  query: {
+                    artist: currentSong.artist,
+                    album: currentSong.album,
+                  },
+                }"
+                class="np-link"
+                >{{ currentSong.album }}</RouterLink
+              >
+            </template>
+            <template v-if="currentSong?.year">
+              <span class="np-sep">—</span>
+              <span class="np-year">{{ currentSong.year }}</span>
+            </template>
+          </div>
+        </div>
+      </div>
+
       <div class="progress-area">
         <span class="time-label">{{ formatTime(elapsed) }}</span>
         <input
@@ -143,12 +412,21 @@ const navLinks = [
         />
         <span class="time-label">{{ formatTime(duration) }}</span>
       </div>
+
+      <form class="header-search" @submit.prevent="submitSearch">
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="header-search-input"
+          placeholder="Search…"
+        />
+      </form>
     </div>
 
     <!-- Body -->
     <div class="music-body">
       <!-- Left nav -->
-      <nav class="music-nav">
+      <nav class="music-nav" :style="{ width: navWidth + 'px' }">
         <RouterLink
           v-for="link in navLinks"
           :key="link.to"
@@ -160,13 +438,27 @@ const navLinks = [
         </RouterLink>
       </nav>
 
+      <!-- Left resize handle -->
+      <div
+        class="resize-handle"
+        @mousedown.prevent="startResize('left', $event)"
+        @touchstart.prevent="startResize('left', $event)"
+      />
+
       <!-- Content -->
       <div class="music-content">
         <RouterView />
       </div>
 
+      <!-- Right resize handle -->
+      <div
+        class="resize-handle"
+        @mousedown.prevent="startResize('right', $event)"
+        @touchstart.prevent="startResize('right', $event)"
+      />
+
       <!-- Right: queue / playlists -->
-      <div class="music-sidebar-right">
+      <div class="music-sidebar-right" :style="{ width: sidebarWidth + 'px' }">
         <div class="sidebar-tabs">
           <button
             :class="{ active: rightTab === 'queue' }"
@@ -181,18 +473,40 @@ const navLinks = [
             Playlists
           </button>
         </div>
-        <div v-if="rightTab === 'queue'" class="queue-list">
+        <div
+          v-if="rightTab === 'queue'"
+          class="queue-list"
+          @dragover="handleQueueListDragOver"
+          @drop="handleQueueListDrop"
+        >
           <div
             v-if="!musicState || musicState.queueLength === 0"
             class="queue-empty"
           >
             Queue is empty
           </div>
-          <div v-else class="queue-count">
-            {{ musicState.queueLength }} song{{
-              musicState.queueLength === 1 ? '' : 's'
-            }}
-          </div>
+          <template v-else-if="queueData">
+            <QueueRow
+              v-for="(entry, idx) in queueData.entries"
+              :key="entry.songId + '-' + idx"
+              :entry="entry"
+              :queue-index="idx"
+              :current-index="queueData.currentIndex"
+              :drop-indicator="
+                dropTarget?.index === idx ? dropTarget.position : null
+              "
+              @enqueue="handleQueueEnqueue"
+              @append="handleQueueAppend"
+              @remove="handleQueueRemove"
+              @play="handleQueuePlay"
+              @drag-start="handleQueueDragStart"
+              @drag-over="handleQueueDragOver"
+              @drag-end="handleQueueDragEnd"
+              @drop-queue="handleQueueRowDrop"
+              @drop-songs="handleQueueSongsDrop"
+            />
+          </template>
+          <div v-else class="queue-empty">Loading…</div>
         </div>
         <div v-else class="playlists-panel">
           <div class="queue-empty">Playlists coming soon</div>
@@ -258,16 +572,35 @@ const navLinks = [
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 180px;
+  max-width: 240px;
 }
 
-.now-playing-artist {
+.now-playing-sub {
   font-size: 0.78rem;
   color: #aaa;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 180px;
+  max-width: 240px;
+}
+
+.np-link {
+  color: inherit;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+    color: #90caf9;
+  }
+}
+
+.np-sep {
+  margin: 0 0.25rem;
+  color: #666;
+}
+
+.np-year {
+  color: #666;
 }
 
 .transport {
@@ -353,12 +686,25 @@ const navLinks = [
 .music-nav {
   display: flex;
   flex-direction: column;
-  width: 110px;
+  // width set via inline style (useLocalPref)
   flex-shrink: 0;
   background: #161616;
-  border-right: 1px solid #2a2a2a;
   padding: 0.5rem 0;
   overflow-y: auto;
+  min-width: 60px;
+}
+
+.resize-handle {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: #2a2a2a;
+  transition: background 0.1s;
+  touch-action: none;
+
+  &:hover {
+    background: #3b82f6;
+  }
 }
 
 .nav-link {
@@ -385,18 +731,20 @@ const navLinks = [
 .music-content {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .music-sidebar-right {
-  width: 200px;
+  // width set via inline style (useLocalPref)
   flex-shrink: 0;
   background: #161616;
-  border-left: 1px solid #2a2a2a;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  min-width: 60px;
 }
 
 .sidebar-tabs {
@@ -428,6 +776,30 @@ const navLinks = [
   }
 }
 
+.header-search {
+  flex: 0 0 auto;
+  display: flex;
+}
+
+.header-search-input {
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.6rem;
+  width: 160px;
+  outline: none;
+
+  &::placeholder {
+    color: #666;
+  }
+
+  &:focus {
+    border-color: #3b82f6;
+  }
+}
+
 .queue-list,
 .playlists-panel {
   flex: 1;
@@ -440,12 +812,5 @@ const navLinks = [
   font-size: 0.8rem;
   text-align: center;
   padding: 1rem 0;
-}
-
-.queue-count {
-  color: #888;
-  font-size: 0.8rem;
-  text-align: center;
-  padding: 0.5rem 0;
 }
 </style>

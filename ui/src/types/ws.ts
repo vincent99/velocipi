@@ -172,7 +172,8 @@ export interface MusicControlMsg {
     | 'skipBack'
     | 'setVolume'
     | 'setShuffle'
-    | 'setRepeat';
+    | 'setRepeat'
+    | 'jumpToIndex';
   value?: number; // seek: absolute seconds; skipForward/skipBack: delta seconds; setVolume: 0-100
   str?: string; // setRepeat: 'off'|'song'|'queue'; setShuffle: 'true'|'false'
 }

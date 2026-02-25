@@ -82,6 +82,7 @@ export function useMusicPlayer() {
     setShuffle: (on: boolean) => control('setShuffle', undefined, String(on)),
     setRepeat: (mode: 'off' | 'song' | 'queue') =>
       control('setRepeat', undefined, mode),
+    jumpToIndex: (index: number) => control('jumpToIndex', index),
     replaceQueue: (ids: number[]) =>
       fetch('/music/queue', {
         method: 'POST',
@@ -105,6 +106,18 @@ export function useMusicPlayer() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ marked }),
+      }),
+    removeFromQueue: (index: number) =>
+      fetch('/music/queue/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index }),
+      }),
+    moveInQueue: (from: number, to: number) =>
+      fetch('/music/queue/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to }),
       }),
   };
 }
