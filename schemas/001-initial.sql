@@ -25,8 +25,9 @@ CREATE TABLE IF NOT EXISTS song (
     trackNumber INTEGER NOT NULL DEFAULT 0,
     trackTotal  INTEGER NOT NULL DEFAULT 0,
     genre       TEXT    NOT NULL DEFAULT '[]' CHECK(json_valid(genre)),
+    year        INTEGER NOT NULL DEFAULT 0,
     length      REAL    NOT NULL DEFAULT 0,
-    year        INTEGER NOT NULL DEFAULT 0
+    plays       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS playlist (

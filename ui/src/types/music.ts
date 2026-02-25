@@ -18,6 +18,7 @@ export interface Song {
   genre: string[];
   length: number; // seconds
   year: number;
+  plays: number;
 }
 
 export interface Album {
