@@ -206,7 +206,8 @@ const navLinks = [
 .music-layout {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   background: #111;
   color: #e0e0e0;
   overflow: hidden;
@@ -345,6 +346,7 @@ const navLinks = [
 .music-body {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -356,6 +358,7 @@ const navLinks = [
   background: #161616;
   border-right: 1px solid #2a2a2a;
   padding: 0.5rem 0;
+  overflow-y: auto;
 }
 
 .nav-link {
@@ -381,7 +384,8 @@ const navLinks = [
 
 .music-content {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .music-sidebar-right {
@@ -391,6 +395,8 @@ const navLinks = [
   border-left: 1px solid #2a2a2a;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar-tabs {

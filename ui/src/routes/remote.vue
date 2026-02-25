@@ -26,7 +26,7 @@ const wsDisconnected = computed(() => dropped.value && !connected.value);
 
 <style scoped lang="scss">
 .remote-layout {
-  min-height: 100vh;
+  height: 100vh;
   background: #111;
   color: #eee;
   display: flex;
@@ -37,7 +37,7 @@ const wsDisconnected = computed(() => dropped.value && !connected.value);
 
 .remote-main {
   flex: 1;
-  min-height: 0; // required so flex child can shrink and fill without overflow
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;

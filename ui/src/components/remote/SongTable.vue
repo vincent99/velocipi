@@ -1,18 +1,27 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useMusicPlayer } from '@/composables/useMusicPlayer';
+import { useAdmin } from '@/composables/useAdmin';
 import type { Song } from '@/types/music';
 
 interface Props {
   songs: Song[];
   loading?: boolean;
   showAlbum?: boolean;
+  showArtist?: boolean;
+  showYear?: boolean;
   groupByAlbum?: boolean;
+  // When true, Track column comes before Title, numbers only, default sort=track
+  albumContext?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   loading: false,
   showAlbum: true,
+  showArtist: true,
+  showYear: true,
   groupByAlbum: false,
+  albumContext: false,
 });
 
 const emit = defineEmits<{
@@ -20,7 +29,11 @@ const emit = defineEmits<{
   append: [ids: number[]];
   replace: [ids: number[]];
   mark: [ids: number[], marked: boolean];
+  delete: [ids: number[]];
 }>();
+
+const { musicState } = useMusicPlayer();
+const { isAdmin } = useAdmin();
 
 // Selection state
 const selectedIds = ref<Set<number>>(new Set());
@@ -39,7 +52,7 @@ const touchDragging = ref(false);
 
 // Sort state: column key + direction
 type SortCol = 'artist' | 'album' | 'year' | 'title' | 'track' | 'duration';
-const sortCol = ref<SortCol>('artist');
+const sortCol = ref<SortCol>(props.albumContext ? 'track' : 'artist');
 const sortDir = ref<1 | -1>(1);
 // Album sort mode: 'album' = just album name, 'artistAlbum' = artist then album
 const albumSortMode = ref<'album' | 'artistAlbum'>('album');
@@ -126,6 +139,9 @@ function formatDuration(seconds: number): string {
 }
 
 function trackLabel(song: Song): string {
+  if (props.albumContext) {
+    return song.trackNumber > 0 ? String(song.trackNumber) : '—';
+  }
   if (song.trackTotal > 0) {
     return `${song.trackNumber}/${song.trackTotal}`;
   }
@@ -136,9 +152,23 @@ function isSelected(id: number): boolean {
   return selectedIds.value.has(id);
 }
 
+function isPlaying(id: number): boolean {
+  return musicState.value?.currentSongId === id;
+}
+
+function toggleCheckbox(id: number, event: MouseEvent) {
+  event.stopPropagation();
+  if (selectedIds.value.has(id)) {
+    selectedIds.value.delete(id);
+  } else {
+    selectedIds.value.add(id);
+  }
+}
+
 function selectSong(index: number, event: MouseEvent) {
   const song = sortedSongs.value[index];
   if (event.shiftKey && lastClickedIndex.value >= 0) {
+    event.preventDefault();
     const start = Math.min(lastClickedIndex.value, index);
     const end = Math.max(lastClickedIndex.value, index);
     for (let i = start; i <= end; i++) {
@@ -231,6 +261,10 @@ function ctxUnmark() {
   emit('mark', [...selectedIds.value], false);
   hideContextMenu();
 }
+function ctxDelete() {
+  emit('delete', [...selectedIds.value]);
+  hideContextMenu();
+}
 
 // Touch drag support
 function handleTouchStart(index: number, _event: TouchEvent) {
@@ -309,7 +343,24 @@ const albumGroups = computed<AlbumGroup[]>(() => {
 });
 
 // Total column count for colspan on empty row
-const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
+// Columns: checkbox + (artist?) + (album?) + track + title + duration + (year?) + mark
+const flatColCount = computed(() => {
+  let n = 1; // checkbox
+  if (props.showArtist) {
+    n++;
+  }
+  if (props.showAlbum) {
+    n++;
+  }
+  n++; // track
+  n++; // title
+  n++; // duration
+  if (props.showYear) {
+    n++;
+  }
+  n++; // mark
+  return n;
+});
 </script>
 
 <template>
@@ -325,7 +376,12 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
     <table v-else-if="!groupByAlbum" class="song-table">
       <thead>
         <tr>
-          <th class="col-artist sortable" @click="cycleSort('artist')">
+          <th class="col-check"></th>
+          <th
+            v-if="showArtist"
+            class="col-artist sortable"
+            @click="cycleSort('artist')"
+          >
             Artist{{ sortIndicator('artist') }}
           </th>
           <th
@@ -335,17 +391,32 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
           >
             {{ albumColLabel() }}{{ sortIndicator('album') }}
           </th>
-          <th class="col-year sortable" @click="cycleSort('year')">
-            Year{{ sortIndicator('year') }}
+          <th
+            v-if="albumContext"
+            class="col-track sortable"
+            @click="cycleSort('track')"
+          >
+            #{{ sortIndicator('track') }}
           </th>
           <th class="col-title sortable" @click="cycleSort('title')">
             Title{{ sortIndicator('title') }}
           </th>
-          <th class="col-track sortable" @click="cycleSort('track')">
+          <th
+            v-if="!albumContext"
+            class="col-track sortable"
+            @click="cycleSort('track')"
+          >
             Track{{ sortIndicator('track') }}
           </th>
           <th class="col-duration sortable" @click="cycleSort('duration')">
             Duration{{ sortIndicator('duration') }}
+          </th>
+          <th
+            v-if="showYear"
+            class="col-year sortable"
+            @click="cycleSort('year')"
+          >
+            Year{{ sortIndicator('year') }}
           </th>
           <th class="col-mark"></th>
         </tr>
@@ -355,19 +426,34 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
           v-for="(song, idx) in sortedSongs"
           :key="song.id"
           :data-song-index="idx"
-          :class="{ selected: isSelected(song.id) }"
+          :class="{
+            selected: isSelected(song.id),
+            playing: isPlaying(song.id),
+          }"
           @click="handleRowClick(idx, $event)"
           @dblclick="handleRowDblClick(idx, $event)"
           @touchstart.passive="handleTouchStart(idx, $event)"
           @touchmove.passive="handleTouchMove($event)"
           @touchend.passive="handleTouchEnd()"
         >
-          <td class="col-artist">{{ song.artist }}</td>
+          <td class="col-check">
+            <input
+              type="checkbox"
+              :checked="isSelected(song.id)"
+              @click="toggleCheckbox(song.id, $event)"
+            />
+          </td>
+          <td v-if="showArtist" class="col-artist">{{ song.artist }}</td>
           <td v-if="showAlbum" class="col-album">{{ song.album }}</td>
-          <td class="col-year">{{ song.year || '—' }}</td>
-          <td class="col-title">{{ song.title }}</td>
-          <td class="col-track">{{ trackLabel(song) }}</td>
+          <td v-if="albumContext" class="col-track">
+            {{ trackLabel(song) }}
+          </td>
+          <td class="col-title" :class="{ 'now-playing': isPlaying(song.id) }">
+            {{ song.title }}
+          </td>
+          <td v-if="!albumContext" class="col-track">{{ trackLabel(song) }}</td>
           <td class="col-duration">{{ formatDuration(song.length) }}</td>
+          <td v-if="showYear" class="col-year">{{ song.year || '—' }}</td>
           <td class="col-mark">{{ song.marked ? '🚩' : '' }}</td>
         </tr>
         <tr v-if="sortedSongs.length === 0">
@@ -380,10 +466,11 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
     <table v-else class="song-table">
       <thead>
         <tr>
+          <th class="col-check"></th>
           <th class="col-cover"></th>
           <th class="col-albuminfo">Album / Artist</th>
           <th class="col-track sortable" @click="cycleSort('track')">
-            Track{{ sortIndicator('track') }}
+            #{{ sortIndicator('track') }}
           </th>
           <th class="col-title sortable" @click="cycleSort('title')">
             Title{{ sortIndicator('title') }}
@@ -400,10 +487,20 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
             v-for="(song, si) in group.songs"
             :key="song.id"
             :data-song-index="group.startIndex + si"
-            :class="{ selected: isSelected(song.id) }"
+            :class="{
+              selected: isSelected(song.id),
+              playing: isPlaying(song.id),
+            }"
             @click="handleRowClick(group.startIndex + si, $event)"
             @dblclick="handleRowDblClick(group.startIndex + si, $event)"
           >
+            <td class="col-check">
+              <input
+                type="checkbox"
+                :checked="isSelected(song.id)"
+                @click="toggleCheckbox(song.id, $event)"
+              />
+            </td>
             <!-- Cover art and album info — only on first row of group -->
             <td
               v-if="si === 0"
@@ -422,7 +519,7 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
                 class="album-thumb"
                 loading="lazy"
               />
-              <div v-else class="album-thumb-placeholder"></div>
+              <img v-else src="/img/no-cover.svg" class="album-thumb" alt="" />
             </td>
             <td
               v-if="si === 0"
@@ -442,13 +539,18 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
               <div class="album-year">{{ group.year || '' }}</div>
             </td>
             <td class="col-track">{{ trackLabel(song) }}</td>
-            <td class="col-title">{{ song.title }}</td>
+            <td
+              class="col-title"
+              :class="{ 'now-playing': isPlaying(song.id) }"
+            >
+              {{ song.title }}
+            </td>
             <td class="col-duration">{{ formatDuration(song.length) }}</td>
             <td class="col-mark">{{ song.marked ? '🚩' : '' }}</td>
           </tr>
         </template>
         <tr v-if="sortedSongs.length === 0">
-          <td colspan="6" class="empty-msg">No songs found.</td>
+          <td colspan="7" class="empty-msg">No songs found.</td>
         </tr>
       </tbody>
     </table>
@@ -466,6 +568,10 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
       <hr />
       <button @click="ctxMark">Mark</button>
       <button @click="ctxUnmark">Unmark</button>
+      <template v-if="isAdmin">
+        <hr />
+        <button class="ctx-danger" @click="ctxDelete">Delete</button>
+      </template>
     </div>
 
     <!-- Click outside to close context menu -->
@@ -537,8 +643,24 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
       background: #1e3a5f;
       color: #90caf9;
     }
+    &.playing {
+      background: #1a2e1a;
+    }
+    &.selected.playing {
+      background: #1a3a2a;
+    }
   }
 
+  .col-check {
+    width: 28px;
+    padding: 0 0.25rem;
+    text-align: center;
+
+    input[type='checkbox'] {
+      cursor: pointer;
+      accent-color: #3b82f6;
+    }
+  }
   .col-artist {
     max-width: 180px;
   }
@@ -553,9 +675,14 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
   }
   .col-title {
     max-width: 240px;
+
+    &.now-playing {
+      font-weight: 700;
+      color: #90caf9;
+    }
   }
   .col-track {
-    width: 60px;
+    width: 48px;
     text-align: right;
     color: #666;
   }
@@ -571,8 +698,9 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
     padding: 0 0.25rem;
   }
   .col-cover {
-    width: 72px;
+    width: 88px;
     padding: 4px;
+    vertical-align: top;
   }
   .col-albuminfo {
     width: 160px;
@@ -583,18 +711,12 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
 }
 
 .album-thumb {
-  width: 64px;
-  height: 64px;
+  width: 80px;
+  height: auto;
+  aspect-ratio: 1;
   object-fit: cover;
   border-radius: 4px;
   display: block;
-}
-
-.album-thumb-placeholder {
-  width: 64px;
-  height: 64px;
-  background: #333;
-  border-radius: 4px;
 }
 
 .album-name {
@@ -643,6 +765,14 @@ const flatColCount = computed(() => (props.showAlbum ? 8 : 7));
     &:hover {
       background: #3b82f6;
       color: #fff;
+    }
+
+    &.ctx-danger {
+      color: #f87171;
+      &:hover {
+        background: #7f1d1d;
+        color: #fca5a5;
+      }
     }
   }
 

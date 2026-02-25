@@ -10,41 +10,56 @@ import App from '@/App.vue';
 
 const modules = import.meta.glob('./routes/**/*.vue');
 
-const topLevel: Record<string, () => Promise<unknown>> = {};
-const nested: Record<string, () => Promise<unknown>> = {};
-
+// Bucket every discovered file by depth:
+//   depth-0  → e.g. "remote"         (no slash)
+//   depth-1  → e.g. "remote/music"   (one slash)
+//   depth-2+ → e.g. "remote/music/songs"
+const byPath: Record<string, () => Promise<unknown>> = {};
 for (const [file, component] of Object.entries(modules)) {
   const stripped = file.replace(/^\.\/routes\//, '').replace(/\.vue$/, '');
-  if (stripped.includes('/')) {
-    nested[stripped] = component;
-  } else {
-    topLevel[stripped] = component;
+  byPath[stripped] = component;
+}
+
+function buildChildren(
+  parentPath: string,
+  allPaths: Record<string, () => Promise<unknown>>
+): RouteRecordRaw[] {
+  const children: RouteRecordRaw[] = [];
+  for (const [p, comp] of Object.entries(allPaths)) {
+    // Direct child: starts with "parentPath/" and has no further slash after that
+    if (!p.startsWith(parentPath + '/')) {
+      continue;
+    }
+    const rest = p.slice(parentPath.length + 1);
+    if (rest.includes('/')) {
+      // deeper — skip here, will be handled recursively
+      continue;
+    }
+    const grandchildren = buildChildren(p, allPaths);
+    const route: RouteRecordRaw = { path: rest, component: comp };
+    if (grandchildren.length > 0) {
+      route.children = grandchildren;
+    }
+    children.push(route);
   }
+  return children;
 }
 
 const routes: RouteRecordRaw[] = [];
 
-if (topLevel['index']) {
-  routes.push({ path: '/', component: topLevel['index'] });
+if (byPath['index']) {
+  routes.push({ path: '/', component: byPath['index'] });
 } else {
   routes.push({ path: '/', redirect: '/remote/home' });
 }
 
-for (const [name, component] of Object.entries(topLevel)) {
-  if (name === 'index') {
+// Build top-level routes (no slash in key)
+for (const [name, component] of Object.entries(byPath)) {
+  if (name.includes('/') || name === 'index') {
     continue;
   }
 
-  const children: RouteRecordRaw[] = [];
-  for (const [childStripped, childComponent] of Object.entries(nested)) {
-    if (childStripped.startsWith(name + '/')) {
-      const relative = childStripped
-        .slice(name.length + 1)
-        .replace(/\/index$/, '')
-        .replace(/^index$/, '');
-      children.push({ path: relative, component: childComponent });
-    }
-  }
+  const children = buildChildren(name, byPath);
 
   if (name === 'panel') {
     children.unshift({ path: '', redirect: '/panel/home' });
