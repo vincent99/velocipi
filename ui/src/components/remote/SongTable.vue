@@ -13,6 +13,8 @@ interface Props {
   groupByAlbum?: boolean;
   // When true, Track column comes before Title, numbers only, default sort=track
   albumContext?: boolean;
+  // When true: preserves song order, enables drag-reorder, adds Remove action
+  playlistMode?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -22,6 +24,7 @@ const props = withDefaults(defineProps<Props>(), {
   showYear: true,
   groupByAlbum: false,
   albumContext: false,
+  playlistMode: false,
 });
 
 const emit = defineEmits<{
@@ -29,8 +32,11 @@ const emit = defineEmits<{
   append: [ids: number[]];
   replace: [ids: number[]];
   mark: [ids: number[], marked: boolean];
+  favorite: [ids: number[], favorite: boolean];
   delete: [ids: number[]];
   edit: [ids: number[]];
+  'remove-from-playlist': [ids: number[]];
+  reorder: [fromIndex: number, toIndex: number];
 }>();
 
 const { musicState } = useMusicPlayer();
@@ -136,6 +142,10 @@ function sortValue(song: Song): string | number {
 }
 
 const sortedSongs = computed<Song[]>(() => {
+  // In playlist mode preserve the original order; sorting is disabled
+  if (props.playlistMode) {
+    return props.songs;
+  }
   const d = sortDir.value;
   return [...props.songs].sort((a, b) => {
     const av = sortValue(a);
@@ -301,6 +311,10 @@ function rowMenuMark(songId: number, marked: boolean) {
   emit('mark', [songId], marked);
   closeRowMenu();
 }
+function rowMenuFavorite(songId: number, fav: boolean) {
+  emit('favorite', [songId], fav);
+  closeRowMenu();
+}
 function rowMenuDelete(songId: number) {
   const title = props.songs.find((s) => s.id === songId)?.title ?? 'this song';
   if (!confirm(`Permanently delete "${title}"? This cannot be undone.`)) {
@@ -311,6 +325,10 @@ function rowMenuDelete(songId: number) {
 }
 function rowMenuEdit(songId: number) {
   emit('edit', [songId]);
+  closeRowMenu();
+}
+function rowMenuRemoveFromPlaylist(songId: number) {
+  emit('remove-from-playlist', [songId]);
   closeRowMenu();
 }
 
@@ -335,6 +353,10 @@ function multiMark(marked: boolean) {
   emit('mark', multiIds.value, marked);
   multiMenuOpen.value = false;
 }
+function multiFavorite(fav: boolean) {
+  emit('favorite', multiIds.value, fav);
+  multiMenuOpen.value = false;
+}
 function multiDelete() {
   const n = multiIds.value.length;
   const msg =
@@ -352,9 +374,29 @@ function multiEdit() {
   emit('edit', multiIds.value);
   multiMenuOpen.value = false;
 }
+function multiRemoveFromPlaylist() {
+  emit('remove-from-playlist', multiIds.value);
+  multiMenuOpen.value = false;
+  selectedIds.value = new Set();
+}
 function clearSelection() {
   selectedIds.value = new Set();
   multiMenuOpen.value = false;
+}
+
+// Delete key — removes from playlist when in playlistMode
+function handleKeyDown(e: KeyboardEvent) {
+  if (!props.playlistMode) {
+    return;
+  }
+  if (e.key !== 'Delete' && e.key !== 'Backspace') {
+    return;
+  }
+  if (selectedIds.value.size === 0) {
+    return;
+  }
+  emit('remove-from-playlist', [...selectedIds.value]);
+  selectedIds.value = new Set();
 }
 
 // Touch drag support
@@ -456,10 +498,12 @@ onMounted(() => {
     ro.observe(scrollEl.value);
     viewportH.value = scrollEl.value.clientHeight;
   }
+  window.addEventListener('keydown', handleKeyDown);
 });
 
 onUnmounted(() => {
   ro?.disconnect();
+  window.removeEventListener('keydown', handleKeyDown);
 });
 
 // Reset scroll position when songs list changes (e.g. new search results)
@@ -514,19 +558,78 @@ function toggleSelectAll() {
 
 // ─── Drag support ────────────────────────────────────────────────────────────
 
-function onRowDragStart(songId: number, e: DragEvent) {
+function onRowDragStart(songId: number, index: number, e: DragEvent) {
   if (!e.dataTransfer) {
     return;
   }
-  // Include the dragged song plus any other selected songs
-  const ids = selectedIds.value.has(songId) ? [...selectedIds.value] : [songId];
-  e.dataTransfer.effectAllowed = 'copy';
-  e.dataTransfer.setData('application/x-song-ids', JSON.stringify(ids));
+  if (props.playlistMode) {
+    // In playlist mode, drag carries the playlist index for reordering
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-playlist-index', String(index));
+    plDragFromIndex.value = index;
+  } else {
+    // Include the dragged song plus any other selected songs
+    const ids = selectedIds.value.has(songId)
+      ? [...selectedIds.value]
+      : [songId];
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/x-song-ids', JSON.stringify(ids));
+  }
+}
+
+// ─── Playlist drag-reorder ────────────────────────────────────────────────────
+
+const plDragFromIndex = ref<number | null>(null);
+const plDropIndicator = ref<{
+  index: number;
+  position: 'above' | 'below';
+} | null>(null);
+
+function onPlDragOver(index: number, e: DragEvent) {
+  if (!props.playlistMode) {
+    return;
+  }
+  if (!e.dataTransfer?.types.includes('application/x-playlist-index')) {
+    return;
+  }
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const target = e.currentTarget as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  const position: 'above' | 'below' =
+    e.clientY < rect.top + rect.height / 2 ? 'above' : 'below';
+  plDropIndicator.value = { index, position };
+}
+
+function onPlDragEnd() {
+  plDragFromIndex.value = null;
+  plDropIndicator.value = null;
+}
+
+function onPlDrop(index: number, e: DragEvent) {
+  e.preventDefault();
+  const from = plDragFromIndex.value;
+  plDragFromIndex.value = null;
+  const indicator = plDropIndicator.value;
+  plDropIndicator.value = null;
+  if (from === null || !indicator) {
+    return;
+  }
+  let to = indicator.position === 'above' ? index : index + 1;
+  if (from < to) {
+    to--;
+  }
+  if (from !== to) {
+    emit('reorder', from, to);
+  }
 }
 
 // Grid template columns for the flat virtual list
 const gridCols = computed(() => {
   const cols: string[] = [];
+  if (props.playlistMode) {
+    cols.push('20px'); // drag handle
+  }
   cols.push('28px'); // checkbox
   if (props.showArtist) {
     cols.push('minmax(80px, 1.5fr)');
@@ -559,6 +662,7 @@ const gridCols = computed(() => {
     <template v-else-if="!groupByAlbum">
       <!-- Sticky header -->
       <div class="vlist-header" :style="{ gridTemplateColumns: gridCols }">
+        <div v-if="playlistMode" class="vh-drag-col"></div>
         <div class="vh-check" @click="toggleSelectAll">
           <input
             type="checkbox"
@@ -570,44 +674,57 @@ const gridCols = computed(() => {
         </div>
         <div
           v-if="showArtist"
-          class="vh-cell sortable"
-          @click="cycleSort('artist')"
+          class="vh-cell"
+          :class="{ sortable: !playlistMode }"
+          @click="!playlistMode && cycleSort('artist')"
         >
-          Artist{{ sortIndicator('artist') }}
+          Artist{{ !playlistMode ? sortIndicator('artist') : '' }}
         </div>
         <div
           v-if="showAlbum"
-          class="vh-cell sortable"
-          @click="cycleSort('album')"
+          class="vh-cell"
+          :class="{ sortable: !playlistMode }"
+          @click="!playlistMode && cycleSort('album')"
         >
-          {{ albumColLabel() }}{{ sortIndicator('album') }}
+          {{ albumColLabel() }}{{ !playlistMode ? sortIndicator('album') : '' }}
         </div>
         <div
           v-if="albumContext"
-          class="vh-cell vh-num sortable"
-          @click="cycleSort('track')"
+          class="vh-cell vh-num"
+          :class="{ sortable: !playlistMode }"
+          @click="!playlistMode && cycleSort('track')"
         >
-          #{{ sortIndicator('track') }}
+          #{{ !playlistMode ? sortIndicator('track') : '' }}
         </div>
-        <div class="vh-cell sortable" @click="cycleSort('title')">
-          Title{{ sortIndicator('title') }}
+        <div
+          class="vh-cell"
+          :class="{ sortable: !playlistMode }"
+          @click="!playlistMode && cycleSort('title')"
+        >
+          Title{{ !playlistMode ? sortIndicator('title') : '' }}
         </div>
         <div
           v-if="!albumContext"
-          class="vh-cell vh-num sortable"
-          @click="cycleSort('track')"
+          class="vh-cell vh-num"
+          :class="{ sortable: !playlistMode }"
+          @click="!playlistMode && cycleSort('track')"
         >
-          Track{{ sortIndicator('track') }}
+          Track{{ !playlistMode ? sortIndicator('track') : '' }}
         </div>
-        <div class="vh-cell vh-num sortable" @click="cycleSort('duration')">
-          Duration{{ sortIndicator('duration') }}
+        <div
+          class="vh-cell vh-num"
+          :class="{ sortable: !playlistMode }"
+          @click="!playlistMode && cycleSort('duration')"
+        >
+          Duration{{ !playlistMode ? sortIndicator('duration') : '' }}
         </div>
         <div
           v-if="showYear"
-          class="vh-cell vh-num sortable"
-          @click="cycleSort('year')"
+          class="vh-cell vh-num"
+          :class="{ sortable: !playlistMode }"
+          @click="!playlistMode && cycleSort('year')"
         >
-          Year{{ sortIndicator('year') }}
+          Year{{ !playlistMode ? sortIndicator('year') : '' }}
         </div>
         <div class="vh-check"></div>
       </div>
@@ -625,18 +742,28 @@ const gridCols = computed(() => {
           :class="{
             selected: isSelected(song.id),
             playing: isPlaying(song.id),
+            'pl-drop-above':
+              plDropIndicator?.index === visibleRange.first + vi &&
+              plDropIndicator.position === 'above',
+            'pl-drop-below':
+              plDropIndicator?.index === visibleRange.first + vi &&
+              plDropIndicator.position === 'below',
           }"
           :style="{ gridTemplateColumns: gridCols }"
           draggable="true"
           @click="handleRowClick(visibleRange.first + vi, $event)"
           @dblclick="handleRowDblClick(visibleRange.first + vi, $event)"
-          @dragstart="onRowDragStart(song.id, $event)"
+          @dragstart="onRowDragStart(song.id, visibleRange.first + vi, $event)"
+          @dragover="onPlDragOver(visibleRange.first + vi, $event)"
+          @dragend="onPlDragEnd"
+          @drop="onPlDrop(visibleRange.first + vi, $event)"
           @touchstart.passive="
             handleTouchStart(visibleRange.first + vi, $event)
           "
           @touchmove.passive="handleTouchMove($event)"
           @touchend.passive="handleTouchEnd()"
         >
+          <div v-if="playlistMode" class="vc-drag-handle" @click.stop>⠿</div>
           <div
             class="vc-check"
             @click.stop="handleCheckTd(visibleRange.first + vi, $event)"
@@ -660,8 +787,9 @@ const gridCols = computed(() => {
             :class="{ 'now-playing': isPlaying(song.id) }"
           >
             {{ song.title
-            }}<span v-if="song.marked" class="flag-icon" title="Marked"
-              >🚩</span
+            }}<span v-if="song.marked" class="flag-icon" title="Marked">🚩</span
+            ><span v-if="song.favorite" class="flag-icon" title="Favorite"
+              >⭐</span
             >
           </div>
           <div v-if="!albumContext" class="vc-cell vc-num">
@@ -700,8 +828,17 @@ const gridCols = computed(() => {
                 <button @click="rowMenuMark(song.id, !song.marked)">
                   {{ song.marked ? 'Unmark' : 'Mark' }}
                 </button>
+                <button @click="rowMenuFavorite(song.id, !song.favorite)">
+                  {{ song.favorite ? 'Unfavorite' : 'Favorite' }}
+                </button>
                 <button @click="rowMenuEdit(song.id)">Edit</button>
-                <template v-if="isAdmin">
+                <template v-if="playlistMode">
+                  <hr />
+                  <button @click="rowMenuRemoveFromPlaylist(song.id)">
+                    Remove from Playlist
+                  </button>
+                </template>
+                <template v-else-if="isAdmin">
                   <hr />
                   <button class="menu-danger" @click="rowMenuDelete(song.id)">
                     Delete
@@ -882,7 +1019,15 @@ const gridCols = computed(() => {
               <button @click="multiEdit">Edit all</button>
               <button @click="multiMark(true)">Mark all</button>
               <button @click="multiMark(false)">Unmark all</button>
-              <template v-if="isAdmin">
+              <button @click="multiFavorite(true)">Favorite all</button>
+              <button @click="multiFavorite(false)">Unfavorite all</button>
+              <template v-if="playlistMode">
+                <hr />
+                <button @click="multiRemoveFromPlaylist">
+                  Remove from Playlist
+                </button>
+              </template>
+              <template v-else-if="isAdmin">
                 <hr />
                 <button class="menu-danger" @click="multiDelete">
                   Delete all
@@ -944,6 +1089,10 @@ const gridCols = computed(() => {
     background: transparent;
   }
   scrollbar-color: transparent #1a1a1a;
+}
+
+.vh-drag-col {
+  width: 20px;
 }
 
 .vh-check {
@@ -1013,6 +1162,28 @@ const gridCols = computed(() => {
   &.selected.playing {
     background: #1a3a2a;
   }
+}
+
+.vc-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555;
+  cursor: grab;
+  font-size: 0.9rem;
+  user-select: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.vrow.pl-drop-above {
+  border-top: 2px solid #3b82f6;
+}
+
+.vrow.pl-drop-below {
+  border-bottom: 2px solid #3b82f6;
 }
 
 .vc-check {

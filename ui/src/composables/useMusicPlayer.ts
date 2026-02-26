@@ -107,6 +107,12 @@ export function useMusicPlayer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ marked }),
       }),
+    favoriteSong: (id: number, favorite: boolean) =>
+      fetch(`/music/songs/${id}/favorite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ favorite }),
+      }),
     removeFromQueue: (index: number) =>
       fetch('/music/queue/remove', {
         method: 'POST',

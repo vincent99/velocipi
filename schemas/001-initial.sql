@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS song (
     updated     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     deleted     DATETIME,
     marked      INTEGER NOT NULL DEFAULT 0,
+    favorite    INTEGER NOT NULL DEFAULT 0,
     artist      TEXT    NOT NULL DEFAULT '',
     album       TEXT    NOT NULL DEFAULT '',
     artistSort  TEXT    NOT NULL DEFAULT '',
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS playlist (
     items TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(items))
 );
 
-CREATE TABLE IF NOT EXISTS smartplaylist (
+CREATE TABLE IF NOT EXISTS smartsearch (
     id    INTEGER PRIMARY KEY AUTOINCREMENT,
     name  TEXT NOT NULL UNIQUE,
     query TEXT NOT NULL DEFAULT ''
@@ -48,3 +49,6 @@ CREATE TABLE IF NOT EXISTS state (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT 'null'
 );
+
+INSERT OR IGNORE INTO smartsearch (name, query) VALUES ('Marked', 'marked = 1');
+INSERT OR IGNORE INTO smartsearch (name, query) VALUES ('Favorites', 'favorite = 1');

@@ -29,6 +29,7 @@ type Song struct {
 	Updated     string   `json:"updated"`
 	Deleted     *string  `json:"deleted"`
 	Marked      bool     `json:"marked"`
+	Favorite    bool     `json:"favorite"`
 	Artist      string   `json:"artist"`
 	Album       string   `json:"album"`
 	ArtistSort  string   `json:"artistSort"`
@@ -83,6 +84,13 @@ type PlaylistRow struct {
 	Items []int64 `json:"items"`
 }
 
+// SmartSearchRow is the API representation of a smartsearch row.
+type SmartSearchRow struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Query string `json:"query"`
+}
+
 // SongsResponse wraps a song list with a total count.
 type SongsResponse struct {
 	Songs []Song `json:"songs"`
@@ -115,10 +123,12 @@ func RegisterRoutes(mux *http.ServeMux, db *DB, player *Player, cfg config.Confi
 	mux.HandleFunc("/music/control", a.handleControl)
 	mux.HandleFunc("/music/sync", a.handleSync)
 	mux.HandleFunc("/music/playlists", a.handlePlaylists)
-	mux.HandleFunc("/music/playlists/", a.handlePlaylist)
-	mux.HandleFunc("/music/songs/", a.handleSongByIDOrAction)  // /music/songs/{id}, /music/songs/{id}/mark, /music/songs/{id}/delete
-	mux.HandleFunc("/music/songs/delete", a.handleSongsDelete) // POST /music/songs/delete — bulk delete (admin)
-	mux.HandleFunc("/music/songs/edit", a.handleSongsEdit)     // POST /music/songs/edit — edit metadata for one or more songs
+	mux.HandleFunc("/music/playlists/", a.handlePlaylist) // PUT/DELETE /music/playlists/{id} and GET /music/playlists/{id}/songs
+	mux.HandleFunc("/music/smartsearches", a.handleSmartSearches)
+	mux.HandleFunc("/music/smartsearches/", a.handleSmartSearch) // GET /music/smartsearches/{id}/songs, DELETE /music/smartsearches/{id}
+	mux.HandleFunc("/music/songs/", a.handleSongByIDOrAction)    // /music/songs/{id}, /music/songs/{id}/mark, /music/songs/{id}/delete
+	mux.HandleFunc("/music/songs/delete", a.handleSongsDelete)   // POST /music/songs/delete — bulk delete (admin)
+	mux.HandleFunc("/music/songs/edit", a.handleSongsEdit)       // POST /music/songs/edit — edit metadata for one or more songs
 }
 
 // jsonOK writes a JSON response with 200 OK.
@@ -135,7 +145,7 @@ func scanSong(rows *sql.Rows) (*Song, error) {
 	var coverID sql.NullInt64
 	err := rows.Scan(
 		&s.ID, &s.Path, &s.Hash, &coverID,
-		&s.Added, &s.Updated, &deleted, &s.Marked,
+		&s.Added, &s.Updated, &deleted, &s.Marked, &s.Favorite,
 		&s.Artist, &s.Album, &s.ArtistSort, &s.AlbumSort,
 		&s.Title, &s.DiscNumber, &s.TrackNumber, &s.TrackTotal,
 		&genreJSON, &s.Length, &s.Year, &s.Plays, &s.Format, &s.Bitrate,
@@ -204,7 +214,7 @@ func (a *musicAPI) handleSongs(w http.ResponseWriter, r *http.Request) {
 	a.db.db.QueryRow("SELECT COUNT(*) FROM song "+where, args...).Scan(&total)
 
 	// Results (no limit by default; OFFSET only meaningful with external paging).
-	query := "SELECT id,path,hash,coverId,added,updated,deleted,marked,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song " +
+	query := "SELECT id,path,hash,coverId,added,updated,deleted,marked,favorite,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song " +
 		where + " ORDER BY artistSort,albumSort,discNumber,trackNumber"
 	queryArgs := args
 	if offset > 0 {
@@ -418,7 +428,7 @@ func (a *musicAPI) handleQueue(w http.ResponseWriter, r *http.Request) {
 		for _, e := range qs.Entries {
 			entry := QueueEntryResponse{SongID: e.SongID, OriginalIndex: e.OriginalIndex}
 			rows, err := a.db.db.Query(
-				`SELECT id,path,hash,coverId,added,updated,deleted,marked,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song WHERE id=?`,
+				`SELECT id,path,hash,coverId,added,updated,deleted,marked,favorite,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song WHERE id=?`,
 				e.SongID,
 			)
 			if err == nil {
@@ -576,13 +586,38 @@ func (a *musicAPI) handleSongByIDOrAction(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// /music/songs/{id}/favorite
+	if len(parts) == 2 && parts[1] == "favorite" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Favorite bool `json:"favorite"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		fav := 0
+		if body.Favorite {
+			fav = 1
+		}
+		if _, err := a.db.db.Exec(`UPDATE song SET favorite=? WHERE id=?`, fav, id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	// /music/songs/{id} — single song lookup
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	rows, err := a.db.db.Query(
-		`SELECT id,path,hash,coverId,added,updated,deleted,marked,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song WHERE id=?`,
+		`SELECT id,path,hash,coverId,added,updated,deleted,marked,favorite,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song WHERE id=?`,
 		id,
 	)
 	if err != nil {
@@ -704,11 +739,68 @@ func (a *musicAPI) handleSongsDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *musicAPI) handlePlaylist(w http.ResponseWriter, r *http.Request) {
-	idStr := strings.TrimPrefix(r.URL.Path, "/music/playlists/")
-	idStr = strings.TrimSuffix(idStr, "/")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	rest := strings.TrimPrefix(r.URL.Path, "/music/playlists/")
+	parts := strings.SplitN(rest, "/", 2)
+	id, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
 		http.NotFound(w, r)
+		return
+	}
+
+	// GET /music/playlists/{id}/songs — fetch full song objects in playlist order.
+	if len(parts) == 2 && parts[1] == "songs" {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var itemsJSON string
+		if err := a.db.db.QueryRow(`SELECT items FROM playlist WHERE id=?`, id).Scan(&itemsJSON); err != nil {
+			if err == sql.ErrNoRows {
+				http.NotFound(w, r)
+			} else {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+		var itemIDs []int64
+		json.Unmarshal([]byte(itemsJSON), &itemIDs)
+		if itemIDs == nil {
+			itemIDs = []int64{}
+		}
+		// Fetch songs in order matching item IDs (preserve playlist order).
+		if len(itemIDs) == 0 {
+			jsonOK(w, SongsResponse{Songs: []Song{}, Total: 0})
+			return
+		}
+		// Build an ORDER BY CASE to preserve playlist order.
+		idsJSON, _ := json.Marshal(itemIDs)
+		rows, err := a.db.db.Query(
+			`SELECT id,path,hash,coverId,added,updated,deleted,marked,favorite,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate
+			 FROM song WHERE id IN (SELECT value FROM json_each(?))`,
+			string(idsJSON),
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		byID := map[int64]*Song{}
+		for rows.Next() {
+			s, err := scanSong(rows)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			byID[s.ID] = s
+		}
+		// Return in playlist order, skipping deleted/missing songs.
+		songs := []Song{}
+		for _, sid := range itemIDs {
+			if s, ok := byID[sid]; ok {
+				songs = append(songs, *s)
+			}
+		}
+		jsonOK(w, SongsResponse{Songs: songs, Total: len(songs)})
 		return
 	}
 
@@ -743,6 +835,130 @@ func (a *musicAPI) handlePlaylist(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
+
+// handleSmartSearches handles GET/POST /music/smartsearches.
+func (a *musicAPI) handleSmartSearches(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		rows, err := a.db.db.Query(`SELECT id, name, query FROM smartsearch ORDER BY name`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		result := []SmartSearchRow{}
+		for rows.Next() {
+			var sp SmartSearchRow
+			if err := rows.Scan(&sp.ID, &sp.Name, &sp.Query); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			result = append(result, sp)
+		}
+		jsonOK(w, result)
+
+	case http.MethodPost:
+		var body struct {
+			Name  string `json:"name"`
+			Query string `json:"query"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		body.Name = strings.TrimSpace(body.Name)
+		body.Query = strings.TrimSpace(body.Query)
+		if body.Name == "" || body.Query == "" {
+			http.Error(w, "name and query are required", http.StatusBadRequest)
+			return
+		}
+		if strings.Contains(body.Query, ";") {
+			http.Error(w, "query may not contain semicolons", http.StatusBadRequest)
+			return
+		}
+		res, err := a.db.db.Exec(`INSERT INTO smartsearch (name, query) VALUES (?, ?)`, body.Name, body.Query)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		id, _ := res.LastInsertId()
+		jsonOK(w, SmartSearchRow{ID: id, Name: body.Name, Query: body.Query})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleSmartSearch handles requests to /music/smartsearches/{id}[/songs].
+// GET /music/smartsearches/{id}/songs — execute the stored WHERE clause.
+// DELETE /music/smartsearches/{id}   — delete the smart search.
+func (a *musicAPI) handleSmartSearch(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/music/smartsearches/")
+	parts := strings.SplitN(rest, "/", 2)
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// DELETE /music/smartsearches/{id}
+	if len(parts) == 1 {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if _, err := a.db.db.Exec(`DELETE FROM smartsearch WHERE id=?`, id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// GET /music/smartsearches/{id}/songs
+	if parts[1] != "songs" || r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+
+	var query string
+	if err := a.db.db.QueryRow(`SELECT query FROM smartsearch WHERE id=?`, id).Scan(&query); err != nil {
+		if err == sql.ErrNoRows {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Sanity check: reject queries containing a semicolon.
+	if strings.Contains(query, ";") {
+		http.Error(w, "query may not contain semicolons", http.StatusBadRequest)
+		return
+	}
+
+	// query is a WHERE clause fragment, e.g. "length > 300"
+	fullQuery := "SELECT id,path,hash,coverId,added,updated,deleted,marked,favorite,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song WHERE deleted IS NULL AND (" + query + ")"
+	rows, err := a.db.db.Query(fullQuery)
+	if err != nil {
+		http.Error(w, "query error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	songs := []Song{}
+	for rows.Next() {
+		s, err := scanSong(rows)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		songs = append(songs, *s)
+	}
+	jsonOK(w, SongsResponse{Songs: songs, Total: len(songs)})
+}
+
+// handlePlaylistSongs handles GET /music/playlists/{id}/songs — fetch songs in playlist order.
+// This is reached via the /music/playlists/ prefix handler.
 
 // SongEditFields holds the metadata fields that may be updated by an edit request.
 // Each field is a pointer so the caller can omit fields they don't want to change.
@@ -788,7 +1004,7 @@ func (a *musicAPI) handleSongsEdit(w http.ResponseWriter, r *http.Request) {
 	for _, id := range body.IDs {
 		// Load current song from DB.
 		rows, err := a.db.db.Query(
-			`SELECT id,path,hash,coverId,added,updated,deleted,marked,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song WHERE id=?`,
+			`SELECT id,path,hash,coverId,added,updated,deleted,marked,favorite,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song WHERE id=?`,
 			id,
 		)
 		if err != nil {

@@ -16,6 +16,7 @@ import { useSongEdit } from '@/composables/useSongEdit';
 import { useDeviceState } from '@/composables/useDeviceState';
 import QueueRow from '@/components/remote/QueueRow.vue';
 import SongEditModal from '@/components/remote/SongEditModal.vue';
+import type { Playlist, SmartSearch } from '@/types/music';
 
 const route = useRoute();
 const router = useRouter();
@@ -123,9 +124,6 @@ function onSeek(event: Event) {
   const input = event.target as HTMLInputElement;
   seek(parseFloat(input.value));
 }
-
-// Right sidebar tabs
-const rightTab = ref<'queue' | 'playlists'>('queue');
 
 // Nav links — Search only shown when there is a query
 const baseNavLinks = [
@@ -268,6 +266,121 @@ function submitSearch() {
   }
   router.push({ path: '/remote/music/search', query: { q } });
 }
+
+// ── Playlists / Smart playlists ───────────────────────────────────────────────
+
+const playlists = ref<Playlist[]>([]);
+const smartSearches = ref<SmartSearch[]>([]);
+
+async function loadPlaylists() {
+  const [plRes, spRes] = await Promise.all([
+    fetch('/music/playlists'),
+    fetch('/music/smartsearches'),
+  ]);
+  if (plRes.ok) {
+    playlists.value = await plRes.json();
+  }
+  if (spRes.ok) {
+    smartSearches.value = await spRes.json();
+  }
+}
+
+loadPlaylists();
+
+// Create smart search modal
+const showCreateSmartSearch = ref(false);
+const newSmartSearchName = ref('');
+const newSmartSearchQuery = ref('');
+const creatingSmartSearch = ref(false);
+
+async function createSmartSearch() {
+  const name = newSmartSearchName.value.trim();
+  const query = newSmartSearchQuery.value.trim();
+  if (!name || !query) {
+    return;
+  }
+  creatingSmartSearch.value = true;
+  try {
+    const r = await fetch('/music/smartsearches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, query }),
+    });
+    if (r.ok) {
+      showCreateSmartSearch.value = false;
+      newSmartSearchName.value = '';
+      newSmartSearchQuery.value = '';
+      await loadPlaylists();
+    }
+  } finally {
+    creatingSmartSearch.value = false;
+  }
+}
+
+// Create playlist modal
+const showCreatePlaylist = ref(false);
+const newPlaylistName = ref('');
+const creatingPlaylist = ref(false);
+
+async function createPlaylist() {
+  const name = newPlaylistName.value.trim();
+  if (!name) {
+    return;
+  }
+  creatingPlaylist.value = true;
+  try {
+    const r = await fetch('/music/playlists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, items: [] }),
+    });
+    if (r.ok) {
+      showCreatePlaylist.value = false;
+      newPlaylistName.value = '';
+      await loadPlaylists();
+    }
+  } finally {
+    creatingPlaylist.value = false;
+  }
+}
+
+// Drop songs onto a playlist name in the nav
+const navDropTarget = ref<number | null>(null); // playlist id
+
+function onNavDragOver(playlistId: number, e: DragEvent) {
+  if (e.dataTransfer?.types.includes('application/x-song-ids')) {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+    navDropTarget.value = playlistId;
+  }
+}
+
+function onNavDragLeave() {
+  navDropTarget.value = null;
+}
+
+async function onNavDrop(playlistId: number, e: DragEvent) {
+  e.preventDefault();
+  navDropTarget.value = null;
+  const songStr = e.dataTransfer?.getData('application/x-song-ids');
+  if (!songStr) {
+    return;
+  }
+  const songIds: number[] = JSON.parse(songStr);
+  const pl = playlists.value.find((p) => p.id === playlistId);
+  if (!pl) {
+    return;
+  }
+  const newItems = [...pl.items, ...songIds];
+  await fetch(`/music/playlists/${playlistId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: pl.name, items: newItems }),
+  });
+  pl.items = newItems;
+}
 </script>
 
 <template>
@@ -399,6 +512,60 @@ function submitSearch() {
         >
           {{ link.label }}
         </RouterLink>
+
+        <!-- Smart Searches section -->
+        <div class="nav-section-label">
+          Smart Searches
+          <button
+            class="nav-add-btn"
+            title="New Smart Search"
+            @click.stop="showCreateSmartSearch = true"
+          >
+            +
+          </button>
+        </div>
+        <RouterLink
+          v-for="sp in smartSearches"
+          :key="'sp-' + sp.id"
+          :to="{ path: '/remote/music/smartsearch', query: { id: sp.id } }"
+          class="nav-link nav-link--playlist"
+          active-class="nav-link--active"
+        >
+          {{ sp.name }}
+        </RouterLink>
+        <div v-if="smartSearches.length === 0" class="nav-empty">
+          No smart searches
+        </div>
+
+        <!-- Playlists section -->
+        <div class="nav-section-label">
+          Playlists
+          <button
+            class="nav-add-btn"
+            title="New Playlist"
+            @click.stop="showCreatePlaylist = true"
+          >
+            +
+          </button>
+        </div>
+        <div
+          v-for="pl in playlists"
+          :key="'pl-' + pl.id"
+          class="nav-link-wrap"
+          :class="{ 'nav-drop-target': navDropTarget === pl.id }"
+          @dragover="onNavDragOver(pl.id, $event)"
+          @dragleave="onNavDragLeave"
+          @drop="onNavDrop(pl.id, $event)"
+        >
+          <RouterLink
+            :to="{ path: '/remote/music/playlist', query: { id: pl.id } }"
+            class="nav-link nav-link--playlist"
+            active-class="nav-link--active"
+          >
+            {{ pl.name }}
+          </RouterLink>
+        </div>
+        <div v-if="playlists.length === 0" class="nav-empty">No playlists</div>
       </nav>
 
       <!-- Left resize handle -->
@@ -420,24 +587,10 @@ function submitSearch() {
         @touchstart.prevent="startResize('right', $event)"
       />
 
-      <!-- Right: queue / playlists -->
+      <!-- Right: queue -->
       <div class="music-sidebar-right" :style="{ width: sidebarWidth + 'px' }">
-        <div class="sidebar-tabs">
-          <button
-            :class="{ active: rightTab === 'queue' }"
-            @click="rightTab = 'queue'"
-          >
-            Queue
-          </button>
-          <button
-            :class="{ active: rightTab === 'playlists' }"
-            @click="rightTab = 'playlists'"
-          >
-            Playlist
-          </button>
-        </div>
+        <div class="sidebar-heading">Queue</div>
         <div
-          v-if="rightTab === 'queue'"
           class="queue-list"
           @dragover="handleQueueListDragOver"
           @drop="handleQueueListDrop"
@@ -469,9 +622,6 @@ function submitSearch() {
           </template>
           <div v-else class="queue-empty">Loading…</div>
         </div>
-        <div v-else class="playlists-panel">
-          <div class="queue-empty">Playlists coming soon</div>
-        </div>
       </div>
     </div>
   </div>
@@ -483,6 +633,100 @@ function submitSearch() {
     @save="saveEdit"
     @cancel="closeEdit"
   />
+
+  <!-- Create Smart Search modal -->
+  <Teleport to="body">
+    <div
+      v-if="showCreateSmartSearch"
+      class="modal-overlay"
+      @click.self="showCreateSmartSearch = false"
+    >
+      <div class="create-pl-modal create-pl-modal--wide">
+        <div class="create-pl-title">New Smart Search</div>
+        <input
+          v-model="newSmartSearchName"
+          class="create-pl-input"
+          type="text"
+          placeholder="Name"
+          @keydown.esc="showCreateSmartSearch = false"
+        />
+        <textarea
+          v-model="newSmartSearchQuery"
+          class="create-pl-textarea"
+          placeholder="WHERE clause, e.g. plays > 5"
+          rows="3"
+          spellcheck="false"
+          @keydown.esc="showCreateSmartSearch = false"
+        />
+        <div class="create-sp-hint">
+          <strong>Available fields:</strong>
+          <code>title</code>, <code>artist</code>, <code>album</code>,
+          <code>year</code>, <code>length</code> (seconds), <code>plays</code>,
+          <code>marked</code> (0 or 1), <code>trackNumber</code>,
+          <code>discNumber</code>, <code>format</code>,
+          <code>bitrate</code> (kbps)<br />
+          <strong>Examples:</strong>
+          <code>plays &gt; 10</code> ·
+          <code>length &gt; 300 AND year &gt;= 1990</code> ·
+          <code>artist = 'Radiohead'</code> ·
+          <code>marked = 1</code>
+        </div>
+        <div class="create-pl-actions">
+          <button
+            class="create-pl-cancel"
+            @click="showCreateSmartSearch = false"
+          >
+            Cancel
+          </button>
+          <button
+            class="create-pl-ok"
+            :disabled="
+              !newSmartSearchName.trim() ||
+              !newSmartSearchQuery.trim() ||
+              creatingSmartSearch
+            "
+            @click="createSmartSearch"
+          >
+            {{ creatingSmartSearch ? 'Creating…' : 'Create' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- Create Playlist modal -->
+  <Teleport to="body">
+    <div
+      v-if="showCreatePlaylist"
+      class="modal-overlay"
+      @click.self="showCreatePlaylist = false"
+    >
+      <div class="create-pl-modal">
+        <div class="create-pl-title">New Playlist</div>
+        <input
+          v-model="newPlaylistName"
+          class="create-pl-input"
+          type="text"
+          placeholder="Playlist name"
+          autofocus
+          @keydown.enter="createPlaylist"
+          @keydown.esc="showCreatePlaylist = false"
+        />
+        <div class="create-pl-actions">
+          <button class="create-pl-cancel" @click="showCreatePlaylist = false">
+            Cancel
+          </button>
+          <button
+            class="create-pl-ok"
+            :disabled="!newPlaylistName.trim() || creatingPlaylist"
+            @click="createPlaylist"
+          >
+            {{ creatingPlaylist ? 'Creating…' : 'Create' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped lang="scss">
@@ -730,33 +974,63 @@ function submitSearch() {
   min-width: 60px;
 }
 
-.sidebar-tabs {
-  display: flex;
+.sidebar-heading {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   border-bottom: 1px solid #2a2a2a;
   flex-shrink: 0;
+}
 
-  button {
-    flex: 1;
-    background: none;
-    border: none;
-    color: #888;
-    padding: 0.4rem;
-    font-size: 0.78rem;
-    cursor: pointer;
-    transition:
-      background 0.15s,
-      color 0.15s;
+.nav-section-label {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.25rem;
+}
 
-    &:hover {
-      background: #222;
-      color: #ccc;
-    }
+.nav-add-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+  border-radius: 3px;
 
-    &.active {
-      color: #90caf9;
-      border-bottom: 2px solid #3b82f6;
-    }
+  &:hover {
+    background: #333;
+    color: #ccc;
   }
+}
+
+.nav-link-wrap {
+  &.nav-drop-target > .nav-link {
+    background: #1a3a5f;
+    color: #90caf9;
+  }
+}
+
+.nav-link--playlist {
+  padding-left: 1.25rem;
+  font-size: 0.82rem;
+}
+
+.nav-empty {
+  padding: 0.25rem 1.25rem;
+  font-size: 0.78rem;
+  color: #444;
+  font-style: italic;
 }
 
 .header-search {
@@ -783,8 +1057,7 @@ function submitSearch() {
   }
 }
 
-.queue-list,
-.playlists-panel {
+.queue-list {
   flex: 1;
   overflow-y: auto;
   padding: 0.5rem;
@@ -795,5 +1068,134 @@ function submitSearch() {
   font-size: 0.8rem;
   text-align: center;
   padding: 1rem 0;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 600;
+}
+
+.create-pl-modal {
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  min-width: 280px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
+}
+
+.create-pl-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+  color: #e0e0e0;
+}
+
+.create-pl-input {
+  width: 100%;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.6rem;
+  outline: none;
+  box-sizing: border-box;
+
+  &:focus {
+    border-color: #3b82f6;
+  }
+}
+
+.create-pl-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.create-pl-cancel {
+  background: none;
+  border: 1px solid #444;
+  color: #aaa;
+  border-radius: 4px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+
+  &:hover {
+    background: #333;
+    color: #ccc;
+  }
+}
+
+.create-pl-ok {
+  background: #1e3a5f;
+  border: 1px solid #2a5a9f;
+  color: #90caf9;
+  border-radius: 4px;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: #2a4a7f;
+    color: #fff;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.create-pl-modal--wide {
+  min-width: 380px;
+  max-width: 520px;
+  width: 90vw;
+}
+
+.create-pl-textarea {
+  width: 100%;
+  margin-top: 0.5rem;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.88rem;
+  font-family: 'Roboto Mono', 'Consolas', monospace;
+  padding: 0.4rem 0.6rem;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+
+  &:focus {
+    border-color: #3b82f6;
+  }
+}
+
+.create-sp-hint {
+  margin-top: 0.6rem;
+  font-size: 0.75rem;
+  color: #777;
+  line-height: 1.5;
+
+  strong {
+    color: #999;
+  }
+
+  code {
+    background: #333;
+    border-radius: 3px;
+    padding: 0.05em 0.3em;
+    font-size: 0.85em;
+    color: #c8c8c8;
+    font-family: 'Roboto Mono', 'Consolas', monospace;
+  }
 }
 </style>

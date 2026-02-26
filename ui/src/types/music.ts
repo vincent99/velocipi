@@ -7,6 +7,7 @@ export interface Song {
   updated: string;
   deleted: string | null;
   marked: boolean;
+  favorite: boolean;
   artist: string;
   album: string;
   artistSort: string;
@@ -54,6 +55,12 @@ export interface Playlist {
   id: number;
   name: string;
   items: number[];
+}
+
+export interface SmartSearch {
+  id: number;
+  name: string;
+  query: string;
 }
 
 export interface SongsResponse {

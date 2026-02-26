@@ -8,7 +8,8 @@ import type { Genre, Song } from '@/types/music';
 
 const route = useRoute();
 const router = useRouter();
-const { enqueue, appendQueue, replaceQueue, markSong } = useMusicPlayer();
+const { enqueue, appendQueue, replaceQueue, markSong, favoriteSong } =
+  useMusicPlayer();
 const { openEdit } = useSongEdit();
 
 function handleEdit(ids: number[]) {
@@ -92,6 +93,10 @@ async function handleMark(ids: number[], marked: boolean) {
   await Promise.all(ids.map((id) => markSong(id, marked)));
 }
 
+async function handleFavorite(ids: number[], favorite: boolean) {
+  await Promise.all(ids.map((id) => favoriteSong(id, favorite)));
+}
+
 async function handleDelete(ids: number[]) {
   await fetch('/music/songs/delete', {
     method: 'POST',
@@ -129,6 +134,7 @@ async function handleDelete(ids: number[]) {
         @append="(ids) => appendQueue(ids)"
         @replace="(ids) => replaceQueue(ids)"
         @mark="handleMark"
+        @favorite="handleFavorite"
         @delete="handleDelete"
         @edit="handleEdit"
       />
