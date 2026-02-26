@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { useSongStore } from '@/composables/useSongStore';
 import type { Song } from '@/types/music';
 
 // Module-level singleton so all components share the same modal state.
@@ -20,11 +21,19 @@ export function useSongEdit() {
   async function saveEdit(ids: number[], fields: Record<string, unknown>) {
     saving.value = true;
     try {
-      await fetch('/music/songs/edit', {
+      const r = await fetch('/music/songs/edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids, fields }),
       });
+      if (r.ok) {
+        // Immediately reflect the edited fields in the store so all components
+        // update without waiting for a full reload.
+        const { patch } = useSongStore();
+        for (const id of ids) {
+          patch(id, fields as Partial<Song>);
+        }
+      }
       const cb = afterSave;
       closeEdit();
       cb?.();

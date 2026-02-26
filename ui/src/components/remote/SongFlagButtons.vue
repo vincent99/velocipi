@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useSongFlags } from '@/composables/useSongFlags';
+import { useSongStore } from '@/composables/useSongStore';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
+import type { Song } from '@/types/music';
 
 const props = defineProps<{
-  songId: number;
-  // fallback values from the Song object (used before any override is set)
-  markedFallback: boolean;
-  favoriteFallback: boolean;
+  song: Song;
   // 'row': ghost when inactive, revealed on hover/touch-active (default)
   // 'header': always visible, dimmed when inactive
   variant?: 'row' | 'header';
@@ -17,27 +15,26 @@ const emit = defineEmits<{
   change: [field: 'marked' | 'favorite', value: boolean];
 }>();
 
-const { getMarked, getFavorite } = useSongFlags();
+const { resolve } = useSongStore();
 const { markSong, favoriteSong } = useMusicPlayer();
 
-const isMarked = computed(() => getMarked(props.songId, props.markedFallback));
-const isFavorite = computed(() =>
-  getFavorite(props.songId, props.favoriteFallback)
-);
+const resolved = computed(() => resolve(props.song));
+const isMarked = computed(() => resolved.value.marked);
+const isFavorite = computed(() => resolved.value.favorite);
 
 const variant = computed(() => props.variant ?? 'row');
 
 async function toggleFavorite(e: Event) {
   e.stopPropagation();
   const next = !isFavorite.value;
-  await favoriteSong(props.songId, next);
+  await favoriteSong(props.song.id, next);
   emit('change', 'favorite', next);
 }
 
 async function toggleMark(e: Event) {
   e.stopPropagation();
   const next = !isMarked.value;
-  await markSong(props.songId, next);
+  await markSong(props.song.id, next);
   emit('change', 'marked', next);
 }
 </script>
@@ -66,7 +63,8 @@ async function toggleMark(e: Event) {
   flex-shrink: 0;
   background: none;
   border: none;
-  padding: 0;
+  padding: 0 2px;
+  margin-left: 2px;
   font-size: 0.72em;
   line-height: 1;
   cursor: pointer;

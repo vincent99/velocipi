@@ -1,12 +1,12 @@
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useDeviceState } from '@/composables/useDeviceState';
 import { useWebSocket } from '@/composables/useWebSocket';
-import { useSongFlags } from '@/composables/useSongFlags';
+import { useSongStore } from '@/composables/useSongStore';
 import type { MusicControlMsg } from '@/types/ws';
 import type { Song } from '@/types/music';
 
-// Module-level singleton — fetched song detail for the currently playing song.
-const currentSong = ref<Song | null>(null);
+// Module-level singleton — raw fetched song for the currently playing track.
+const _currentSongBase = ref<Song | null>(null);
 const songCache = new Map<number, Song>();
 
 let playerInitialised = false;
@@ -23,12 +23,12 @@ function initPlayer() {
     () => musicState.value?.currentSongId,
     async (id) => {
       if (id == null) {
-        currentSong.value = null;
+        _currentSongBase.value = null;
         return;
       }
       const cached = songCache.get(id);
       if (cached) {
-        currentSong.value = cached;
+        _currentSongBase.value = cached;
         return;
       }
       try {
@@ -38,7 +38,7 @@ function initPlayer() {
         }
         const song: Song = await r.json();
         songCache.set(id, song);
-        currentSong.value = song;
+        _currentSongBase.value = song;
       } catch {
         // ignore fetch errors
       }
@@ -51,6 +51,12 @@ export function useMusicPlayer() {
 
   const { musicState } = useDeviceState();
   const { send } = useWebSocket();
+  const { resolve, patch } = useSongStore();
+
+  // Expose currentSong as a computed so store overrides propagate reactively.
+  const currentSong = computed(() =>
+    _currentSongBase.value ? resolve(_currentSongBase.value) : null
+  );
 
   function control(
     action: MusicControlMsg['action'],
@@ -109,14 +115,10 @@ export function useMusicPlayer() {
         body: JSON.stringify({ marked }),
       });
       if (r.ok) {
-        const { setFlag } = useSongFlags();
-        setFlag(id, 'marked', marked);
+        patch(id, { marked });
         const cached = songCache.get(id);
         if (cached) {
           cached.marked = marked;
-        }
-        if (currentSong.value?.id === id) {
-          currentSong.value = { ...currentSong.value, marked };
         }
       }
       return r;
@@ -128,14 +130,10 @@ export function useMusicPlayer() {
         body: JSON.stringify({ favorite }),
       });
       if (r.ok) {
-        const { setFlag } = useSongFlags();
-        setFlag(id, 'favorite', favorite);
+        patch(id, { favorite });
         const cached = songCache.get(id);
         if (cached) {
           cached.favorite = favorite;
-        }
-        if (currentSong.value?.id === id) {
-          currentSong.value = { ...currentSong.value, favorite };
         }
       }
       return r;

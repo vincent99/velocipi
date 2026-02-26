@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useAdmin } from '@/composables/useAdmin';
+import { useSongStore } from '@/composables/useSongStore';
 import SongFlagButtons from '@/components/remote/SongFlagButtons.vue';
 import type { Song } from '@/types/music';
 
@@ -42,6 +43,7 @@ const emit = defineEmits<{
 
 const { musicState } = useMusicPlayer();
 const { isAdmin } = useAdmin();
+const { resolve } = useSongStore();
 
 // Selection state
 const selectedIds = ref<Set<number>>(new Set());
@@ -160,6 +162,10 @@ const sortedSongs = computed<Song[]>(() => {
     return 0;
   });
 });
+
+// Apply store overrides to all sorted songs so any field change (mark, favorite,
+// title, artist, etc.) propagates to every row without a full data reload.
+const resolvedSongs = computed<Song[]>(() => sortedSongs.value.map(resolve));
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -469,7 +475,7 @@ const albumGroups = computed<AlbumGroup[]>(() => {
   const groups: AlbumGroup[] = [];
   const seen = new Map<string, AlbumGroup>();
   let globalIndex = 0;
-  for (const song of sortedSongs.value) {
+  for (const song of resolvedSongs.value) {
     const key = `${song.artist}|||${song.album}`;
     if (!seen.has(key)) {
       const g: AlbumGroup = {
@@ -543,7 +549,10 @@ const visibleRange = computed(() => {
 });
 
 const visibleSongs = computed(() =>
-  sortedSongs.value.slice(visibleRange.value.first, visibleRange.value.last + 1)
+  resolvedSongs.value.slice(
+    visibleRange.value.first,
+    visibleRange.value.last + 1
+  )
 );
 
 const spacerTop = computed(() => visibleRange.value.first * ROW_H);
@@ -808,9 +817,7 @@ const gridCols = computed(() => {
           >
             <span class="title-text">{{ song.title }}</span>
             <SongFlagButtons
-              :song-id="song.id"
-              :marked-fallback="song.marked"
-              :favorite-fallback="song.favorite"
+              :song="song"
               variant="row"
               @change="(field, val) => handleFlagChange(song.id, field, val)"
             />
@@ -970,9 +977,7 @@ const gridCols = computed(() => {
               >
                 <span class="title-text">{{ song.title }}</span>
                 <SongFlagButtons
-                  :song-id="song.id"
-                  :marked-fallback="song.marked"
-                  :favorite-fallback="song.favorite"
+                  :song="song"
                   variant="row"
                   @change="
                     (field, val) => handleFlagChange(song.id, field, val)

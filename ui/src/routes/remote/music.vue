@@ -474,9 +474,7 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
             <template v-else>{{ currentSong?.title || '—' }}</template>
             <SongFlagButtons
               v-if="currentSong"
-              :song-id="currentSong.id"
-              :marked-fallback="currentSong.marked"
-              :favorite-fallback="currentSong.favorite"
+              :song="currentSong"
               variant="header"
             />
           </div>
