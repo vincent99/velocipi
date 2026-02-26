@@ -36,7 +36,7 @@ const {
   moveInQueue,
 } = useMusicPlayer();
 
-const { editingSongs, closeEdit, saveEdit } = useSongEdit();
+const { editingSongs, saving: editSaving, closeEdit, saveEdit } = useSongEdit();
 const { musicQueue } = useDeviceState();
 
 // Resizable sidebar widths — persisted in localStorage
@@ -127,14 +127,13 @@ function onSeek(event: Event) {
 // Right sidebar tabs
 const rightTab = ref<'queue' | 'playlists'>('queue');
 
-// Nav links
-const navLinks = [
+// Nav links — Search only shown when there is a query
+const baseNavLinks = [
   { to: '/remote/music/songs', label: 'Songs' },
   { to: '/remote/music/albums', label: 'Albums' },
   { to: '/remote/music/artists', label: 'Artists' },
   { to: '/remote/music/genres', label: 'Genres' },
   { to: '/remote/music/decades', label: 'Decades' },
-  { to: '/remote/music/search', label: 'Search' },
 ];
 
 async function handleQueueRemove(queueIndex: number) {
@@ -243,7 +242,24 @@ async function insertSongsAtQueuePosition(
 
 // ── Header search ─────────────────────────────────────────────────────────────
 
-const searchQuery = ref('');
+// Local input value — initialised from route and kept in sync on submit
+const searchQuery = ref((route.query.q as string | undefined) ?? '');
+
+// Keep box in sync if the user navigates to search with a different query
+watch(
+  () => route.query.q as string | undefined,
+  (q) => {
+    searchQuery.value = q ?? '';
+  }
+);
+
+const navLinks = computed(() => {
+  const links = [...baseNavLinks];
+  if (searchQuery.value.trim()) {
+    links.push({ to: '/remote/music/search', label: 'Search' });
+  }
+  return links;
+});
 
 function submitSearch() {
   const q = searchQuery.value.trim();
@@ -251,7 +267,6 @@ function submitSearch() {
     return;
   }
   router.push({ path: '/remote/music/search', query: { q } });
-  searchQuery.value = '';
 }
 </script>
 
@@ -418,7 +433,7 @@ function submitSearch() {
             :class="{ active: rightTab === 'playlists' }"
             @click="rightTab = 'playlists'"
           >
-            Playlists
+            Playlist
           </button>
         </div>
         <div
@@ -464,6 +479,7 @@ function submitSearch() {
   <SongEditModal
     v-if="editingSongs.length > 0"
     :songs="editingSongs"
+    :saving="editSaving"
     @save="saveEdit"
     @cancel="closeEdit"
   />

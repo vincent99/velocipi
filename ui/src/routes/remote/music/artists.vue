@@ -12,12 +12,19 @@ const { enqueue, appendQueue, replaceQueue, markSong } = useMusicPlayer();
 const { openEdit } = useSongEdit();
 
 function handleEdit(ids: number[]) {
-  openEdit(artistSongs.value.filter((s) => ids.includes(s.id)));
+  const artist = selectedArtist.value;
+  openEdit(
+    artistSongs.value.filter((s) => ids.includes(s.id)),
+    () => {
+      if (artist) {
+        loadArtistSongs(artist);
+      }
+    }
+  );
 }
 
 const artists = ref<Artist[]>([]);
 const loading = ref(false);
-const selectedArtist = ref<Artist | null>(null);
 const artistSongs = ref<Song[]>([]);
 const artistSongsLoading = ref(false);
 
@@ -67,46 +74,30 @@ const sortedArtists = computed<Artist[]>(() => {
   });
 });
 
+// Derive selected artist purely from URL query param
+const selectedArtist = computed(() => {
+  const qArtist = route.query.artist as string | undefined;
+  if (!qArtist) {
+    return null;
+  }
+  return artists.value.find((a) => a.artist === qArtist) ?? null;
+});
+
 async function load() {
   loading.value = true;
   try {
     const r = await fetch('/music/artists');
     if (r.ok) {
       artists.value = await r.json();
-      // Auto-select artist from query params (e.g. linked from header)
-      const qArtist = route.query.artist as string | undefined;
-      if (qArtist) {
-        const match = artists.value.find((a) => a.artist === qArtist);
-        if (match) {
-          await selectArtist(match);
-        }
-        router.replace({ query: {} });
-      }
     }
   } finally {
     loading.value = false;
   }
 }
 
-// Also react if query params change while the component is mounted
-watch(
-  () => route.query,
-  async (q) => {
-    const qArtist = q.artist as string | undefined;
-    if (qArtist && artists.value.length > 0) {
-      const match = artists.value.find((a) => a.artist === qArtist);
-      if (match) {
-        await selectArtist(match);
-        router.replace({ query: {} });
-      }
-    }
-  }
-);
-
 load();
 
-async function selectArtist(artist: Artist) {
-  selectedArtist.value = artist;
+async function loadArtistSongs(artist: Artist) {
   artistSongsLoading.value = true;
   try {
     const params = new URLSearchParams({ artist: artist.artist });
@@ -120,15 +111,28 @@ async function selectArtist(artist: Artist) {
   }
 }
 
-function backToList() {
-  selectedArtist.value = null;
-  artistSongs.value = [];
-  router.replace({ query: {} });
+// Load artist songs whenever the selection changes
+watch(
+  selectedArtist,
+  async (artist) => {
+    if (!artist) {
+      artistSongs.value = [];
+      return;
+    }
+    await loadArtistSongs(artist);
+  },
+  { immediate: true }
+);
+
+function selectArtist(artist: Artist) {
+  router.push({ query: { artist: artist.artist } });
 }
 
-function artistSongIds() {
-  return artistSongs.value.map((s) => s.id);
+function backToList() {
+  router.push({ query: {} });
 }
+
+const artistSongIds = computed(() => artistSongs.value.map((s) => s.id));
 
 async function handleMark(ids: number[], marked: boolean) {
   await Promise.all(ids.map((id) => markSong(id, marked)));
@@ -160,9 +164,9 @@ async function handleDelete(ids: number[]) {
             }}
           </div>
           <div class="detail-actions">
-            <button @click="replaceQueue(artistSongIds())">Play</button>
-            <button @click="enqueue(artistSongIds())">Enqueue</button>
-            <button @click="appendQueue(artistSongIds())">Append</button>
+            <button @click="replaceQueue(artistSongIds)">Play Now</button>
+            <button @click="enqueue(artistSongIds)">Queue Next</button>
+            <button @click="appendQueue(artistSongIds)">Queue Later</button>
           </div>
         </div>
       </div>

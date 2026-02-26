@@ -1,22 +1,42 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import SongTable from '@/components/remote/SongTable.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongEdit } from '@/composables/useSongEdit';
 import type { Decade, Song } from '@/types/music';
 
+const route = useRoute();
+const router = useRouter();
 const { enqueue, appendQueue, replaceQueue, markSong } = useMusicPlayer();
 const { openEdit } = useSongEdit();
 
 function handleEdit(ids: number[]) {
-  openEdit(decadeSongs.value.filter((s) => ids.includes(s.id)));
+  const decade = selectedDecade.value;
+  openEdit(
+    decadeSongs.value.filter((s) => ids.includes(s.id)),
+    () => {
+      if (decade) {
+        loadDecadeSongs(decade);
+      }
+    }
+  );
 }
 
 const decades = ref<Decade[]>([]);
 const loading = ref(false);
-const selectedDecade = ref<Decade | null>(null);
 const decadeSongs = ref<Song[]>([]);
 const decadeSongsLoading = ref(false);
+
+// Derive selected decade purely from URL query param
+const selectedDecade = computed(() => {
+  const qDecade = route.query.decade as string | undefined;
+  if (!qDecade) {
+    return null;
+  }
+  const n = parseInt(qDecade, 10);
+  return decades.value.find((d) => d.decade === n) ?? null;
+});
 
 async function load() {
   loading.value = true;
@@ -32,8 +52,7 @@ async function load() {
 
 load();
 
-async function selectDecade(decade: Decade) {
-  selectedDecade.value = decade;
+async function loadDecadeSongs(decade: Decade) {
   decadeSongsLoading.value = true;
   try {
     const params = new URLSearchParams({ decade: String(decade.decade) });
@@ -47,14 +66,28 @@ async function selectDecade(decade: Decade) {
   }
 }
 
-function backToGrid() {
-  selectedDecade.value = null;
-  decadeSongs.value = [];
+// Load decade songs whenever the selection changes
+watch(
+  selectedDecade,
+  async (decade) => {
+    if (!decade) {
+      decadeSongs.value = [];
+      return;
+    }
+    await loadDecadeSongs(decade);
+  },
+  { immediate: true }
+);
+
+function selectDecade(decade: Decade) {
+  router.push({ query: { decade: String(decade.decade) } });
 }
 
-function decadeSongIds() {
-  return decadeSongs.value.map((s) => s.id);
+function backToGrid() {
+  router.push({ query: {} });
 }
+
+const decadeSongIds = computed(() => decadeSongs.value.map((s) => s.id));
 
 function decadeLabel(d: number): string {
   return d > 0 ? `${d}s` : 'Unknown';
@@ -90,9 +123,9 @@ async function handleDelete(ids: number[]) {
             }}
           </div>
           <div class="detail-actions">
-            <button @click="replaceQueue(decadeSongIds())">Play</button>
-            <button @click="enqueue(decadeSongIds())">Enqueue</button>
-            <button @click="appendQueue(decadeSongIds())">Append</button>
+            <button @click="replaceQueue(decadeSongIds)">Play Now</button>
+            <button @click="enqueue(decadeSongIds)">Queue Next</button>
+            <button @click="appendQueue(decadeSongIds)">Queue Later</button>
           </div>
         </div>
       </div>
@@ -190,6 +223,7 @@ async function handleDelete(ids: number[]) {
   gap: 1rem;
   padding: 0.75rem;
   border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
 }
 
 .back-btn {

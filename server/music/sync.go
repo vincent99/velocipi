@@ -652,7 +652,7 @@ func canonicalPath(musicDir, currentPath, artist, album string, trackNumber int,
 	if trackNumber > 0 {
 		trackPart = fmt.Sprintf("%02d", trackNumber)
 	} else {
-		trackPart = strings.TrimSuffix(filepath.Base(currentPath), filepath.Ext(currentPath))
+		trackPart = "00"
 	}
 	if title == "" {
 		title = strings.TrimSuffix(filepath.Base(currentPath), filepath.Ext(currentPath))

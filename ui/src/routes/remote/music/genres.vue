@@ -1,22 +1,41 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import SongTable from '@/components/remote/SongTable.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongEdit } from '@/composables/useSongEdit';
 import type { Genre, Song } from '@/types/music';
 
+const route = useRoute();
+const router = useRouter();
 const { enqueue, appendQueue, replaceQueue, markSong } = useMusicPlayer();
 const { openEdit } = useSongEdit();
 
 function handleEdit(ids: number[]) {
-  openEdit(genreSongs.value.filter((s) => ids.includes(s.id)));
+  const genre = selectedGenre.value;
+  openEdit(
+    genreSongs.value.filter((s) => ids.includes(s.id)),
+    () => {
+      if (genre) {
+        loadGenreSongs(genre);
+      }
+    }
+  );
 }
 
 const genres = ref<Genre[]>([]);
 const loading = ref(false);
-const selectedGenre = ref<Genre | null>(null);
 const genreSongs = ref<Song[]>([]);
 const genreSongsLoading = ref(false);
+
+// Derive selected genre purely from URL query param
+const selectedGenre = computed(() => {
+  const qGenre = route.query.genre as string | undefined;
+  if (!qGenre) {
+    return null;
+  }
+  return genres.value.find((g) => g.genre === qGenre) ?? null;
+});
 
 async function load() {
   loading.value = true;
@@ -32,8 +51,7 @@ async function load() {
 
 load();
 
-async function selectGenre(genre: Genre) {
-  selectedGenre.value = genre;
+async function loadGenreSongs(genre: Genre) {
   genreSongsLoading.value = true;
   try {
     const params = new URLSearchParams({ genre: genre.genre });
@@ -47,14 +65,28 @@ async function selectGenre(genre: Genre) {
   }
 }
 
-function backToGrid() {
-  selectedGenre.value = null;
-  genreSongs.value = [];
+// Load genre songs whenever the selection changes
+watch(
+  selectedGenre,
+  async (genre) => {
+    if (!genre) {
+      genreSongs.value = [];
+      return;
+    }
+    await loadGenreSongs(genre);
+  },
+  { immediate: true }
+);
+
+function selectGenre(genre: Genre) {
+  router.push({ query: { genre: genre.genre } });
 }
 
-function genreSongIds() {
-  return genreSongs.value.map((s) => s.id);
+function backToGrid() {
+  router.push({ query: {} });
 }
+
+const genreSongIds = computed(() => genreSongs.value.map((s) => s.id));
 
 async function handleMark(ids: number[], marked: boolean) {
   await Promise.all(ids.map((id) => markSong(id, marked)));
@@ -84,9 +116,9 @@ async function handleDelete(ids: number[]) {
             }}
           </div>
           <div class="detail-actions">
-            <button @click="replaceQueue(genreSongIds())">Play</button>
-            <button @click="enqueue(genreSongIds())">Enqueue</button>
-            <button @click="appendQueue(genreSongIds())">Append</button>
+            <button @click="replaceQueue(genreSongIds)">Play Now</button>
+            <button @click="enqueue(genreSongIds)">Queue Next</button>
+            <button @click="appendQueue(genreSongIds)">Queue Later</button>
           </div>
         </div>
       </div>
@@ -183,6 +215,7 @@ async function handleDelete(ids: number[]) {
   gap: 1rem;
   padding: 0.75rem;
   border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
 }
 
 .back-btn {

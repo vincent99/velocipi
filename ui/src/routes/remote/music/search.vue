@@ -11,7 +11,10 @@ const { enqueue, appendQueue, replaceQueue, markSong } = useMusicPlayer();
 const { openEdit } = useSongEdit();
 
 function handleEdit(ids: number[]) {
-  openEdit(songs.value.filter((s) => ids.includes(s.id)));
+  openEdit(
+    songs.value.filter((s) => ids.includes(s.id)),
+    () => load(currentQuery.value)
+  );
 }
 
 const songs = ref<Song[]>([]);

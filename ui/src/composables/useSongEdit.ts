@@ -3,24 +3,35 @@ import type { Song } from '@/types/music';
 
 // Module-level singleton so all components share the same modal state.
 const editingSongs = ref<Song[]>([]);
+const saving = ref(false);
+let afterSave: (() => void) | null = null;
 
 export function useSongEdit() {
-  function openEdit(songs: Song[]) {
+  function openEdit(songs: Song[], onAfterSave?: () => void) {
     editingSongs.value = songs;
+    afterSave = onAfterSave ?? null;
   }
 
   function closeEdit() {
     editingSongs.value = [];
+    afterSave = null;
   }
 
   async function saveEdit(ids: number[], fields: Record<string, unknown>) {
-    await fetch('/music/songs/edit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids, fields }),
-    });
-    closeEdit();
+    saving.value = true;
+    try {
+      await fetch('/music/songs/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, fields }),
+      });
+      const cb = afterSave;
+      closeEdit();
+      cb?.();
+    } finally {
+      saving.value = false;
+    }
   }
 
-  return { editingSongs, openEdit, closeEdit, saveEdit };
+  return { editingSongs, saving, openEdit, closeEdit, saveEdit };
 }

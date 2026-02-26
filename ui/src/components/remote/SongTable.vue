@@ -535,11 +535,11 @@ const gridCols = computed(() => {
     cols.push('minmax(80px, 1.5fr)');
   }
   if (props.albumContext) {
-    cols.push('44px'); // track before title
+    cols.push('50px'); // track before title
   }
   cols.push('minmax(100px, 2fr)'); // title
   if (!props.albumContext) {
-    cols.push('52px'); // track after title
+    cols.push('60px'); // track after title
   }
   cols.push('56px'); // duration
   if (props.showYear) {
@@ -726,9 +726,8 @@ const gridCols = computed(() => {
       <table class="song-table">
         <thead>
           <tr>
+            <th class="col-cover">Album / Artist</th>
             <th class="col-check"></th>
-            <th class="col-cover"></th>
-            <th class="col-albuminfo">Album / Artist</th>
             <th class="col-track sortable" @click="cycleSort('track')">
               #{{ sortIndicator('track') }}
             </th>
@@ -756,18 +755,7 @@ const gridCols = computed(() => {
               @dblclick="handleRowDblClick(group.startIndex + si, $event)"
               @dragstart="onRowDragStart(song.id, $event)"
             >
-              <td
-                class="col-check"
-                @click.stop="handleCheckTd(group.startIndex + si, $event)"
-              >
-                <input
-                  type="checkbox"
-                  :checked="isSelected(song.id)"
-                  tabindex="-1"
-                  @click.stop
-                />
-              </td>
-              <!-- Cover art and album info — only on first row of group -->
+              <!-- Cover art and album info merged — only on first row of group -->
               <td
                 v-if="si === 0"
                 :rowspan="group.songs.length"
@@ -795,27 +783,22 @@ const gridCols = computed(() => {
                   class="album-thumb"
                   alt=""
                 />
-              </td>
-              <td
-                v-if="si === 0"
-                :rowspan="group.songs.length"
-                class="col-albuminfo"
-                @click.stop="
-                  handleAlbumGroupClick(group.songs, group.startIndex, $event)
-                "
-                @dblclick.stop="
-                  handleAlbumGroupDblClick(
-                    group.songs,
-                    group.startIndex,
-                    $event
-                  )
-                "
-              >
                 <div class="album-name">
                   {{ group.album || '(Unknown Album)' }}
                 </div>
                 <div class="artist-name">{{ group.artist }}</div>
                 <div class="album-year">{{ group.year || '' }}</div>
+              </td>
+              <td
+                class="col-check"
+                @click.stop="handleCheckTd(group.startIndex + si, $event)"
+              >
+                <input
+                  type="checkbox"
+                  :checked="isSelected(song.id)"
+                  tabindex="-1"
+                  @click.stop
+                />
               </td>
               <td class="col-track">{{ trackLabel(song) }}</td>
               <td
@@ -871,7 +854,7 @@ const gridCols = computed(() => {
             </tr>
           </template>
           <tr v-if="sortedSongs.length === 0">
-            <td colspan="7" class="empty-msg">No songs found.</td>
+            <td colspan="6" class="empty-msg">No songs found.</td>
           </tr>
         </tbody>
       </table>
@@ -949,6 +932,18 @@ const gridCols = computed(() => {
   color: #999;
   font-weight: 500;
   white-space: nowrap;
+  // Reserve same scrollbar gutter as .vscroll so columns align
+  overflow-y: scroll;
+  overflow-x: hidden;
+
+  // Hide the scrollbar track itself
+  &::-webkit-scrollbar {
+    background: #1a1a1a;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: transparent;
+  }
+  scrollbar-color: transparent #1a1a1a;
 }
 
 .vh-check {
@@ -1169,7 +1164,7 @@ const gridCols = computed(() => {
     }
   }
   .col-track {
-    width: 48px;
+    width: 60px;
     text-align: right;
     color: #666;
   }
@@ -1186,15 +1181,9 @@ const gridCols = computed(() => {
     overflow: visible;
   }
   .col-cover {
-    width: 88px;
+    width: 100px;
     padding: 4px;
     vertical-align: top;
-  }
-  .col-albuminfo {
-    width: 160px;
-    max-width: 160px;
-    vertical-align: top;
-    padding-top: 8px;
   }
 }
 
@@ -1204,7 +1193,7 @@ const gridCols = computed(() => {
 }
 
 .album-thumb {
-  width: 80px;
+  width: 100%;
   height: auto;
   aspect-ratio: 1;
   object-fit: cover;
@@ -1214,18 +1203,23 @@ const gridCols = computed(() => {
 
 .album-name {
   font-weight: 600;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   color: #e0e0e0;
+  margin-top: 4px;
+  white-space: normal;
+  line-height: 1.2;
 }
 .artist-name {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   color: #aaa;
   margin-top: 2px;
+  white-space: normal;
+  line-height: 1.2;
 }
 .album-year {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: #666;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 .empty-msg {

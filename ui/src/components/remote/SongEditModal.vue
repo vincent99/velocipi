@@ -4,9 +4,10 @@ import type { Song } from '@/types/music';
 
 interface Props {
   songs: Song[]; // one or more songs to edit
+  saving?: boolean;
 }
 
-const props = defineProps<Props>();
+const props = withDefaults(defineProps<Props>(), { saving: false });
 
 const emit = defineEmits<{
   save: [ids: number[], fields: Record<string, unknown>];
@@ -32,7 +33,7 @@ type FieldKey =
   | 'genre';
 
 interface FieldState {
-  value: string;
+  value: string | number;
   checked: boolean; // only meaningful in multi-mode
   conflict: boolean; // values differ across selected songs
 }
@@ -180,7 +181,7 @@ function handleSave() {
       continue;
     }
 
-    const raw = fieldStates.value[k].value.trim();
+    const raw = String(fieldStates.value[k].value).trim();
     if (k === 'genre') {
       fields[k] = raw
         ? raw
@@ -232,7 +233,10 @@ function handleSave() {
                 />
               </div>
 
-              <label :for="`edit-${key}`" class="field-label">
+              <label
+                :for="multi ? `edit-chk-${key}` : `edit-${key}`"
+                class="field-label"
+              >
                 {{ fieldLabels[key] }}
               </label>
 
@@ -259,7 +263,10 @@ function handleSave() {
           </span>
           <div class="footer-actions">
             <button class="btn-cancel" @click="emit('cancel')">Cancel</button>
-            <button class="btn-save" @click="handleSave">Save</button>
+            <button class="btn-save" :disabled="saving" @click="handleSave">
+              <span v-if="saving" class="btn-spinner" aria-hidden="true" />
+              {{ saving ? 'Saving…' : 'Save' }}
+            </button>
           </div>
         </div>
       </div>
@@ -435,9 +442,34 @@ function handleSave() {
   font-size: 0.85rem;
   cursor: pointer;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: #2563eb;
+  }
+
+  &:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+}
+
+.btn-spinner {
+  display: inline-block;
+  width: 0.75em;
+  height: 0.75em;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

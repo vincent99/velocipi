@@ -11,15 +11,22 @@ const router = useRouter();
 const { enqueue, appendQueue, replaceQueue, markSong } = useMusicPlayer();
 const { openEdit } = useSongEdit();
 
-function handleEdit(ids: number[]) {
-  openEdit(albumSongs.value.filter((s) => ids.includes(s.id)));
-}
-
 const albums = ref<Album[]>([]);
 const loading = ref(false);
-const selectedAlbum = ref<Album | null>(null);
 const albumSongs = ref<Song[]>([]);
 const albumSongsLoading = ref(false);
+
+// Derive selected album purely from URL query params
+const selectedAlbum = computed(() => {
+  const qArtist = route.query.artist as string | undefined;
+  const qAlbum = route.query.album as string | undefined;
+  if (!qArtist || !qAlbum) {
+    return null;
+  }
+  return (
+    albums.value.find((a) => a.artist === qArtist && a.album === qAlbum) ?? null
+  );
+});
 
 async function load() {
   loading.value = true;
@@ -27,46 +34,15 @@ async function load() {
     const r = await fetch('/music/albums');
     if (r.ok) {
       albums.value = await r.json();
-      // Auto-select album from query params (e.g. linked from header)
-      const qArtist = route.query.artist as string | undefined;
-      const qAlbum = route.query.album as string | undefined;
-      if (qArtist && qAlbum) {
-        const match = albums.value.find(
-          (a) => a.artist === qArtist && a.album === qAlbum
-        );
-        if (match) {
-          await selectAlbum(match);
-        }
-        router.replace({ query: {} });
-      }
     }
   } finally {
     loading.value = false;
   }
 }
 
-// Also react if query params change while the component is mounted
-watch(
-  () => route.query,
-  async (q) => {
-    const qArtist = q.artist as string | undefined;
-    const qAlbum = q.album as string | undefined;
-    if (qArtist && qAlbum && albums.value.length > 0) {
-      const match = albums.value.find(
-        (a) => a.artist === qArtist && a.album === qAlbum
-      );
-      if (match) {
-        await selectAlbum(match);
-        router.replace({ query: {} });
-      }
-    }
-  }
-);
-
 load();
 
-async function selectAlbum(album: Album) {
-  selectedAlbum.value = album;
+async function loadAlbumSongs(album: Album) {
   albumSongsLoading.value = true;
   try {
     const params = new URLSearchParams({
@@ -83,10 +59,37 @@ async function selectAlbum(album: Album) {
   }
 }
 
+function handleEdit(ids: number[]) {
+  const album = selectedAlbum.value;
+  openEdit(
+    albumSongs.value.filter((s) => ids.includes(s.id)),
+    () => {
+      if (album) {
+        loadAlbumSongs(album);
+      }
+    }
+  );
+}
+
+// Load album songs whenever the selection changes
+watch(
+  selectedAlbum,
+  async (album) => {
+    if (!album) {
+      albumSongs.value = [];
+      return;
+    }
+    await loadAlbumSongs(album);
+  },
+  { immediate: true }
+);
+
+function selectAlbum(album: Album) {
+  router.push({ query: { artist: album.artist, album: album.album } });
+}
+
 function backToGrid() {
-  selectedAlbum.value = null;
-  albumSongs.value = [];
-  router.replace({ query: {} });
+  router.push({ query: {} });
 }
 
 const albumSongIds = computed(() => albumSongs.value.map((s) => s.id));
@@ -125,9 +128,9 @@ async function handleDelete(ids: number[]) {
           <div class="detail-artist">{{ selectedAlbum.artist }}</div>
           <div class="detail-year">{{ selectedAlbum.year || '' }}</div>
           <div class="detail-actions">
-            <button @click="replaceQueue(albumSongIds)">Play</button>
-            <button @click="enqueue(albumSongIds)">Enqueue</button>
-            <button @click="appendQueue(albumSongIds)">Append</button>
+            <button @click="replaceQueue(albumSongIds)">Play Now</button>
+            <button @click="enqueue(albumSongIds)">Queue Next</button>
+            <button @click="appendQueue(albumSongIds)">Queue Later</button>
           </div>
         </div>
       </div>
