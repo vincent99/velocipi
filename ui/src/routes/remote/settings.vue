@@ -21,15 +21,27 @@ const saving = ref(false);
 const saved = ref(false);
 const error = ref('');
 
+interface AudioDevice {
+  id: string;
+  name: string;
+}
+const audioDevices = ref<AudioDevice[]>([]);
+
 onMounted(async () => {
   try {
-    const r = await fetch('/config?full=true');
-    if (!r.ok) {
-      throw new Error(await r.text());
+    const [cfgRes, devRes] = await Promise.all([
+      fetch('/config?full=true'),
+      fetch('/music/audio-devices'),
+    ]);
+    if (!cfgRes.ok) {
+      throw new Error(await cfgRes.text());
     }
-    const data: FullConfigResponse = await r.json();
+    const data: FullConfigResponse = await cfgRes.json();
     cfg.value = data.config;
     defaults.value = data.defaults;
+    if (devRes.ok) {
+      audioDevices.value = await devRes.json();
+    }
   } catch (e: unknown) {
     error.value = 'Failed to load config: ' + String(e);
   }
@@ -496,6 +508,42 @@ const expanderBitFields = [
           :min="0"
           :max="100"
         />
+        <div
+          class="sf-row"
+          :class="{ modified: isModified('music.audioDevice') }"
+        >
+          <button
+            v-if="isModified('music.audioDevice')"
+            type="button"
+            class="sf-reset"
+            title="Reset to default"
+            @click="reset('music.audioDevice')"
+          >
+            <i class="fi-sr-rotate-left" />
+          </button>
+          <span v-else class="sf-reset-placeholder" />
+          <label class="sf-label">Audio device</label>
+          <select
+            class="sf-select"
+            :value="getPath('music.audioDevice') as string"
+            @change="
+              setPath(
+                'music.audioDevice',
+                ($event.target as HTMLSelectElement).value
+              )
+            "
+          >
+            <option v-for="dev in audioDevices" :key="dev.id" :value="dev.id">
+              {{ dev.name }} ({{ dev.id }})
+            </option>
+            <option
+              v-if="audioDevices.length === 0"
+              :value="getPath('music.audioDevice') as string"
+            >
+              {{ getPath('music.audioDevice') as string }}
+            </option>
+          </select>
+        </div>
         <SettingsField
           label="Album required % (tracks present)"
           path="music.albumRequiredPercent"
@@ -672,6 +720,66 @@ textarea {
 .saved-msg {
   color: #4ade80;
   font-size: 0.85rem;
+}
+
+// These mirror SettingsField's scoped styles for inline use in this file.
+.sf-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+
+  &.modified .sf-label {
+    font-weight: 700;
+    color: #3b82f6;
+  }
+}
+
+.sf-reset-placeholder {
+  width: 1.4rem;
+  flex-shrink: 0;
+}
+
+.sf-reset {
+  width: 1.4rem;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #3b82f6;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: #60a5fa;
+  }
+}
+
+.sf-label {
+  width: 100px;
+  flex-shrink: 0;
+  color: #aaa;
+  font-size: 0.85rem;
+}
+
+.sf-select {
+  flex: 1;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  font-family: monospace;
+  min-width: 0;
+
+  &:focus {
+    outline: none;
+    border-color: #666;
+  }
 }
 .error-msg {
   color: #f87171;

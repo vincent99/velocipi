@@ -114,6 +114,7 @@ export interface TireAddresses {
 export interface MusicConfig {
   musicDir: string;
   volume: number;
+  audioDevice: string; // mpv --audio-device value; "auto" = let mpv choose
   albumRequiredPercent: number;
   minDbVersion: number;
   maxBitrate: number; // kbps; 0 = no limit

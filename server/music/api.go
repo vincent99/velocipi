@@ -129,6 +129,7 @@ func RegisterRoutes(mux *http.ServeMux, db *DB, player *Player, cfg config.Confi
 	mux.HandleFunc("/music/songs/", a.handleSongByIDOrAction)    // /music/songs/{id}, /music/songs/{id}/mark, /music/songs/{id}/delete
 	mux.HandleFunc("/music/songs/delete", a.handleSongsDelete)   // POST /music/songs/delete — bulk delete (admin)
 	mux.HandleFunc("/music/songs/edit", a.handleSongsEdit)       // POST /music/songs/edit — edit metadata for one or more songs
+	mux.HandleFunc("/music/audio-devices", a.handleAudioDevices) // GET /music/audio-devices — list available mpv audio devices
 }
 
 // jsonOK writes a JSON response with 200 OK.
@@ -1218,4 +1219,57 @@ func rewriteTags(srcPath string, tags rewriteTagsArgs, musicDir, artist, album s
 	}
 
 	return destPath, newHash, nil
+}
+
+// AudioDevice is a single entry returned by GET /music/audio-devices.
+type AudioDevice struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// handleAudioDevices handles GET /music/audio-devices.
+// It runs "mpv --audio-device=help", parses the output, and returns a curated
+// list of useful output devices.
+func (a *musicAPI) handleAudioDevices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	out, err := exec.Command("mpv", "--audio-device=help").CombinedOutput()
+	if err != nil {
+		// mpv exits non-zero when printing help; that's fine — use whatever output we got.
+		if len(out) == 0 {
+			http.Error(w, "mpv not available", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	devices := parseMpvAudioDevices(string(out))
+	jsonOK(w, devices)
+}
+
+// parseMpvAudioDevices parses the output of "mpv --audio-device=help" and
+// returns only "auto" and "alsa/sysdefault*" entries.
+func parseMpvAudioDevices(output string) []AudioDevice {
+	var devices []AudioDevice
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "'") {
+			continue
+		}
+		// Each line: 'id' (human name)
+		line = strings.TrimPrefix(line, "'")
+		idx := strings.Index(line, "' (")
+		if idx < 0 {
+			continue
+		}
+		id := line[:idx]
+		name := strings.TrimSuffix(line[idx+3:], ")")
+
+		if id == "auto" || id == "alsa/sysdefault" || strings.HasPrefix(id, "alsa/sysdefault:") {
+			devices = append(devices, AudioDevice{ID: id, Name: name})
+		}
+	}
+	return devices
 }

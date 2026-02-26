@@ -28,6 +28,7 @@ type CameraConfig struct {
 type MusicConfig struct {
 	MusicDir              string `yaml:"musicDir"             json:"musicDir"`
 	Volume                int    `yaml:"volume"               json:"volume"`
+	AudioDevice           string `yaml:"audioDevice"          json:"audioDevice"` // mpv --audio-device value; "auto" = let mpv choose
 	AlbumRequiredPercent  int    `yaml:"albumRequiredPercent" json:"albumRequiredPercent"`
 	MinDbVersion          int    `yaml:"minDbVersion"         json:"minDbVersion"`
 	MaxBitrate            int    `yaml:"maxBitrate"            json:"maxBitrate"`            // kbps; 0 = no limit

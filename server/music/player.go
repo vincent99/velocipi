@@ -170,7 +170,7 @@ func (p *Player) Run(ctx context.Context) {
 		p.broadcast()
 
 		go func() {
-			done <- runMpv(mpvCtx, path, p.cfg.Volume)
+			done <- runMpv(mpvCtx, path, p.cfg.Volume, p.cfg.AudioDevice)
 		}()
 	}
 
@@ -523,16 +523,20 @@ func (p *Player) restore() {
 }
 
 // runMpv launches mpv for the given file and waits for it to finish.
-func runMpv(ctx context.Context, path string, volume int) error {
-	cmd := exec.CommandContext(ctx, "mpv",
+func runMpv(ctx context.Context, path string, volume int, audioDevice string) error {
+	args := []string{
 		"--no-video",
 		"--gapless-audio=yes",
 		fmt.Sprintf("--volume=%d", volume),
-		"--input-ipc-server="+mpvSocket,
+		"--input-ipc-server=" + mpvSocket,
 		"--input-terminal=no",
 		"--really-quiet",
-		path,
-	)
+	}
+	if audioDevice != "" && audioDevice != "auto" {
+		args = append(args, "--audio-device="+audioDevice)
+	}
+	args = append(args, path)
+	cmd := exec.CommandContext(ctx, "mpv", args...)
 	return cmd.Run()
 }
 

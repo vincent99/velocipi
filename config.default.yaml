@@ -54,6 +54,7 @@ tires:
 
 music:
   albumRequiredPercent: 50
+  audioDevice: "auto"
   maxBitrate: 0
   minDbVersion: 1
   musicDir: "music"
