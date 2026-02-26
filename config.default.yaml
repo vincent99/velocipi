@@ -49,20 +49,17 @@ screen:
 
 tires:
   nose:
-    - "4a:a0:00:00:eb:02"
-    - "ae3806cb-ea50-2187-4d1d-10010147721a"
   left:
-    - "4a:88:00:00:72:70"
-    - "24237bb2-4496-36b6-a755-64e9de75ac6c"
   right:
-    - "4a:85:00:00:d7:38"
-    - "99633f0c-d627-5f15-7d5d-f171b5a745e7"
 
 music:
-  musicDir: "music"
-  volume: 100
   albumRequiredPercent: 50
+  maxBitrate: 0
   minDbVersion: 1
+  musicDir: "music"
+  playedRequiredPercent: 50
+  transcodeFormat: aac
+  volume: 100
 
 ui:
   tail: "N711ME"

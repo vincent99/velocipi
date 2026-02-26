@@ -12,8 +12,10 @@ import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useLocalPref } from '@/composables/useLocalPreferences';
+import { useSongEdit } from '@/composables/useSongEdit';
+import { useDeviceState } from '@/composables/useDeviceState';
 import QueueRow from '@/components/remote/QueueRow.vue';
-import type { QueueResponse } from '@/types/music';
+import SongEditModal from '@/components/remote/SongEditModal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -28,12 +30,14 @@ const {
   seek,
   setShuffle,
   setRepeat,
-  enqueue,
   appendQueue,
   removeFromQueue,
   jumpToIndex,
   moveInQueue,
 } = useMusicPlayer();
+
+const { editingSongs, closeEdit, saveEdit } = useSongEdit();
+const { musicQueue } = useDeviceState();
 
 // Resizable sidebar widths — persisted in localStorage
 const navWidth = useLocalPref('music.navWidth', 110);
@@ -86,6 +90,10 @@ const isPlaying = computed(() => musicState.value?.status === 'playing');
 
 const elapsed = computed(() => musicState.value?.elapsedSec ?? 0);
 const duration = computed(() => currentSong.value?.length ?? 0);
+const remaining = computed(() => {
+  const rem = duration.value - elapsed.value;
+  return rem > 0 ? rem : 0;
+});
 
 const shuffle = computed(() => musicState.value?.shuffle ?? false);
 const repeat = computed(() => musicState.value?.repeat ?? 'off');
@@ -129,68 +137,8 @@ const navLinks = [
   { to: '/remote/music/search', label: 'Search' },
 ];
 
-// Queue data
-const queueData = ref<QueueResponse | null>(null);
-const queueLoading = ref(false);
-
-async function fetchQueue() {
-  if (queueLoading.value) {
-    return;
-  }
-  queueLoading.value = true;
-  try {
-    const r = await fetch('/music/queue');
-    if (r.ok) {
-      queueData.value = await r.json();
-    }
-  } catch {
-    // ignore
-  } finally {
-    queueLoading.value = false;
-  }
-}
-
-// Refresh queue whenever queue length or index changes
-watch(
-  () => [musicState.value?.queueLength, musicState.value?.queueIndex],
-  () => {
-    if (rightTab.value === 'queue') {
-      fetchQueue();
-    }
-  },
-  { immediate: true }
-);
-
-// Also fetch when switching to queue tab
-watch(rightTab, (tab) => {
-  if (tab === 'queue') {
-    fetchQueue();
-  }
-});
-
-async function handleQueueEnqueue(songId: number) {
-  await enqueue([songId]);
-  fetchQueue();
-}
-
-async function handleQueueAppend(songId: number) {
-  await appendQueue([songId]);
-  fetchQueue();
-}
-
-async function handleQueueRemove(originalIndex: number) {
-  // Find the queue index for this originalIndex
-  if (!queueData.value) {
-    return;
-  }
-  const idx = queueData.value.entries.findIndex(
-    (e) => e.originalIndex === originalIndex
-  );
-  if (idx < 0) {
-    return;
-  }
-  await removeFromQueue(idx);
-  fetchQueue();
+async function handleQueueRemove(queueIndex: number) {
+  await removeFromQueue(queueIndex);
 }
 
 function handleQueuePlay(queueIndex: number) {
@@ -234,7 +182,6 @@ async function handleQueueRowDrop(
   }
   if (from !== toIndex) {
     await moveInQueue(from, toIndex);
-    fetchQueue();
   }
 }
 
@@ -246,7 +193,6 @@ async function handleQueueSongsDrop(
   dropTarget.value = null;
   const insertAfter = position === 'above' ? onto - 1 : onto;
   await insertSongsAtQueuePosition(songIds, insertAfter);
-  fetchQueue();
 }
 
 // Handle drops onto the empty queue area (below all rows)
@@ -261,7 +207,6 @@ async function handleQueueListDrop(e: DragEvent) {
   if (songStr !== '') {
     const songIds: number[] = JSON.parse(songStr);
     await appendQueue(songIds);
-    fetchQueue();
   }
 }
 
@@ -279,15 +224,10 @@ async function insertSongsAtQueuePosition(
   songIds: number[],
   afterIndex: number
 ) {
+  const totalBefore = musicQueue.value?.entries.length ?? 0;
   await appendQueue(songIds);
-  // Re-fetch to know current length
-  const r = await fetch('/music/queue');
-  if (!r.ok) {
-    return;
-  }
-  const q = await r.json();
-  const totalAfterAppend: number = q.entries.length;
   const numNew = songIds.length;
+  const totalAfterAppend = totalBefore + numNew;
   // Songs were appended at indices [totalAfterAppend-numNew .. totalAfterAppend-1].
   // Move them one by one to [afterIndex+1 .. afterIndex+numNew].
   // After moving song i to position afterIndex+1+i, the remaining songs are
@@ -319,32 +259,53 @@ function submitSearch() {
   <div class="music-layout">
     <!-- Header: controls + now-playing + progress -->
     <div class="music-header">
-      <div class="transport">
-        <button
-          class="ctrl-btn"
-          :class="{ active: shuffle }"
-          title="Shuffle"
-          @click="setShuffle(!shuffle)"
-        >
-          ⇌
-        </button>
-        <button class="ctrl-btn" title="Previous" @click="prev">⏮</button>
-        <button
-          class="ctrl-btn ctrl-btn--main"
-          :title="isPlaying ? 'Pause' : 'Play'"
-          @click="togglePlayPause"
-        >
-          {{ isPlaying ? '⏸' : '▶' }}
-        </button>
-        <button class="ctrl-btn" title="Next" @click="next">⏭</button>
-        <button
-          class="ctrl-btn ctrl-btn--repeat"
-          :class="{ active: repeat !== 'off' }"
-          title="Repeat"
-          @click="cycleRepeat"
-        >
-          {{ repeat === 'song' ? '🔂' : '🔁' }}
-        </button>
+      <div class="controls-column">
+        <div class="transport">
+          <button class="ctrl-btn" title="Previous" @click="prev">⏮</button>
+          <button
+            class="ctrl-btn ctrl-btn--main"
+            :title="isPlaying ? 'Pause' : 'Play'"
+            @click="togglePlayPause"
+          >
+            {{ isPlaying ? '⏸' : '▶' }}
+          </button>
+          <button class="ctrl-btn" title="Next" @click="next">⏭</button>
+          <button
+            class="ctrl-btn"
+            :class="shuffle ? 'active' : 'dimmed'"
+            title="Shuffle"
+            @click="setShuffle(!shuffle)"
+          >
+            <i class="fi-sr-shuffle" />
+          </button>
+          <button
+            class="ctrl-btn"
+            :class="repeat !== 'off' ? 'active' : 'dimmed'"
+            title="Repeat"
+            @click="cycleRepeat"
+          >
+            <i
+              :class="
+                repeat === 'song'
+                  ? 'fi-sr-arrows-repeat-1'
+                  : 'fi-sr-arrows-repeat'
+              "
+            />
+          </button>
+        </div>
+
+        <div class="progress-area">
+          <span class="time-label">{{ formatTime(elapsed) }}</span>
+          <input
+            type="range"
+            class="progress-bar"
+            :value="elapsed"
+            :max="duration || 1"
+            step="1"
+            @change="onSeek"
+          />
+          <span class="time-label">-{{ formatTime(remaining) }}</span>
+        </div>
       </div>
 
       <div class="now-playing">
@@ -398,19 +359,6 @@ function submitSearch() {
             </template>
           </div>
         </div>
-      </div>
-
-      <div class="progress-area">
-        <span class="time-label">{{ formatTime(elapsed) }}</span>
-        <input
-          type="range"
-          class="progress-bar"
-          :value="elapsed"
-          :max="duration || 1"
-          step="1"
-          @change="onSeek"
-        />
-        <span class="time-label">{{ formatTime(duration) }}</span>
       </div>
 
       <form class="header-search" @submit.prevent="submitSearch">
@@ -485,18 +433,16 @@ function submitSearch() {
           >
             Queue is empty
           </div>
-          <template v-else-if="queueData">
+          <template v-else-if="musicQueue">
             <QueueRow
-              v-for="(entry, idx) in queueData.entries"
+              v-for="(entry, idx) in musicQueue.entries"
               :key="entry.songId + '-' + idx"
               :entry="entry"
               :queue-index="idx"
-              :current-index="queueData.currentIndex"
+              :current-index="musicQueue.currentIndex"
               :drop-indicator="
                 dropTarget?.index === idx ? dropTarget.position : null
               "
-              @enqueue="handleQueueEnqueue"
-              @append="handleQueueAppend"
               @remove="handleQueueRemove"
               @play="handleQueuePlay"
               @drag-start="handleQueueDragStart"
@@ -514,6 +460,13 @@ function submitSearch() {
       </div>
     </div>
   </div>
+
+  <SongEditModal
+    v-if="editingSongs.length > 0"
+    :songs="editingSongs"
+    @save="saveEdit"
+    @cancel="closeEdit"
+  />
 </template>
 
 <style scoped lang="scss">
@@ -535,15 +488,15 @@ function submitSearch() {
   background: #1a1a1a;
   border-bottom: 1px solid #333;
   flex-shrink: 0;
-  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .now-playing {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-width: 180px;
-  flex: 0 0 auto;
+  flex: 1;
+  min-width: 0;
 }
 
 .header-thumb {
@@ -563,6 +516,7 @@ function submitSearch() {
 }
 
 .now-playing-info {
+  flex: 1;
   min-width: 0;
 }
 
@@ -572,7 +526,6 @@ function submitSearch() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 240px;
 }
 
 .now-playing-sub {
@@ -581,7 +534,6 @@ function submitSearch() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 240px;
 }
 
 .np-link {
@@ -603,11 +555,17 @@ function submitSearch() {
   color: #666;
 }
 
+.controls-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+}
+
 .transport {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  flex: 0 0 auto;
 }
 
 .ctrl-btn {
@@ -617,8 +575,13 @@ function submitSearch() {
   border-radius: 4px;
   padding: 0.3rem 0.5rem;
   font-size: 1rem;
+  line-height: 1;
   cursor: pointer;
   transition: background 0.15s;
+
+  i {
+    display: block;
+  }
 
   &:hover {
     background: #2a2a2a;
@@ -627,6 +590,10 @@ function submitSearch() {
 
   &.active {
     color: #3b82f6;
+  }
+
+  &.dimmed {
+    color: #555;
   }
 
   &--main {
@@ -638,6 +605,7 @@ function submitSearch() {
 
     &:hover {
       background: #2a4a7f;
+      color: #fff;
     }
   }
 }
@@ -646,8 +614,7 @@ function submitSearch() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex: 1 1 200px;
-  min-width: 120px;
+  min-width: 180px;
 }
 
 .time-label {

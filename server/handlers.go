@@ -68,6 +68,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	go hub.sendCameraStatuses(c)
 	go hub.sendLocalCamera(c)
 	go hub.sendMusicState(c)
+	go hub.sendMusicQueue(c)
 
 	// Write pump: drains c.send and writes to the WebSocket connection.
 	go func() {

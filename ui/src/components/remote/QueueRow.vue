@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import type { QueueEntryResponse } from '@/types/music';
+
+const router = useRouter();
 
 interface Props {
   entry: QueueEntryResponse;
@@ -12,9 +15,7 @@ interface Props {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  enqueue: [songId: number];
-  append: [songId: number];
-  remove: [originalIndex: number];
+  remove: [queueIndex: number];
   play: [queueIndex: number];
   dragStart: [queueIndex: number];
   dragOver: [queueIndex: number, position: 'above' | 'below'];
@@ -48,16 +49,28 @@ function openMenu(e: MouseEvent) {
 function closeMenu() {
   menuOpen.value = false;
 }
-function doEnqueue() {
-  emit('enqueue', props.entry.songId);
-  closeMenu();
-}
-function doAppend() {
-  emit('append', props.entry.songId);
-  closeMenu();
-}
 function doRemove() {
-  emit('remove', props.entry.originalIndex);
+  emit('remove', props.queueIndex);
+  closeMenu();
+}
+function goToAlbum() {
+  const s = props.entry.song;
+  if (s?.artist && s?.album) {
+    router.push({
+      path: '/remote/music/albums',
+      query: { artist: s.artist, album: s.album },
+    });
+  }
+  closeMenu();
+}
+function goToArtist() {
+  const s = props.entry.song;
+  if (s?.artist) {
+    router.push({
+      path: '/remote/music/artists',
+      query: { artist: s.artist },
+    });
+  }
   closeMenu();
 }
 
@@ -177,10 +190,14 @@ function onDrop(e: DragEvent) {
         :class="{ above: menuAbove }"
         @click.stop
       >
-        <button @click="doEnqueue">Play next</button>
-        <button @click="doAppend">Add to end</button>
+        <button :disabled="!entry.song?.album" @click="goToAlbum">
+          Go to Album
+        </button>
+        <button :disabled="!entry.song?.artist" @click="goToArtist">
+          Go to Artist
+        </button>
         <hr />
-        <button class="danger" @click="doRemove">Remove</button>
+        <button class="danger" @click="doRemove">Remove from Queue</button>
       </div>
       <div v-if="menuOpen" class="qr-menu-overlay" @click="closeMenu" />
     </div>

@@ -1,3 +1,5 @@
+import type { QueueEntryResponse } from './music';
+
 // Outbound messages (server → client, received on /ws)
 
 export interface PingMsg {
@@ -118,6 +120,12 @@ export interface MusicStateMsg {
   queueLength: number;
 }
 
+export interface MusicQueueMsg {
+  type: 'musicQueue';
+  currentIndex: number;
+  entries: QueueEntryResponse[];
+}
+
 export type InboundWsMsg =
   | PingMsg
   | AirReadingMsg
@@ -129,7 +137,8 @@ export type InboundWsMsg =
   | CameraStatusMsg
   | RecordingReadyMsg
   | LocalCameraMsg
-  | MusicStateMsg;
+  | MusicStateMsg
+  | MusicQueueMsg;
 
 // Outbound messages (client → server, sent on /ws)
 

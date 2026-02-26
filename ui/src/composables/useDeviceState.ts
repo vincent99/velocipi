@@ -4,6 +4,7 @@ import type {
   AirReading,
   LEDStateMsg,
   MusicStateMsg,
+  MusicQueueMsg,
   RecordingReadyMsg,
   Tire,
   InboundWsMsg,
@@ -24,6 +25,8 @@ const lastRecordingReady = ref<RecordingReadyMsg | null>(null);
 const localCamera = ref<string>('');
 // musicState: current music player state broadcast from server
 const musicState = ref<MusicStateMsg | null>(null);
+// musicQueue: full queue snapshot pushed from server on every queue change
+const musicQueue = ref<MusicQueueMsg | null>(null);
 // destTimezone: IANA timezone for the "Dest" clock on the panel
 const destTimezone = ref<string>('America/New_York');
 
@@ -109,6 +112,9 @@ function init() {
       case 'musicState':
         musicState.value = msg;
         break;
+      case 'musicQueue':
+        musicQueue.value = msg;
+        break;
     }
   });
 
@@ -131,5 +137,6 @@ export function useDeviceState() {
     localCamera,
     destTimezone,
     musicState,
+    musicQueue,
   };
 }

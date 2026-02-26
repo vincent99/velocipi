@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"reflect"
@@ -25,10 +26,13 @@ type CameraConfig struct {
 
 // MusicConfig holds settings for the music player subsystem.
 type MusicConfig struct {
-	MusicDir             string `yaml:"musicDir"             json:"musicDir"`
-	Volume               int    `yaml:"volume"               json:"volume"`
-	AlbumRequiredPercent int    `yaml:"albumRequiredPercent" json:"albumRequiredPercent"`
-	MinDbVersion         int    `yaml:"minDbVersion"         json:"minDbVersion"`
+	MusicDir              string `yaml:"musicDir"             json:"musicDir"`
+	Volume                int    `yaml:"volume"               json:"volume"`
+	AlbumRequiredPercent  int    `yaml:"albumRequiredPercent" json:"albumRequiredPercent"`
+	MinDbVersion          int    `yaml:"minDbVersion"         json:"minDbVersion"`
+	MaxBitrate            int    `yaml:"maxBitrate"            json:"maxBitrate"`            // kbps; 0 = no limit
+	TranscodeFormat       string `yaml:"transcodeFormat"       json:"transcodeFormat"`       // e.g. "aac", "mp3"
+	PlayedRequiredPercent int    `yaml:"playedRequiredPercent" json:"playedRequiredPercent"` // % elapsed before a skip counts as a play
 }
 
 // DVRConfig holds settings for the DVR recording subsystem.
@@ -89,11 +93,31 @@ type UIConfig struct {
 	KeyMap           KeyMapConfig  `yaml:"keyMap"           json:"keyMap"`
 }
 
+// StringSlice is a []string that unmarshals from either a YAML scalar ("abc")
+// or a YAML sequence (["abc", "def"]).
+type StringSlice []string
+
+func (s *StringSlice) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		*s = StringSlice{value.Value}
+	case yaml.SequenceNode:
+		var ss []string
+		if err := value.Decode(&ss); err != nil {
+			return err
+		}
+		*s = ss
+	default:
+		return fmt.Errorf("config: cannot unmarshal %v into StringSlice", value.Tag)
+	}
+	return nil
+}
+
 // TireAddresses maps one or more BT addresses to a wheel position label.
 type TireAddresses struct {
-	Nose  []string `yaml:"nose"  json:"nose"`
-	Left  []string `yaml:"left"  json:"left"`
-	Right []string `yaml:"right" json:"right"`
+	Nose  StringSlice `yaml:"nose"  json:"nose"`
+	Left  StringSlice `yaml:"left"  json:"left"`
+	Right StringSlice `yaml:"right" json:"right"`
 }
 
 type ExpanderBits struct {

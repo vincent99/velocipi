@@ -17,7 +17,8 @@ import (
 )
 
 func main() {
-	clean := flag.Bool("clean", false, "delete songs marked deleted (not in any playlist) and orphaned cover art")
+	force := flag.Bool("force", false, "re-read metadata for all files, ignoring cached mtime")
+	rename := flag.Bool("rename", false, "reorganise music directory into [artist]/[album]/... structure")
 	flag.Parse()
 
 	result := config.Load()
@@ -32,14 +33,12 @@ func main() {
 	}
 	defer db.Close()
 
-	syncer := music.NewSyncer(db, cfg.Music)
+	opts := music.SyncOptions{
+		Force:  *force,
+		Rename: *rename,
+	}
+	syncer := music.NewSyncer(db, cfg.Music, opts)
 	if err := syncer.Run(ctx); err != nil {
 		log.Fatal("musicsync:", err)
-	}
-
-	if *clean {
-		if err := syncer.Clean(ctx); err != nil {
-			log.Fatal("musicsync clean:", err)
-		}
 	}
 }

@@ -33,10 +33,11 @@ dist
 *~
 *.swp
 *.swo
-velocipi
-config.yaml
-recordings
-music
-music.sqlite*
 .claude/
-backup
+
+/velocipi
+/config.yaml
+/recordings
+/music
+/backup
+/music.sqlite*

@@ -30,6 +30,7 @@ const emit = defineEmits<{
   replace: [ids: number[]];
   mark: [ids: number[], marked: boolean];
   delete: [ids: number[]];
+  edit: [ids: number[]];
 }>();
 
 const { musicState } = useMusicPlayer();
@@ -301,7 +302,15 @@ function rowMenuMark(songId: number, marked: boolean) {
   closeRowMenu();
 }
 function rowMenuDelete(songId: number) {
+  const title = props.songs.find((s) => s.id === songId)?.title ?? 'this song';
+  if (!confirm(`Permanently delete "${title}"? This cannot be undone.`)) {
+    return;
+  }
   emit('delete', [songId]);
+  closeRowMenu();
+}
+function rowMenuEdit(songId: number) {
+  emit('edit', [songId]);
   closeRowMenu();
 }
 
@@ -327,9 +336,21 @@ function multiMark(marked: boolean) {
   multiMenuOpen.value = false;
 }
 function multiDelete() {
+  const n = multiIds.value.length;
+  const msg =
+    n === 1
+      ? `Permanently delete 1 song? This cannot be undone.`
+      : `Permanently delete ${n} songs? This cannot be undone.`;
+  if (!confirm(msg)) {
+    return;
+  }
   emit('delete', multiIds.value);
   multiMenuOpen.value = false;
   selectedIds.value = new Set();
+}
+function multiEdit() {
+  emit('edit', multiIds.value);
+  multiMenuOpen.value = false;
 }
 function clearSelection() {
   selectedIds.value = new Set();
@@ -672,13 +693,14 @@ const gridCols = computed(() => {
                 :class="{ above: rowMenu.above }"
                 @click.stop
               >
-                <button @click="rowMenuEnqueue(song.id)">Play next</button>
-                <button @click="rowMenuAppend(song.id)">Add to end</button>
-                <button @click="rowMenuReplace(song.id)">Replace queue</button>
+                <button @click="rowMenuEnqueue(song.id)">Queue Next</button>
+                <button @click="rowMenuAppend(song.id)">Queue Later</button>
+                <button @click="rowMenuReplace(song.id)">Play Now</button>
                 <hr />
                 <button @click="rowMenuMark(song.id, !song.marked)">
                   {{ song.marked ? 'Unmark' : 'Mark' }}
                 </button>
+                <button @click="rowMenuEdit(song.id)">Edit</button>
                 <template v-if="isAdmin">
                   <hr />
                   <button class="menu-danger" @click="rowMenuDelete(song.id)">
@@ -826,15 +848,14 @@ const gridCols = computed(() => {
                     :class="{ above: rowMenu.above }"
                     @click.stop
                   >
-                    <button @click="rowMenuEnqueue(song.id)">Play next</button>
-                    <button @click="rowMenuAppend(song.id)">Add to end</button>
-                    <button @click="rowMenuReplace(song.id)">
-                      Replace queue
-                    </button>
+                    <button @click="rowMenuEnqueue(song.id)">Queue Next</button>
+                    <button @click="rowMenuAppend(song.id)">Queue Later</button>
+                    <button @click="rowMenuReplace(song.id)">Play Now</button>
                     <hr />
                     <button @click="rowMenuMark(song.id, !song.marked)">
                       {{ song.marked ? 'Unmark' : 'Mark' }}
                     </button>
+                    <button @click="rowMenuEdit(song.id)">Edit</button>
                     <template v-if="isAdmin">
                       <hr />
                       <button
@@ -865,9 +886,9 @@ const gridCols = computed(() => {
         <div v-if="selectedCount > 1" class="multi-select-bar">
           <span class="multi-count">{{ selectedCount }} songs selected</span>
           <div class="multi-actions">
-            <button @click="multiEnqueue">Play next</button>
-            <button @click="multiAppend">Add to end</button>
-            <button @click="multiReplace">Replace</button>
+            <button @click="multiEnqueue">Queue Next</button>
+            <button @click="multiAppend">Queue Later</button>
+            <button @click="multiReplace">Play Now</button>
             <button
               class="multi-menu-btn"
               @click="multiMenuOpen = !multiMenuOpen"
@@ -875,6 +896,7 @@ const gridCols = computed(() => {
               More ▾
             </button>
             <div v-if="multiMenuOpen" class="multi-menu" @click.stop>
+              <button @click="multiEdit">Edit all</button>
               <button @click="multiMark(true)">Mark all</button>
               <button @click="multiMark(false)">Unmark all</button>
               <template v-if="isAdmin">

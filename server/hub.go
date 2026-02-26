@@ -215,6 +215,24 @@ func (h *Hub) sendMusicState(c *client) {
 	}
 }
 
+// sendMusicQueue sends the full queue snapshot to a single newly-connected client.
+func (h *Hub) sendMusicQueue(c *client) {
+	h.mu.RLock()
+	p := h.musicPlayer
+	h.mu.RUnlock()
+	if p == nil {
+		return
+	}
+	data, err := json.Marshal(p.QueueMsg())
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
+	}
+}
+
 // setLocalCamera updates the panel camera and broadcasts the change to all clients.
 func (h *Hub) setLocalCamera(name string) {
 	h.mu.Lock()

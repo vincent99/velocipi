@@ -19,6 +19,8 @@ export interface Song {
   length: number; // seconds
   year: number;
   plays: number;
+  format: string; // e.g. "mp3", "flac"
+  bitrate: number; // kbps
 }
 
 export interface Album {

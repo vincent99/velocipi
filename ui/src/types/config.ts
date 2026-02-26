@@ -116,6 +116,9 @@ export interface MusicConfig {
   volume: number;
   albumRequiredPercent: number;
   minDbVersion: number;
+  maxBitrate: number; // kbps; 0 = no limit
+  transcodeFormat: string; // e.g. "aac", "mp3"
+  playedRequiredPercent: number; // % elapsed before a skip counts as a play
 }
 
 export interface FullConfig {
