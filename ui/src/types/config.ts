@@ -120,6 +120,8 @@ export interface MusicConfig {
   maxBitrate: number; // kbps; 0 = no limit
   transcodeFormat: string; // e.g. "aac", "mp3"
   playedRequiredPercent: number; // % elapsed before a skip counts as a play
+  acoustidKey: string; // AcoustID API key (register free at acoustid.org)
+  acoustidMinScore: number; // minimum AcoustID match score (0.0–1.0) to accept a result
 }
 
 export interface FullConfig {

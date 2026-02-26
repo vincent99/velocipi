@@ -19,6 +19,7 @@ import (
 func main() {
 	force := flag.Bool("force", false, "re-read metadata for all files, ignoring cached mtime")
 	rename := flag.Bool("rename", false, "reorganise music directory into [artist]/[album]/... structure")
+	lookup := flag.Bool("lookup", false, "enrich missing metadata via AcoustID + MusicBrainz (requires music.acoustidKey in config)")
 	flag.Parse()
 
 	result := config.Load()
@@ -40,5 +41,15 @@ func main() {
 	syncer := music.NewSyncer(db, cfg.Music, opts)
 	if err := syncer.Run(ctx); err != nil {
 		log.Fatal("musicsync:", err)
+	}
+
+	if *lookup {
+		if err := music.CheckLookupDeps(cfg.Music); err != nil {
+			log.Fatal("musicsync --lookup:", err)
+		}
+		lkup := music.NewLookup(db, cfg.Music, music.LookupOptions{Force: *force})
+		if err := lkup.Run(ctx); err != nil {
+			log.Fatal("musicsync --lookup:", err)
+		}
 	}
 }

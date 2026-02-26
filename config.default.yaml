@@ -53,6 +53,8 @@ tires:
   right:
 
 music:
+  acoustidKey: ""
+  acoustidMinScore: 0.8
   albumRequiredPercent: 50
   audioDevice: "auto"
   maxBitrate: 0

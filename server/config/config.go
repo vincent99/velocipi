@@ -26,14 +26,16 @@ type CameraConfig struct {
 
 // MusicConfig holds settings for the music player subsystem.
 type MusicConfig struct {
-	MusicDir              string `yaml:"musicDir"             json:"musicDir"`
-	Volume                int    `yaml:"volume"               json:"volume"`
-	AudioDevice           string `yaml:"audioDevice"          json:"audioDevice"` // mpv --audio-device value; "auto" = let mpv choose
-	AlbumRequiredPercent  int    `yaml:"albumRequiredPercent" json:"albumRequiredPercent"`
-	MinDbVersion          int    `yaml:"minDbVersion"         json:"minDbVersion"`
-	MaxBitrate            int    `yaml:"maxBitrate"            json:"maxBitrate"`            // kbps; 0 = no limit
-	TranscodeFormat       string `yaml:"transcodeFormat"       json:"transcodeFormat"`       // e.g. "aac", "mp3"
-	PlayedRequiredPercent int    `yaml:"playedRequiredPercent" json:"playedRequiredPercent"` // % elapsed before a skip counts as a play
+	MusicDir              string  `yaml:"musicDir"             json:"musicDir"`
+	Volume                int     `yaml:"volume"               json:"volume"`
+	AudioDevice           string  `yaml:"audioDevice"          json:"audioDevice"` // mpv --audio-device value; "auto" = let mpv choose
+	AlbumRequiredPercent  int     `yaml:"albumRequiredPercent" json:"albumRequiredPercent"`
+	MinDbVersion          int     `yaml:"minDbVersion"         json:"minDbVersion"`
+	MaxBitrate            int     `yaml:"maxBitrate"            json:"maxBitrate"`            // kbps; 0 = no limit
+	TranscodeFormat       string  `yaml:"transcodeFormat"       json:"transcodeFormat"`       // e.g. "aac", "mp3"
+	PlayedRequiredPercent int     `yaml:"playedRequiredPercent" json:"playedRequiredPercent"` // % elapsed before a skip counts as a play
+	AcoustIDKey           string  `yaml:"acoustidKey"           json:"acoustidKey"`           // AcoustID API key (register free at acoustid.org)
+	AcoustIDMinScore      float64 `yaml:"acoustidMinScore"      json:"acoustidMinScore"`      // minimum AcoustID match score (0.0–1.0) to accept a result
 }
 
 // DVRConfig holds settings for the DVR recording subsystem.
