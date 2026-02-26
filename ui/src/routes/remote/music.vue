@@ -16,6 +16,7 @@ import { useSongEdit } from '@/composables/useSongEdit';
 import { useDeviceState } from '@/composables/useDeviceState';
 import QueueRow from '@/components/remote/QueueRow.vue';
 import SongEditModal from '@/components/remote/SongEditModal.vue';
+import SongFlagButtons from '@/components/remote/SongFlagButtons.vue';
 import type { Playlist, SmartSearch } from '@/types/music';
 
 const route = useRoute();
@@ -471,6 +472,13 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
               >{{ currentSong.title || '—' }}</RouterLink
             >
             <template v-else>{{ currentSong?.title || '—' }}</template>
+            <SongFlagButtons
+              v-if="currentSong"
+              :song-id="currentSong.id"
+              :marked-fallback="currentSong.marked"
+              :favorite-fallback="currentSong.favorite"
+              variant="header"
+            />
           </div>
           <div class="now-playing-sub">
             <RouterLink
@@ -806,11 +814,20 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
 }
 
 .now-playing-title {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
   font-weight: 600;
   font-size: 0.9rem;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+
+  > :first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+    min-width: 0;
+  }
 }
 
 .now-playing-sub {

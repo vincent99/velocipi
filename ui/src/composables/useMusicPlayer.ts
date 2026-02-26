@@ -1,6 +1,7 @@
 import { ref, watch } from 'vue';
 import { useDeviceState } from '@/composables/useDeviceState';
 import { useWebSocket } from '@/composables/useWebSocket';
+import { useSongFlags } from '@/composables/useSongFlags';
 import type { MusicControlMsg } from '@/types/ws';
 import type { Song } from '@/types/music';
 
@@ -101,18 +102,44 @@ export function useMusicPlayer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ songIds: ids }),
       }),
-    markSong: (id: number, marked: boolean) =>
-      fetch(`/music/songs/${id}/mark`, {
+    markSong: async (id: number, marked: boolean) => {
+      const r = await fetch(`/music/songs/${id}/mark`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ marked }),
-      }),
-    favoriteSong: (id: number, favorite: boolean) =>
-      fetch(`/music/songs/${id}/favorite`, {
+      });
+      if (r.ok) {
+        const { setFlag } = useSongFlags();
+        setFlag(id, 'marked', marked);
+        const cached = songCache.get(id);
+        if (cached) {
+          cached.marked = marked;
+        }
+        if (currentSong.value?.id === id) {
+          currentSong.value = { ...currentSong.value, marked };
+        }
+      }
+      return r;
+    },
+    favoriteSong: async (id: number, favorite: boolean) => {
+      const r = await fetch(`/music/songs/${id}/favorite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ favorite }),
-      }),
+      });
+      if (r.ok) {
+        const { setFlag } = useSongFlags();
+        setFlag(id, 'favorite', favorite);
+        const cached = songCache.get(id);
+        if (cached) {
+          cached.favorite = favorite;
+        }
+        if (currentSong.value?.id === id) {
+          currentSong.value = { ...currentSong.value, favorite };
+        }
+      }
+      return r;
+    },
     removeFromQueue: (index: number) =>
       fetch('/music/queue/remove', {
         method: 'POST',

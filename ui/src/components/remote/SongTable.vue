@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useAdmin } from '@/composables/useAdmin';
+import SongFlagButtons from '@/components/remote/SongFlagButtons.vue';
 import type { Song } from '@/types/music';
 
 interface Props {
@@ -315,6 +316,18 @@ function rowMenuFavorite(songId: number, fav: boolean) {
   emit('favorite', [songId], fav);
   closeRowMenu();
 }
+
+function handleFlagChange(
+  songId: number,
+  field: 'marked' | 'favorite',
+  value: boolean
+) {
+  if (field === 'marked') {
+    emit('mark', [songId], value);
+  } else {
+    emit('favorite', [songId], value);
+  }
+}
 function rowMenuDelete(songId: number) {
   const title = props.songs.find((s) => s.id === songId)?.title ?? 'this song';
   if (!confirm(`Permanently delete "${title}"? This cannot be undone.`)) {
@@ -399,9 +412,13 @@ function handleKeyDown(e: KeyboardEvent) {
   selectedIds.value = new Set();
 }
 
+// Last-touched row id (for showing flag buttons on mobile)
+const lastTouchedId = ref<number | null>(null);
+
 // Touch drag support
 function handleTouchStart(index: number, _event: TouchEvent) {
   touchStartIndex.value = index;
+  lastTouchedId.value = sortedSongs.value[index]?.id ?? null;
 }
 
 function handleTouchMove(event: TouchEvent) {
@@ -784,13 +801,19 @@ const gridCols = computed(() => {
           </div>
           <div
             class="vc-cell vc-title"
-            :class="{ 'now-playing': isPlaying(song.id) }"
+            :class="{
+              'now-playing': isPlaying(song.id),
+              'touch-active': lastTouchedId === song.id,
+            }"
           >
-            {{ song.title
-            }}<span v-if="song.marked" class="flag-icon" title="Marked">🚩</span
-            ><span v-if="song.favorite" class="flag-icon" title="Favorite"
-              >⭐</span
-            >
+            <span class="title-text">{{ song.title }}</span>
+            <SongFlagButtons
+              :song-id="song.id"
+              :marked-fallback="song.marked"
+              :favorite-fallback="song.favorite"
+              variant="row"
+              @change="(field, val) => handleFlagChange(song.id, field, val)"
+            />
           </div>
           <div v-if="!albumContext" class="vc-cell vc-num">
             {{ trackLabel(song) }}
@@ -940,12 +963,21 @@ const gridCols = computed(() => {
               <td class="col-track">{{ trackLabel(song) }}</td>
               <td
                 class="col-title"
-                :class="{ 'now-playing': isPlaying(song.id) }"
+                :class="{
+                  'now-playing': isPlaying(song.id),
+                  'touch-active': lastTouchedId === song.id,
+                }"
               >
-                {{ song.title
-                }}<span v-if="song.marked" class="flag-icon" title="Marked"
-                  >🚩</span
-                >
+                <span class="title-text">{{ song.title }}</span>
+                <SongFlagButtons
+                  :song-id="song.id"
+                  :marked-fallback="song.marked"
+                  :favorite-fallback="song.favorite"
+                  variant="row"
+                  @change="
+                    (field, val) => handleFlagChange(song.id, field, val)
+                  "
+                />
               </td>
               <td class="col-duration">{{ formatDuration(song.length) }}</td>
               <!-- Per-row actions -->
@@ -1358,9 +1390,25 @@ const gridCols = computed(() => {
   }
 }
 
-.flag-icon {
-  margin-left: 4px;
-  font-size: 0.75em;
+.title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+// Reveal ghost flag buttons on row hover or touch-active
+.vrow:hover :deep(.flag-btn--row:not(.active)),
+.touch-active :deep(.flag-btn--row:not(.active)) {
+  opacity: 0.3;
+  filter: none;
+}
+
+// Title cells need to be flex to keep text + buttons in line
+.vc-title,
+.col-title {
+  display: flex;
+  align-items: center;
 }
 
 .album-thumb {
