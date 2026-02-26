@@ -417,7 +417,7 @@ func (p *Player) QueueMsg() MusicQueueMsg {
 	for _, e := range qs.Entries {
 		entry := MusicQueueEntry{SongID: e.SongID, OriginalIndex: e.OriginalIndex}
 		rows, err := p.db.db.Query(
-			`SELECT id,path,hash,coverId,added,updated,deleted,marked,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song WHERE id=?`,
+			`SELECT id,path,hash,coverId,added,updated,deleted,marked,favorite,artist,album,artistSort,albumSort,title,discNumber,trackNumber,trackTotal,genre,length,year,plays,format,bitrate FROM song WHERE id=?`,
 			e.SongID,
 		)
 		if err == nil {

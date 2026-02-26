@@ -8,7 +8,7 @@ export const remoteMeta: PanelMeta = {
 </script>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick, provide } from 'vue';
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useLocalPref } from '@/composables/useLocalPreferences';
@@ -253,7 +253,7 @@ watch(
 
 const navLinks = computed(() => {
   const links = [...baseNavLinks];
-  if (searchQuery.value.trim()) {
+  if (searchQuery.value.trim() || route.path === '/remote/music/search') {
     links.push({ to: '/remote/music/search', label: 'Search' });
   }
   return links;
@@ -286,12 +286,20 @@ async function loadPlaylists() {
 }
 
 loadPlaylists();
+provide('reloadPlaylists', loadPlaylists);
 
 // Create smart search modal
 const showCreateSmartSearch = ref(false);
 const newSmartSearchName = ref('');
 const newSmartSearchQuery = ref('');
 const creatingSmartSearch = ref(false);
+const smartSearchNameInput = ref<HTMLInputElement | null>(null);
+
+watch(showCreateSmartSearch, (open) => {
+  if (open) {
+    nextTick(() => smartSearchNameInput.value?.focus());
+  }
+});
 
 async function createSmartSearch() {
   const name = newSmartSearchName.value.trim();
@@ -321,6 +329,13 @@ async function createSmartSearch() {
 const showCreatePlaylist = ref(false);
 const newPlaylistName = ref('');
 const creatingPlaylist = ref(false);
+const playlistNameInput = ref<HTMLInputElement | null>(null);
+
+watch(showCreatePlaylist, (open) => {
+  if (open) {
+    nextTick(() => playlistNameInput.value?.focus());
+  }
+});
 
 async function createPlaylist() {
   const name = newPlaylistName.value.trim();
@@ -529,7 +544,11 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
           :key="'sp-' + sp.id"
           :to="{ path: '/remote/music/smartsearch', query: { id: sp.id } }"
           class="nav-link nav-link--playlist"
-          active-class="nav-link--active"
+          :class="{
+            'nav-link--active':
+              route.path === '/remote/music/smartsearch' &&
+              route.query.id == String(sp.id),
+          }"
         >
           {{ sp.name }}
         </RouterLink>
@@ -560,7 +579,11 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
           <RouterLink
             :to="{ path: '/remote/music/playlist', query: { id: pl.id } }"
             class="nav-link nav-link--playlist"
-            active-class="nav-link--active"
+            :class="{
+              'nav-link--active':
+                route.path === '/remote/music/playlist' &&
+                route.query.id == String(pl.id),
+            }"
           >
             {{ pl.name }}
           </RouterLink>
@@ -644,10 +667,12 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
       <div class="create-pl-modal create-pl-modal--wide">
         <div class="create-pl-title">New Smart Search</div>
         <input
+          ref="smartSearchNameInput"
           v-model="newSmartSearchName"
           class="create-pl-input"
           type="text"
           placeholder="Name"
+          @keydown.enter="createSmartSearch"
           @keydown.esc="showCreateSmartSearch = false"
         />
         <textarea
@@ -704,11 +729,11 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
       <div class="create-pl-modal">
         <div class="create-pl-title">New Playlist</div>
         <input
+          ref="playlistNameInput"
           v-model="newPlaylistName"
           class="create-pl-input"
           type="text"
           placeholder="Playlist name"
-          autofocus
           @keydown.enter="createPlaylist"
           @keydown.esc="showCreatePlaylist = false"
         />

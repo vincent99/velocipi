@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, inject } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SongTable from '@/components/remote/SongTable.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
@@ -13,6 +13,7 @@ const { enqueue, appendQueue, replaceQueue, markSong, favoriteSong } =
   useMusicPlayer();
 const { openEdit } = useSongEdit();
 const { isAdmin } = useAdmin();
+const reloadPlaylists = inject<() => void>('reloadPlaylists');
 
 const smartSearch = ref<SmartSearch | null>(null);
 const songs = ref<Song[]>([]);
@@ -83,6 +84,7 @@ async function handleDelete() {
   await fetch(`/music/smartsearches/${smartSearch.value.id}`, {
     method: 'DELETE',
   });
+  reloadPlaylists?.();
   router.push('/remote/music/songs');
 }
 </script>

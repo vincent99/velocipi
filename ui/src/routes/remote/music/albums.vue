@@ -132,11 +132,11 @@ async function handleDelete(ids: number[]) {
           </div>
           <div class="detail-artist">{{ selectedAlbum.artist }}</div>
           <div class="detail-year">{{ selectedAlbum.year || '' }}</div>
-          <div class="detail-actions">
-            <button @click="replaceQueue(albumSongIds)">Play Now</button>
-            <button @click="enqueue(albumSongIds)">Queue Next</button>
-            <button @click="appendQueue(albumSongIds)">Queue Later</button>
-          </div>
+        </div>
+        <div class="detail-actions">
+          <button @click="replaceQueue(albumSongIds)">Play Now</button>
+          <button @click="enqueue(albumSongIds)">Queue Next</button>
+          <button @click="appendQueue(albumSongIds)">Queue Later</button>
         </div>
       </div>
       <SongTable
@@ -319,7 +319,8 @@ async function handleDelete(ids: number[]) {
 .detail-actions {
   display: flex;
   gap: 0.4rem;
-  margin-top: 0.5rem;
+  flex-shrink: 0;
+  align-self: center;
 
   button {
     background: #1e3a5f;

@@ -127,11 +127,11 @@ async function handleDelete(ids: number[]) {
               selectedDecade.trackCount === 1 ? '' : 's'
             }}
           </div>
-          <div class="detail-actions">
-            <button @click="replaceQueue(decadeSongIds)">Play Now</button>
-            <button @click="enqueue(decadeSongIds)">Queue Next</button>
-            <button @click="appendQueue(decadeSongIds)">Queue Later</button>
-          </div>
+        </div>
+        <div class="detail-actions">
+          <button @click="replaceQueue(decadeSongIds)">Play Now</button>
+          <button @click="enqueue(decadeSongIds)">Queue Next</button>
+          <button @click="appendQueue(decadeSongIds)">Queue Later</button>
         </div>
       </div>
       <SongTable
@@ -267,7 +267,8 @@ async function handleDelete(ids: number[]) {
 .detail-actions {
   display: flex;
   gap: 0.4rem;
-  margin-top: 0.5rem;
+  flex-shrink: 0;
+  align-self: center;
 
   button {
     background: #1e3a5f;
