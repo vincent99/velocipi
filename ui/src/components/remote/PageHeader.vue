@@ -48,7 +48,10 @@ watch(
 );
 
 const currentRoute = computed(
-  () => routes.find((r) => r.path === route.path) ?? routes[0]
+  () =>
+    routes.find(
+      (r) => route.path === r.path || route.path.startsWith(r.path + '/')
+    ) ?? routes[0]
 );
 
 // The camera currently being viewed (from ?cam= query param on /cameras route).

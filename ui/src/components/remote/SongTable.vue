@@ -1,9 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
-import { useAdmin } from '@/composables/useAdmin';
-import { useSongStore } from '@/composables/useSongStore';
+import { useSongSort } from '@/composables/useSongSort';
+import { useSongSelection } from '@/composables/useSongSelection';
+import {
+  useSongActions,
+  type SongTableEmit,
+} from '@/composables/useSongActions';
+import { useVirtualScroll } from '@/composables/useVirtualScroll';
 import SongFlagButtons from '@/components/remote/SongFlagButtons.vue';
+import SongRowMenu from '@/components/remote/SongRowMenu.vue';
+import SongMultiBar from '@/components/remote/SongMultiBar.vue';
 import type { Song } from '@/types/music';
 
 interface Props {
@@ -42,232 +49,115 @@ const emit = defineEmits<{
 }>();
 
 const { musicState } = useMusicPlayer();
-const { isAdmin } = useAdmin();
-const { resolve } = useSongStore();
 
-// Selection state
-const selectedIds = ref<Set<number>>(new Set());
-const lastClickedIndex = ref<number>(-1);
+// Shared scroll state — created here so both useSongSort and useVirtualScroll
+// can reset it without circular dependencies.
+const scrollEl = ref<HTMLElement | null>(null);
+const scrollTop = ref(0);
 
-// Per-row actions menu
-interface RowMenu {
-  songId: number;
-  above: boolean;
-}
-const rowMenu = ref<RowMenu | null>(null);
-// Ref map for action buttons: keyed by songId
-const actionBtnRefs = ref<Map<number, HTMLButtonElement>>(new Map());
+const {
+  sortCol,
+  sortDir,
+  sortedSongs,
+  resolvedSongs,
+  albumGroups,
+  cycleSort,
+  sortIndicator,
+  albumColLabel,
+  formatDuration,
+  trackLabel,
+  onMobileSortChange,
+  toggleSortDir,
+} = useSongSort(
+  () => props.songs,
+  () => props.albumContext,
+  () => props.groupByAlbum,
+  () => props.playlistMode,
+  scrollEl,
+  scrollTop
+);
 
-function setActionBtnRef(el: HTMLButtonElement | null, songId: number) {
-  if (el) {
-    actionBtnRefs.value.set(songId, el);
-  } else {
-    actionBtnRefs.value.delete(songId);
-  }
-}
+const {
+  selectedIds,
+  selectionState,
+  selectedCount,
+  multiIds,
+  isSelected,
+  clearSelection,
+  toggleSelectAll,
+  handleCheckTd,
+  handleRowClick,
+  handleAlbumGroupClick,
+} = useSongSelection(
+  () => sortedSongs.value,
+  () => props.playlistMode
+);
 
-// Floating multi-select menu
-const multiMenuOpen = ref(false);
+// Thin adapter so useSongActions has no dependency on Vue's defineEmits
+const emitAdapter: SongTableEmit = {
+  enqueue: (ids) => emit('enqueue', ids),
+  append: (ids) => emit('append', ids),
+  replace: (ids) => emit('replace', ids),
+  mark: (ids, marked) => emit('mark', ids, marked),
+  favorite: (ids, fav) => emit('favorite', ids, fav),
+  delete: (ids) => emit('delete', ids),
+  edit: (ids) => emit('edit', ids),
+  removeFromPlaylist: (ids) => emit('remove-from-playlist', ids),
+};
 
-// Touch drag selection
-const touchStartIndex = ref<number>(-1);
+const {
+  isAdmin,
+  rowMenu,
+  openRowMenu,
+  closeRowMenu,
+  handleFlagChange,
+  rowMenuEnqueue,
+  rowMenuAppend,
+  rowMenuReplace,
+  rowMenuMark,
+  rowMenuFavorite,
+  rowMenuEdit,
+  rowMenuDelete,
+  rowMenuRemoveFromPlaylist,
+  multiEnqueue,
+  multiAppend,
+  multiReplace,
+  multiMark,
+  multiFavorite,
+  multiEdit,
+  multiDelete,
+  multiRemoveFromPlaylist,
+} = useSongActions(emitAdapter, () => props.songs, multiIds, clearSelection);
 
-// Sort state: column key + direction
-type SortCol = 'artist' | 'album' | 'year' | 'title' | 'track' | 'duration';
-const sortCol = ref<SortCol>(props.albumContext ? 'track' : 'artist');
-const sortDir = ref<1 | -1>(1);
-// Album sort mode: 'album' = just album name, 'artistAlbum' = artist then album
-const albumSortMode = ref<'album' | 'artistAlbum'>('album');
-
-function cycleSort(col: SortCol) {
-  if (col === 'album') {
-    if (sortCol.value !== 'album') {
-      sortCol.value = 'album';
-      sortDir.value = 1;
-      albumSortMode.value = 'album';
-    } else if (albumSortMode.value === 'album') {
-      albumSortMode.value = 'artistAlbum';
-    } else {
-      sortDir.value = sortDir.value === 1 ? -1 : 1;
-      albumSortMode.value = 'album';
-    }
-  } else {
-    if (sortCol.value === col) {
-      sortDir.value = sortDir.value === 1 ? -1 : 1;
-    } else {
-      sortCol.value = col;
-      sortDir.value = 1;
-    }
-  }
-  // Reset scroll when sort changes
-  if (scrollEl.value) {
-    scrollEl.value.scrollTop = 0;
-  }
-  scrollTop.value = 0;
-}
-
-function albumColLabel(): string {
-  if (sortCol.value === 'album' && albumSortMode.value === 'artistAlbum') {
-    return 'Album by Artist';
-  }
-  return 'Album';
-}
-
-function sortIndicator(col: SortCol): string {
-  if (sortCol.value !== col) {
-    return '';
-  }
-  return sortDir.value === 1 ? ' ↑' : ' ↓';
-}
-
-function sortValue(song: Song): string | number {
-  switch (sortCol.value) {
-    case 'artist':
-      return (song.artistSort || song.artist).toLowerCase();
-    case 'album':
-      if (albumSortMode.value === 'artistAlbum') {
-        return (
-          (song.artistSort || song.artist) +
-          '\0' +
-          (song.albumSort || song.album)
-        ).toLowerCase();
-      }
-      return (song.albumSort || song.album).toLowerCase();
-    case 'year':
-      return song.year || 0;
-    case 'title':
-      return song.title.toLowerCase();
-    case 'track':
-      return song.discNumber * 10000 + song.trackNumber;
-    case 'duration':
-      return song.length;
-  }
-}
-
-const sortedSongs = computed<Song[]>(() => {
-  // In playlist mode preserve the original order; sorting is disabled
-  if (props.playlistMode) {
-    return props.songs;
-  }
-  const d = sortDir.value;
-  return [...props.songs].sort((a, b) => {
-    const av = sortValue(a);
-    const bv = sortValue(b);
-    if (av < bv) {
-      return -d;
-    }
-    if (av > bv) {
-      return d;
-    }
-    return 0;
-  });
-});
-
-// Apply store overrides to all sorted songs so any field change (mark, favorite,
-// title, artist, etc.) propagates to every row without a full data reload.
-const resolvedSongs = computed<Song[]>(() => sortedSongs.value.map(resolve));
-
-function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function trackLabel(song: Song): string {
-  if (props.albumContext) {
-    return song.trackNumber > 0 ? String(song.trackNumber) : '—';
-  }
-  if (song.trackTotal > 0) {
-    return `${song.trackNumber}/${song.trackTotal}`;
-  }
-  return song.trackNumber > 0 ? String(song.trackNumber) : '—';
-}
-
-function isSelected(id: number): boolean {
-  return selectedIds.value.has(id);
-}
+const {
+  isMobile,
+  visibleRange,
+  visibleSongs,
+  spacerTop,
+  spacerBottom,
+  gridCols,
+  onScroll,
+} = useVirtualScroll(
+  () => sortedSongs.value,
+  () => resolvedSongs.value,
+  () => props.songs,
+  () => props.showArtist,
+  () => props.showAlbum,
+  () => props.showYear,
+  () => props.albumContext,
+  () => props.playlistMode,
+  scrollEl,
+  scrollTop
+);
 
 function isPlaying(id: number): boolean {
   return musicState.value?.currentSongId === id;
 }
 
-// --- Selection helpers ---
-
-function rangeSelect(fromIndex: number, toIndex: number) {
-  const start = Math.min(fromIndex, toIndex);
-  const end = Math.max(fromIndex, toIndex);
-  for (let i = start; i <= end; i++) {
-    selectedIds.value.add(sortedSongs.value[i].id);
-  }
-}
-
-// Clicking the checkbox TD (or the checkbox inside it)
-function handleCheckTd(index: number, event: MouseEvent) {
-  event.stopPropagation();
-  const song = sortedSongs.value[index];
-  if (event.shiftKey && lastClickedIndex.value >= 0) {
-    event.preventDefault();
-    rangeSelect(lastClickedIndex.value, index);
-    lastClickedIndex.value = index;
-  } else {
-    // Toggle
-    if (selectedIds.value.has(song.id)) {
-      selectedIds.value.delete(song.id);
-    } else {
-      selectedIds.value.add(song.id);
-    }
-    lastClickedIndex.value = index;
-  }
-}
-
-function selectSong(index: number, event: MouseEvent) {
-  const song = sortedSongs.value[index];
-  if (event.shiftKey && lastClickedIndex.value >= 0) {
-    event.preventDefault();
-    rangeSelect(lastClickedIndex.value, index);
-  } else if (event.metaKey || event.ctrlKey) {
-    if (selectedIds.value.has(song.id)) {
-      selectedIds.value.delete(song.id);
-    } else {
-      selectedIds.value.add(song.id);
-    }
-    lastClickedIndex.value = index;
-  } else {
-    selectedIds.value = new Set([song.id]);
-    lastClickedIndex.value = index;
-  }
-}
-
-function selectAlbumGroup(
-  albumSongs: Song[],
-  index: number,
-  event: MouseEvent
-) {
-  if (event.shiftKey || event.metaKey || event.ctrlKey) {
-    for (const s of albumSongs) {
-      selectedIds.value.add(s.id);
-    }
-  } else {
-    selectedIds.value = new Set(albumSongs.map((s) => s.id));
-    lastClickedIndex.value = index;
-  }
-}
-
-function handleRowClick(index: number, event: MouseEvent) {
-  selectSong(index, event);
-}
-
+// Double-click: select + enqueue
 function handleRowDblClick(index: number, event: MouseEvent) {
-  selectSong(index, event);
+  handleRowClick(index, event);
   emit('enqueue', [...selectedIds.value]);
-}
-
-function handleAlbumGroupClick(
-  albumSongs: Song[],
-  index: number,
-  event: MouseEvent
-) {
-  selectAlbumGroup(albumSongs, index, event);
 }
 
 function handleAlbumGroupDblClick(
@@ -275,132 +165,8 @@ function handleAlbumGroupDblClick(
   index: number,
   event: MouseEvent
 ) {
-  selectAlbumGroup(albumSongs, index, event);
+  handleAlbumGroupClick(albumSongs, index, event);
   emit('enqueue', [...selectedIds.value]);
-}
-
-// --- Per-row actions button ---
-
-function openRowMenu(songId: number, event: MouseEvent) {
-  event.stopPropagation();
-
-  if (rowMenu.value?.songId === songId) {
-    rowMenu.value = null;
-    return;
-  }
-
-  const btn = actionBtnRefs.value.get(songId);
-  let above = false;
-  if (btn) {
-    const rect = btn.getBoundingClientRect();
-    above = window.innerHeight - rect.bottom < 130;
-  }
-  rowMenu.value = { songId, above };
-}
-
-function closeRowMenu() {
-  rowMenu.value = null;
-}
-
-function rowMenuEnqueue(songId: number) {
-  emit('enqueue', [songId]);
-  closeRowMenu();
-}
-function rowMenuAppend(songId: number) {
-  emit('append', [songId]);
-  closeRowMenu();
-}
-function rowMenuReplace(songId: number) {
-  emit('replace', [songId]);
-  closeRowMenu();
-}
-function rowMenuMark(songId: number, marked: boolean) {
-  emit('mark', [songId], marked);
-  closeRowMenu();
-}
-function rowMenuFavorite(songId: number, fav: boolean) {
-  emit('favorite', [songId], fav);
-  closeRowMenu();
-}
-
-function handleFlagChange(
-  songId: number,
-  field: 'marked' | 'favorite',
-  value: boolean
-) {
-  if (field === 'marked') {
-    emit('mark', [songId], value);
-  } else {
-    emit('favorite', [songId], value);
-  }
-}
-function rowMenuDelete(songId: number) {
-  const title = props.songs.find((s) => s.id === songId)?.title ?? 'this song';
-  if (!confirm(`Permanently delete "${title}"? This cannot be undone.`)) {
-    return;
-  }
-  emit('delete', [songId]);
-  closeRowMenu();
-}
-function rowMenuEdit(songId: number) {
-  emit('edit', [songId]);
-  closeRowMenu();
-}
-function rowMenuRemoveFromPlaylist(songId: number) {
-  emit('remove-from-playlist', [songId]);
-  closeRowMenu();
-}
-
-// --- Multi-select floating bar ---
-
-const selectedCount = computed(() => selectedIds.value.size);
-const multiIds = computed(() => [...selectedIds.value]);
-
-function multiEnqueue() {
-  emit('enqueue', multiIds.value);
-  multiMenuOpen.value = false;
-}
-function multiAppend() {
-  emit('append', multiIds.value);
-  multiMenuOpen.value = false;
-}
-function multiReplace() {
-  emit('replace', multiIds.value);
-  multiMenuOpen.value = false;
-}
-function multiMark(marked: boolean) {
-  emit('mark', multiIds.value, marked);
-  multiMenuOpen.value = false;
-}
-function multiFavorite(fav: boolean) {
-  emit('favorite', multiIds.value, fav);
-  multiMenuOpen.value = false;
-}
-function multiDelete() {
-  const n = multiIds.value.length;
-  const msg =
-    n === 1
-      ? `Permanently delete 1 song? This cannot be undone.`
-      : `Permanently delete ${n} songs? This cannot be undone.`;
-  if (!confirm(msg)) {
-    return;
-  }
-  emit('delete', multiIds.value);
-  multiMenuOpen.value = false;
-  selectedIds.value = new Set();
-}
-function multiEdit() {
-  emit('edit', multiIds.value);
-  multiMenuOpen.value = false;
-}
-function multiRemoveFromPlaylist() {
-  emit('remove-from-playlist', multiIds.value);
-  multiMenuOpen.value = false;
-  selectedIds.value = new Set();
-}
-function clearSelection() {
-  selectedIds.value = new Set();
-  multiMenuOpen.value = false;
 }
 
 // Delete key — removes from playlist when in playlistMode
@@ -415,174 +181,18 @@ function handleKeyDown(e: KeyboardEvent) {
     return;
   }
   emit('remove-from-playlist', [...selectedIds.value]);
-  selectedIds.value = new Set();
+  clearSelection();
 }
-
-// Last-touched row id (for showing flag buttons on mobile)
-const lastTouchedId = ref<number | null>(null);
-
-// Touch drag support
-function handleTouchStart(index: number, _event: TouchEvent) {
-  touchStartIndex.value = index;
-  lastTouchedId.value = sortedSongs.value[index]?.id ?? null;
-}
-
-function handleTouchMove(event: TouchEvent) {
-  if (touchStartIndex.value < 0) {
-    return;
-  }
-  const touch = event.touches[0];
-  const el = document.elementFromPoint(touch.clientX, touch.clientY);
-  if (!el) {
-    return;
-  }
-  const row = el.closest('[data-song-index]') as HTMLElement | null;
-  if (!row) {
-    return;
-  }
-  const idx = parseInt(row.dataset.songIndex ?? '-1', 10);
-  if (idx < 0) {
-    return;
-  }
-  const start = Math.min(touchStartIndex.value, idx);
-  const end = Math.max(touchStartIndex.value, idx);
-  const newSel = new Set<number>();
-  for (let i = start; i <= end; i++) {
-    newSel.add(sortedSongs.value[i].id);
-  }
-  selectedIds.value = newSel;
-}
-
-function handleTouchEnd() {
-  touchStartIndex.value = -1;
-}
-
-// Album groups for grouped mode
-interface AlbumGroup {
-  key: string;
-  artist: string;
-  album: string;
-  coverId: number | null;
-  year: number;
-  songs: Song[];
-  startIndex: number;
-}
-
-const albumGroups = computed<AlbumGroup[]>(() => {
-  if (!props.groupByAlbum) {
-    return [];
-  }
-  const groups: AlbumGroup[] = [];
-  const seen = new Map<string, AlbumGroup>();
-  let globalIndex = 0;
-  for (const song of resolvedSongs.value) {
-    const key = `${song.artist}|||${song.album}`;
-    if (!seen.has(key)) {
-      const g: AlbumGroup = {
-        key,
-        artist: song.artist,
-        album: song.album,
-        coverId: song.coverId,
-        year: song.year,
-        songs: [],
-        startIndex: globalIndex,
-      };
-      seen.set(key, g);
-      groups.push(g);
-    }
-    seen.get(key)!.songs.push(song);
-    globalIndex++;
-  }
-  return groups;
-});
-
-// ─── Virtual scrolling (flat view only) ──────────────────────────────────────
-
-const ROW_H = 29; // px — must match .vrow height in CSS
-const OVERSCAN = 5;
-
-const scrollEl = ref<HTMLElement | null>(null);
-const scrollTop = ref(0);
-const viewportH = ref(400);
-
-function onScroll() {
-  if (scrollEl.value) {
-    scrollTop.value = scrollEl.value.scrollTop;
-  }
-}
-
-let ro: ResizeObserver | null = null;
 
 onMounted(() => {
-  if (scrollEl.value) {
-    ro = new ResizeObserver((entries) => {
-      viewportH.value = entries[0].contentRect.height;
-    });
-    ro.observe(scrollEl.value);
-    viewportH.value = scrollEl.value.clientHeight;
-  }
   window.addEventListener('keydown', handleKeyDown);
 });
 
 onUnmounted(() => {
-  ro?.disconnect();
   window.removeEventListener('keydown', handleKeyDown);
 });
 
-// Reset scroll position when songs list changes (e.g. new search results)
-watch(
-  () => props.songs,
-  () => {
-    if (scrollEl.value) {
-      scrollEl.value.scrollTop = 0;
-    }
-    scrollTop.value = 0;
-  }
-);
-
-const visibleRange = computed(() => {
-  const total = sortedSongs.value.length;
-  const first = Math.max(0, Math.floor(scrollTop.value / ROW_H) - OVERSCAN);
-  const visibleCount = Math.ceil(viewportH.value / ROW_H) + OVERSCAN * 2;
-  const last = Math.min(total - 1, first + visibleCount);
-  return { first, last };
-});
-
-const visibleSongs = computed(() =>
-  resolvedSongs.value.slice(
-    visibleRange.value.first,
-    visibleRange.value.last + 1
-  )
-);
-
-const spacerTop = computed(() => visibleRange.value.first * ROW_H);
-const spacerBottom = computed(
-  () => (sortedSongs.value.length - 1 - visibleRange.value.last) * ROW_H
-);
-
-// ─── Select-all ──────────────────────────────────────────────────────────────
-
-// 0 = none, 1 = some, 2 = all
-const selectionState = computed<0 | 1 | 2>(() => {
-  const count = selectedIds.value.size;
-  if (count === 0) {
-    return 0;
-  }
-  if (count >= sortedSongs.value.length) {
-    return 2;
-  }
-  return 1;
-});
-
-function toggleSelectAll() {
-  if (selectionState.value === 0) {
-    selectedIds.value = new Set(sortedSongs.value.map((s) => s.id));
-  } else {
-    selectedIds.value = new Set();
-  }
-}
-
-// ─── Drag support ────────────────────────────────────────────────────────────
+// ─── Drag support ─────────────────────────────────────────────────────────────
 
 function onRowDragStart(songId: number, index: number, e: DragEvent) {
   if (!e.dataTransfer) {
@@ -649,34 +259,6 @@ function onPlDrop(index: number, e: DragEvent) {
     emit('reorder', from, to);
   }
 }
-
-// Grid template columns for the flat virtual list
-const gridCols = computed(() => {
-  const cols: string[] = [];
-  if (props.playlistMode) {
-    cols.push('20px'); // drag handle
-  }
-  cols.push('28px'); // checkbox
-  if (props.showArtist) {
-    cols.push('minmax(80px, 1.5fr)');
-  }
-  if (props.showAlbum) {
-    cols.push('minmax(80px, 1.5fr)');
-  }
-  if (props.albumContext) {
-    cols.push('50px'); // track before title
-  }
-  cols.push('minmax(100px, 2fr)'); // title
-  if (!props.albumContext) {
-    cols.push('60px'); // track after title
-  }
-  cols.push('56px'); // duration
-  if (props.showYear) {
-    cols.push('48px');
-  }
-  cols.push('36px'); // actions
-  return cols.join(' ');
-});
 </script>
 
 <template>
@@ -783,12 +365,18 @@ const gridCols = computed(() => {
           @dragover="onPlDragOver(visibleRange.first + vi, $event)"
           @dragend="onPlDragEnd"
           @drop="onPlDrop(visibleRange.first + vi, $event)"
-          @touchstart.passive="
-            handleTouchStart(visibleRange.first + vi, $event)
-          "
-          @touchmove.passive="handleTouchMove($event)"
-          @touchend.passive="handleTouchEnd()"
         >
+          <!-- Mobile compact cover art (hidden on desktop) -->
+          <div class="vc-cover">
+            <img
+              v-if="song.coverId"
+              :src="`/music/cover/${song.coverId}`"
+              class="vc-thumb"
+              loading="lazy"
+              alt=""
+            />
+            <img v-else src="/img/no-cover.svg" class="vc-thumb" alt="" />
+          </div>
           <div v-if="playlistMode" class="vc-drag-handle" @click.stop>⠿</div>
           <div
             class="vc-check"
@@ -810,17 +398,23 @@ const gridCols = computed(() => {
           </div>
           <div
             class="vc-cell vc-title"
-            :class="{
-              'now-playing': isPlaying(song.id),
-              'touch-active': lastTouchedId === song.id,
-            }"
+            :class="{ 'now-playing': isPlaying(song.id) }"
           >
             <span class="title-text">{{ song.title }}</span>
             <SongFlagButtons
+              v-if="!isMobile"
               :song="song"
               variant="row"
               @change="(field, val) => handleFlagChange(song.id, field, val)"
             />
+            <!-- Mobile subtitle: artist — album -->
+            <div class="vc-mobile-sub">
+              <span>{{ song.artist }}</span>
+              <template v-if="song.album">
+                <span class="vc-sub-sep"> — </span>
+                <span>{{ song.album }}</span>
+              </template>
+            </div>
           </div>
           <div v-if="!albumContext" class="vc-cell vc-num">
             {{ trackLabel(song) }}
@@ -833,49 +427,21 @@ const gridCols = computed(() => {
           </div>
           <!-- Per-row actions -->
           <div class="vc-actions" @click.stop>
-            <div class="row-action-wrap">
-              <button
-                :ref="
-                  (el) =>
-                    setActionBtnRef(el as HTMLButtonElement | null, song.id)
-                "
-                class="row-action-btn"
-                title="Actions"
-                @click="openRowMenu(song.id, $event)"
-              >
-                …
-              </button>
-              <div
-                v-if="rowMenu?.songId === song.id"
-                class="row-menu"
-                :class="{ above: rowMenu.above }"
-                @click.stop
-              >
-                <button @click="rowMenuEnqueue(song.id)">Queue Next</button>
-                <button @click="rowMenuAppend(song.id)">Queue Later</button>
-                <button @click="rowMenuReplace(song.id)">Play Now</button>
-                <hr />
-                <button @click="rowMenuMark(song.id, !song.marked)">
-                  {{ song.marked ? 'Unmark' : 'Mark' }}
-                </button>
-                <button @click="rowMenuFavorite(song.id, !song.favorite)">
-                  {{ song.favorite ? 'Unfavorite' : 'Favorite' }}
-                </button>
-                <button @click="rowMenuEdit(song.id)">Edit</button>
-                <template v-if="playlistMode">
-                  <hr />
-                  <button @click="rowMenuRemoveFromPlaylist(song.id)">
-                    Remove from Playlist
-                  </button>
-                </template>
-                <template v-else-if="isAdmin">
-                  <hr />
-                  <button class="menu-danger" @click="rowMenuDelete(song.id)">
-                    Delete
-                  </button>
-                </template>
-              </div>
-            </div>
+            <SongRowMenu
+              :song="song"
+              :is-open="rowMenu?.songId === song.id"
+              :is-admin="isAdmin"
+              :playlist-mode="playlistMode"
+              @open="openRowMenu(song.id, $event)"
+              @enqueue="rowMenuEnqueue(song.id)"
+              @append="rowMenuAppend(song.id)"
+              @replace="rowMenuReplace(song.id)"
+              @mark="(v) => rowMenuMark(song.id, v)"
+              @favorite="(v) => rowMenuFavorite(song.id, v)"
+              @edit="rowMenuEdit(song.id)"
+              @delete="rowMenuDelete(song.id)"
+              @remove-from-playlist="rowMenuRemoveFromPlaylist(song.id)"
+            />
           </div>
         </div>
 
@@ -920,7 +486,9 @@ const gridCols = computed(() => {
               draggable="true"
               @click="handleRowClick(group.startIndex + si, $event)"
               @dblclick="handleRowDblClick(group.startIndex + si, $event)"
-              @dragstart="onRowDragStart(song.id, $event)"
+              @dragstart="
+                onRowDragStart(song.id, group.startIndex + si, $event)
+              "
             >
               <!-- Cover art and album info merged — only on first row of group -->
               <td
@@ -970,10 +538,7 @@ const gridCols = computed(() => {
               <td class="col-track">{{ trackLabel(song) }}</td>
               <td
                 class="col-title"
-                :class="{
-                  'now-playing': isPlaying(song.id),
-                  'touch-active': lastTouchedId === song.id,
-                }"
+                :class="{ 'now-playing': isPlaying(song.id) }"
               >
                 <span class="title-text">{{ song.title }}</span>
                 <SongFlagButtons
@@ -985,45 +550,22 @@ const gridCols = computed(() => {
                 />
               </td>
               <td class="col-duration">{{ formatDuration(song.length) }}</td>
-              <!-- Per-row actions -->
+              <!-- Per-row actions (no Favorite, no playlist mode in grouped view) -->
               <td class="col-actions" @click.stop>
-                <div class="row-action-wrap">
-                  <button
-                    :ref="
-                      (el) =>
-                        setActionBtnRef(el as HTMLButtonElement | null, song.id)
-                    "
-                    class="row-action-btn"
-                    title="Actions"
-                    @click="openRowMenu(song.id, $event)"
-                  >
-                    …
-                  </button>
-                  <div
-                    v-if="rowMenu?.songId === song.id"
-                    class="row-menu"
-                    :class="{ above: rowMenu.above }"
-                    @click.stop
-                  >
-                    <button @click="rowMenuEnqueue(song.id)">Queue Next</button>
-                    <button @click="rowMenuAppend(song.id)">Queue Later</button>
-                    <button @click="rowMenuReplace(song.id)">Play Now</button>
-                    <hr />
-                    <button @click="rowMenuMark(song.id, !song.marked)">
-                      {{ song.marked ? 'Unmark' : 'Mark' }}
-                    </button>
-                    <button @click="rowMenuEdit(song.id)">Edit</button>
-                    <template v-if="isAdmin">
-                      <hr />
-                      <button
-                        class="menu-danger"
-                        @click="rowMenuDelete(song.id)"
-                      >
-                        Delete
-                      </button>
-                    </template>
-                  </div>
-                </div>
+                <SongRowMenu
+                  :song="song"
+                  :is-open="rowMenu?.songId === song.id"
+                  :is-admin="isAdmin"
+                  :playlist-mode="false"
+                  :show-favorite="false"
+                  @open="openRowMenu(song.id, $event)"
+                  @enqueue="rowMenuEnqueue(song.id)"
+                  @append="rowMenuAppend(song.id)"
+                  @replace="rowMenuReplace(song.id)"
+                  @mark="(v) => rowMenuMark(song.id, v)"
+                  @edit="rowMenuEdit(song.id)"
+                  @delete="rowMenuDelete(song.id)"
+                />
               </td>
             </tr>
           </template>
@@ -1034,54 +576,48 @@ const gridCols = computed(() => {
       </table>
     </div>
 
+    <!-- Teleport sort controls into music.vue header row on mobile -->
+    <Teleport
+      v-if="isMobile && !playlistMode && !groupByAlbum"
+      to="#mobile-sort-portal"
+    >
+      <div class="mobile-sort-inline">
+        <select
+          :value="sortCol"
+          class="mobile-sort-select"
+          @change="onMobileSortChange"
+        >
+          <option v-if="showArtist" value="artist">Artist</option>
+          <option v-if="showAlbum" value="album">Album</option>
+          <option value="title">Title</option>
+          <option value="track">Track</option>
+          <option value="duration">Dur.</option>
+          <option v-if="showYear" value="year">Year</option>
+        </select>
+        <button class="mobile-sort-dir" @click="toggleSortDir">
+          {{ sortDir === 1 ? '↑' : '↓' }}
+        </button>
+      </div>
+    </Teleport>
+
     <!-- Click-outside overlay for row menu -->
     <div v-if="rowMenu" class="menu-overlay" @click="closeRowMenu" />
 
-    <!-- Floating multi-select bar -->
-    <Teleport to="body">
-      <Transition name="float-bar">
-        <div v-if="selectedCount > 1" class="multi-select-bar">
-          <span class="multi-count">{{ selectedCount }} songs selected</span>
-          <div class="multi-actions">
-            <button @click="multiEnqueue">Queue Next</button>
-            <button @click="multiAppend">Queue Later</button>
-            <button @click="multiReplace">Play Now</button>
-            <button
-              class="multi-menu-btn"
-              @click="multiMenuOpen = !multiMenuOpen"
-            >
-              More ▾
-            </button>
-            <div v-if="multiMenuOpen" class="multi-menu" @click.stop>
-              <button @click="multiEdit">Edit all</button>
-              <button @click="multiMark(true)">Mark all</button>
-              <button @click="multiMark(false)">Unmark all</button>
-              <button @click="multiFavorite(true)">Favorite all</button>
-              <button @click="multiFavorite(false)">Unfavorite all</button>
-              <template v-if="playlistMode">
-                <hr />
-                <button @click="multiRemoveFromPlaylist">
-                  Remove from Playlist
-                </button>
-              </template>
-              <template v-else-if="isAdmin">
-                <hr />
-                <button class="menu-danger" @click="multiDelete">
-                  Delete all
-                </button>
-              </template>
-            </div>
-          </div>
-          <button
-            class="multi-close"
-            title="Clear selection"
-            @click="clearSelection"
-          >
-            ✕
-          </button>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- Floating multi-select bar (self-contained with Teleport) -->
+    <SongMultiBar
+      :count="selectedCount"
+      :is-admin="isAdmin"
+      :playlist-mode="playlistMode"
+      @enqueue="multiEnqueue"
+      @append="multiAppend"
+      @replace="multiReplace"
+      @mark="multiMark"
+      @favorite="multiFavorite"
+      @edit="multiEdit"
+      @delete="multiDelete"
+      @remove-from-playlist="multiRemoveFromPlaylist"
+      @clear="clearSelection"
+    />
   </div>
 </template>
 
@@ -1181,7 +717,8 @@ const gridCols = computed(() => {
   &:hover {
     background: #2a2a2a;
 
-    .row-action-btn {
+    // Reveal the "..." button on row hover (button is in SongRowMenu child)
+    :deep(.row-action-btn) {
       opacity: 1;
       color: #888;
     }
@@ -1290,7 +827,7 @@ const gridCols = computed(() => {
   overflow-y: auto;
 }
 
-// ─── Grouped table (unchanged) ───────────────────────────────────────────────
+// ─── Grouped table ────────────────────────────────────────────────────────────
 
 .song-table {
   width: 100%;
@@ -1332,16 +869,26 @@ const gridCols = computed(() => {
 
   tr {
     cursor: pointer;
+
     &:hover {
       background: #2a2a2a;
+
+      // Reveal the "..." button on row hover
+      :deep(.row-action-btn) {
+        opacity: 1;
+        color: #888;
+      }
     }
+
     &.selected {
       background: #1e3a5f;
       color: #90caf9;
     }
+
     &.playing {
       background: #1a2e1a;
     }
+
     &.selected.playing {
       background: #1a3a2a;
     }
@@ -1359,10 +906,12 @@ const gridCols = computed(() => {
       pointer-events: none; // td handles the click
     }
   }
+
   .col-album {
     max-width: 180px;
     color: #aaa;
   }
+
   .col-title {
     max-width: 240px;
 
@@ -1371,23 +920,27 @@ const gridCols = computed(() => {
       color: #4ade80;
     }
   }
+
   .col-track {
     width: 60px;
     text-align: right;
     color: #666;
   }
+
   .col-duration {
     width: 60px;
     text-align: right;
     color: #777;
     font-variant-numeric: tabular-nums;
   }
+
   .col-actions {
     width: 32px;
     padding: 0 0.2rem;
     text-align: center;
     overflow: visible;
   }
+
   .col-cover {
     width: 100px;
     padding: 4px;
@@ -1402,9 +955,8 @@ const gridCols = computed(() => {
   min-width: 0;
 }
 
-// Reveal ghost flag buttons on row hover or touch-active
-.vrow:hover :deep(.flag-btn--row:not(.active)),
-.touch-active :deep(.flag-btn--row:not(.active)) {
+// Reveal ghost flag buttons on row hover
+.vrow:hover :deep(.flag-btn--row:not(.active)) {
   opacity: 0.3;
   filter: none;
 }
@@ -1433,6 +985,7 @@ const gridCols = computed(() => {
   white-space: normal;
   line-height: 1.2;
 }
+
 .artist-name {
   font-size: 0.72rem;
   color: #aaa;
@@ -1440,6 +993,7 @@ const gridCols = computed(() => {
   white-space: normal;
   line-height: 1.2;
 }
+
 .album-year {
   font-size: 0.7rem;
   color: #666;
@@ -1453,212 +1007,130 @@ const gridCols = computed(() => {
   font-size: 0.85rem;
 }
 
-// ─── Per-row actions ──────────────────────────────────────────────────────────
-
-.row-action-wrap {
-  position: relative;
-  display: inline-block;
-}
-
-.row-action-btn {
-  background: none;
-  border: none;
-  color: #555;
-  cursor: pointer;
-  padding: 0.1rem 0.3rem;
-  border-radius: 3px;
-  font-size: 1rem;
-  line-height: 1;
-  opacity: 0;
-
-  tr:hover &,
-  .vrow:hover & {
-    opacity: 1;
-    color: #888;
-  }
-
-  &:hover {
-    background: #333;
-    color: #ccc !important;
-  }
-}
-
-.row-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 2px);
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 6px;
-  padding: 0.25rem 0;
-  z-index: 500;
-  min-width: 150px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-  white-space: nowrap;
-
-  &.above {
-    top: auto;
-    bottom: calc(100% + 2px);
-  }
-
-  button {
-    display: block;
-    width: 100%;
-    background: none;
-    border: none;
-    color: #e0e0e0;
-    padding: 0.4rem 0.75rem;
-    text-align: left;
-    font-size: 0.85rem;
-    cursor: pointer;
-
-    &:hover {
-      background: #3b82f6;
-      color: #fff;
-    }
-
-    &.menu-danger {
-      color: #f87171;
-
-      &:hover {
-        background: #7f1d1d;
-        color: #fca5a5;
-      }
-    }
-  }
-
-  hr {
-    border: none;
-    border-top: 1px solid #444;
-    margin: 0.25rem 0;
-  }
-}
-
 .menu-overlay {
   position: fixed;
   inset: 0;
   z-index: 499;
 }
 
-// ─── Floating multi-select bar ────────────────────────────────────────────────
+// ─── Mobile compact row layout ────────────────────────────────────────────────
+// $mobile-bp must match MOBILE_BP constant in useVirtualScroll.ts
 
-.multi-select-bar {
-  position: fixed;
-  bottom: 1.5rem;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #1e3a5f;
-  border: 1px solid #2a5a9f;
-  border-radius: 8px;
-  padding: 0.5rem 0.75rem;
-  display: flex;
+$mobile-bp: 600px;
+
+// Cover art cell — hidden on desktop, shown on mobile as grid col 1
+.vc-cover {
+  display: none;
+  flex-shrink: 0;
   align-items: center;
-  gap: 0.5rem;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7);
-  z-index: 300;
+  justify-content: center;
+}
+
+.vc-thumb {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 3px;
+  display: block;
+}
+
+// Mobile subtitle (artist — album) inside title cell — hidden on desktop
+.vc-mobile-sub {
+  display: none;
+  font-size: 0.72rem;
+  color: #777;
   white-space: nowrap;
-  color: #90caf9;
-  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
 }
 
-.multi-count {
-  font-weight: 600;
-  margin-right: 0.25rem;
+.vc-sub-sep {
+  color: #555;
 }
 
-.multi-actions {
+// Teleported sort inline widget — only visible when portal is active
+.mobile-sort-inline {
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  position: relative;
-
-  button {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    color: #90caf9;
-    padding: 0.25rem 0.5rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.2);
-      color: #fff;
-    }
-  }
 }
 
-.multi-menu {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
-  background: #2a2a2a;
+// Shared sort control styles (used in the teleported inline widget)
+.mobile-sort-select {
+  background: #222;
   border: 1px solid #444;
-  border-radius: 6px;
-  padding: 0.25rem 0;
-  z-index: 310;
-  min-width: 140px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-
-  button {
-    display: block;
-    width: 100%;
-    background: none !important;
-    border: none !important;
-    color: #e0e0e0 !important;
-    padding: 0.4rem 0.75rem;
-    text-align: left;
-    font-size: 0.85rem;
-    cursor: pointer;
-    border-radius: 0 !important;
-
-    &:hover {
-      background: #3b82f6 !important;
-      color: #fff !important;
-    }
-
-    &.menu-danger {
-      color: #f87171 !important;
-
-      &:hover {
-        background: #7f1d1d !important;
-        color: #fca5a5 !important;
-      }
-    }
-  }
-
-  hr {
-    border: none;
-    border-top: 1px solid #444;
-    margin: 0.25rem 0;
-  }
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+  outline: none;
+  max-width: 80px;
 }
 
-.multi-close {
-  background: none;
-  border: none;
-  color: #90caf9;
+.mobile-sort-dir {
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.4rem;
   cursor: pointer;
-  padding: 0.2rem 0.3rem;
-  font-size: 0.8rem;
-  border-radius: 3px;
-  margin-left: 0.25rem;
+  flex-shrink: 0;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.15);
-    color: #fff;
+    background: #333;
   }
 }
 
-.float-bar-enter-active,
-.float-bar-leave-active {
-  transition:
-    opacity 0.15s ease,
-    transform 0.15s ease;
-}
-.float-bar-enter-from,
-.float-bar-leave-to {
-  opacity: 0;
-  transform: translateX(-50%) translateY(8px);
+@media (max-width: $mobile-bp) {
+  // Hide column headers on mobile
+  .vlist-header {
+    display: none;
+  }
+
+  // Compact row: taller to accommodate 2-line info cell
+  .vrow {
+    height: 48px; // must match ROW_H_MOBILE in useVirtualScroll.ts
+  }
+
+  // Show cover art as first grid column
+  .vc-cover {
+    display: flex;
+  }
+
+  // Always show action button on mobile (no hover)
+  :deep(.row-action-btn) {
+    opacity: 1;
+    color: #888;
+  }
+
+  // Move checkbox before cover art without changing DOM order
+  .vc-check {
+    order: -1;
+  }
+
+  // Hide desktop-only cells so they drop out of the grid flow
+  .vc-drag-handle,
+  .vc-artist,
+  .vc-album,
+  .vc-num {
+    display: none;
+  }
+
+  // Title cell: stack title on top, subtitle below
+  .vc-title {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+    overflow: hidden;
+  }
+
+  // Show the subtitle
+  .vc-mobile-sub {
+    display: block;
+  }
 }
 </style>

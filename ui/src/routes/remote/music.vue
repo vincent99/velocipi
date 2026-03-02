@@ -22,6 +22,10 @@ import type { Playlist, SmartSearch } from '@/types/music';
 const route = useRoute();
 const router = useRouter();
 
+// Mobile-only UI state
+const mobileNavOpen = ref(false);
+const mobileQueueOpen = ref(false);
+
 const {
   musicState,
   currentSong,
@@ -77,13 +81,14 @@ function startResize(side: 'left' | 'right', e: MouseEvent | TouchEvent) {
   window.addEventListener('touchend', onUp);
 }
 
-// Redirect /remote/music → /remote/music/songs
+// Redirect /remote/music → /remote/music/songs; also close mobile nav on any nav
 watch(
   () => route.path,
   (path) => {
     if (path === '/remote/music') {
       router.replace('/remote/music/songs');
     }
+    mobileNavOpen.value = false;
   },
   { immediate: true }
 );
@@ -510,20 +515,54 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
         </div>
       </div>
 
-      <form class="header-search" @submit.prevent="submitSearch">
-        <input
-          v-model="searchQuery"
-          type="search"
-          class="header-search-input"
-          placeholder="Search…"
-        />
-      </form>
+      <div class="header-search-row">
+        <button
+          class="ctrl-btn mobile-nav-btn"
+          :class="{ active: mobileNavOpen }"
+          title="Navigation"
+          @click="mobileNavOpen = !mobileNavOpen"
+        >
+          ☰
+        </button>
+        <!-- Sort controls are teleported here by SongTable on mobile -->
+        <div id="mobile-sort-portal" class="mobile-sort-portal"></div>
+        <form class="header-search" @submit.prevent="submitSearch">
+          <input
+            v-model="searchQuery"
+            type="search"
+            class="header-search-input"
+            placeholder="Search…"
+          />
+        </form>
+        <button
+          class="ctrl-btn mobile-queue-btn"
+          :class="{ active: mobileQueueOpen }"
+          title="Queue"
+          @click="mobileQueueOpen = !mobileQueueOpen"
+        >
+          <i class="fi-sr-list-music" />
+        </button>
+      </div>
     </div>
 
     <!-- Body -->
     <div class="music-body">
+      <!-- Mobile backdrop: closes nav/queue when tapped -->
+      <div
+        class="mobile-backdrop"
+        :class="{ visible: mobileNavOpen || mobileQueueOpen }"
+        @click="
+          mobileNavOpen = false;
+          mobileQueueOpen = false;
+        "
+      />
+
       <!-- Left nav -->
-      <nav class="music-nav" :style="{ width: navWidth + 'px' }">
+      <nav
+        class="music-nav"
+        :class="{ 'mobile-open': mobileNavOpen }"
+        :style="{ width: navWidth + 'px' }"
+      >
         <RouterLink
           v-for="link in navLinks"
           :key="link.to"
@@ -617,8 +656,17 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
       />
 
       <!-- Right: queue -->
-      <div class="music-sidebar-right" :style="{ width: sidebarWidth + 'px' }">
-        <div class="sidebar-heading">Queue</div>
+      <div
+        class="music-sidebar-right"
+        :class="{ 'mobile-open': mobileQueueOpen }"
+        :style="{ width: sidebarWidth + 'px' }"
+      >
+        <div class="sidebar-heading">
+          Queue
+          <button class="mobile-queue-close" @click="mobileQueueOpen = false">
+            ✕
+          </button>
+        </div>
         <div
           class="queue-list"
           @dragover="handleQueueListDragOver"
@@ -1073,8 +1121,32 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
   font-style: italic;
 }
 
-.header-search {
+.header-search-row {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mobile-nav-btn,
+.mobile-queue-btn {
+  display: none;
+  flex-shrink: 0;
+}
+
+.mobile-sort-portal {
+  display: none; // hidden on desktop (Teleport doesn't render into it either)
+}
+
+.mobile-queue-close {
+  display: none;
+}
+
+.mobile-backdrop {
+  display: none;
+}
+
+.header-search {
   display: flex;
 }
 
@@ -1236,6 +1308,144 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
     font-size: 0.85em;
     color: #c8c8c8;
     font-family: 'Roboto Mono', 'Consolas', monospace;
+  }
+}
+
+// ── Responsive: phone-sized screens (portrait iPhone and similar) ─────────────
+// Anything narrower than an iPad mini in portrait mode (768px).
+// Change this variable to adjust the breakpoint.
+$mobile-bp: 600px;
+
+@media (max-width: $mobile-bp) {
+  // Header stacks vertically, each row centered
+  .music-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.4rem;
+    padding: 0.5rem;
+  }
+
+  .controls-column {
+    align-items: center;
+  }
+
+  .transport {
+    justify-content: center;
+  }
+
+  .progress-area {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .now-playing {
+    flex: 0 0 auto;
+    justify-content: center;
+  }
+
+  // Search row expands full-width with nav/queue buttons on the sides
+  .header-search-row {
+    width: 100%;
+  }
+
+  .header-search {
+    flex: 1;
+  }
+
+  .header-search-input {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .mobile-nav-btn,
+  .mobile-queue-btn {
+    display: flex;
+  }
+
+  .mobile-sort-portal {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  // Queue sidebar close button (inside sidebar-heading)
+  .mobile-queue-close {
+    display: block;
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0 0.25rem;
+    line-height: 1;
+
+    &:hover {
+      color: #ccc;
+    }
+  }
+
+  // Hide resize handles
+  .resize-handle {
+    display: none;
+  }
+
+  // music-body is the positioning context for the absolute panels
+  .music-body {
+    position: relative;
+  }
+
+  // Left nav: slide in from left as an overlay
+  .music-nav {
+    position: absolute;
+    z-index: 200;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(280px, 85vw) !important;
+    overflow-y: auto;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.6);
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+    &.mobile-open {
+      transform: translateX(0);
+    }
+  }
+
+  // Right queue: slide in from right, covering the full body area
+  .music-sidebar-right {
+    position: absolute;
+    z-index: 200;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto !important;
+    min-width: 0;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+    &.mobile-open {
+      transform: translateX(0);
+    }
+  }
+
+  // Backdrop: dims content behind open panels
+  .mobile-backdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 150;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+
+    &.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
   }
 }
 </style>

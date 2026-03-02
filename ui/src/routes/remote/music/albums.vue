@@ -114,7 +114,7 @@ async function handleDelete(ids: number[]) {
 </script>
 
 <template>
-  <div class="albums-view">
+  <div class="albums-view" :class="{ 'is-grid': !selectedAlbum }">
     <!-- Album detail -->
     <template v-if="selectedAlbum">
       <div class="detail-header">
@@ -166,14 +166,16 @@ async function handleDelete(ids: number[]) {
           class="album-card"
           @click="selectAlbum(album)"
         >
-          <img
-            v-if="album.coverId"
-            :src="`/music/cover/${album.coverId}`"
-            class="card-cover"
-            loading="lazy"
-            alt=""
-          />
-          <img v-else src="/img/no-cover.svg" class="card-cover" alt="" />
+          <div class="card-cover-wrap">
+            <img
+              v-if="album.coverId"
+              :src="`/music/cover/${album.coverId}`"
+              class="card-cover"
+              loading="lazy"
+              alt=""
+            />
+            <img v-else src="/img/no-cover.svg" class="card-cover" alt="" />
+          </div>
           <div class="card-info">
             <div class="card-album">{{ album.album || '(Unknown Album)' }}</div>
             <div class="card-artist">{{ album.artist }}</div>
@@ -194,6 +196,10 @@ async function handleDelete(ids: number[]) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+
+  &.is-grid {
+    overflow-y: auto;
+  }
 }
 
 .grid-loading,
@@ -204,17 +210,14 @@ async function handleDelete(ids: number[]) {
 }
 
 .album-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 0.75rem;
   padding: 0.75rem;
-  overflow-y: auto;
-  flex: 1;
-  align-content: flex-start;
+  align-content: start;
 }
 
 .album-card {
-  width: 120px;
   cursor: pointer;
   border-radius: 6px;
   overflow: hidden;
@@ -226,9 +229,15 @@ async function handleDelete(ids: number[]) {
   }
 }
 
+.card-cover-wrap {
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: #111;
+}
+
 .card-cover {
-  width: 120px;
-  height: 120px;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   display: block;
 }
