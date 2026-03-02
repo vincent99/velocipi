@@ -104,6 +104,21 @@ export interface RecordingReadyMsg {
   filename: string;
 }
 
+export type DVRRecordingState = 'on' | 'paused' | 'off';
+
+export interface DVRStateMsg {
+  type: 'dvrState';
+  state: DVRRecordingState;
+}
+
+export interface DiskSpaceMsg {
+  type: 'diskSpace';
+  totalGB: number;
+  usedGB: number;
+  freeGB: number;
+  usedPct: number;
+}
+
 export interface LocalCameraMsg {
   type: 'localCamera';
   camera: string;
@@ -136,6 +151,8 @@ export type InboundWsMsg =
   | KeyEchoMsg
   | CameraStatusMsg
   | RecordingReadyMsg
+  | DVRStateMsg
+  | DiskSpaceMsg
   | LocalCameraMsg
   | MusicStateMsg
   | MusicQueueMsg;

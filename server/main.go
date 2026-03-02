@@ -39,7 +39,7 @@ func main() {
 	// Initialise the OLED display. Non-fatal if the hardware isn't present.
 	var display oled.Display
 	oledCfg := oled.Config{
-		SPIPort:   cfg.OLED.SPIPort,
+		SPIPort:   cfg.SPIDevice,
 		SPISpeed:  cfg.OLEDSPIFreq,
 		GPIOChip:  cfg.OLED.GPIOChip,
 		StatusPin: cfg.OLED.StatusPin,
@@ -135,7 +135,39 @@ func main() {
 		json.NewEncoder(w).Encode(infos)
 	})
 
-	dvrManager := dvr.New(cfg.DVR)
+	dvrManager := dvr.New(cfg.DVR, cfg.DVRDiskSpacePollDur)
+
+	// /dvr/state — GET returns current DVR state; PUT sets it (admin only).
+	mux.HandleFunc("/dvr/state", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(struct {
+				State string `json:"state"`
+			}{State: string(dvrManager.State())})
+		case http.MethodPut:
+			if !isAdmin(r) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			var body struct {
+				State string `json:"state"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			s := dvr.RecordingState(body.State)
+			if s != dvr.RecordingOn && s != dvr.RecordingPaused && s != dvr.RecordingOff {
+				http.Error(w, "state must be on, paused, or off", http.StatusBadRequest)
+				return
+			}
+			dvrManager.SetState(s)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 
 	// /mpegts/{camera} — on-demand MPEG-TS stream piped directly from ffmpeg.
 	// The browser plays this with mpegts.js via MSE. The stream runs until the
@@ -346,6 +378,12 @@ func main() {
 			Session:  msg.Session,
 			Filename: msg.Filename,
 		})
+	})
+	dvrManager.OnDiskSpace(func(msg dvr.DiskSpaceMsg) {
+		hub.broadcastAll(msg)
+	})
+	dvrManager.OnDVRState(func(msg dvr.DVRStateMsg) {
+		hub.broadcastAll(msg)
 	})
 
 	// Start DVR recording for all configured cameras.

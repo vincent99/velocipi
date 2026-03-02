@@ -153,6 +153,23 @@ func (h *Hub) sendCameraStatuses(c *client) {
 		default:
 		}
 	}
+	// Send current DVR state.
+	stateMsg := dvr.DVRStateMsg{Type: "dvrState", State: h.dvrManager.State()}
+	if data, err := json.Marshal(stateMsg); err == nil {
+		select {
+		case c.send <- data:
+		default:
+		}
+	}
+	// Send most recent disk space reading if available.
+	if ds := h.dvrManager.LastDiskSpace(); ds != nil {
+		if data, err := json.Marshal(ds); err == nil {
+			select {
+			case c.send <- data:
+			default:
+			}
+		}
+	}
 }
 
 // sendLEDState sends the current LED state to a single client.

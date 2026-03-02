@@ -5,7 +5,7 @@ import { settingsKey } from './settingsContext';
 const props = defineProps<{
   label: string;
   path: string;
-  type?: 'text' | 'number' | 'checkbox' | 'color';
+  type?: 'text' | 'number' | 'checkbox' | 'color' | 'textarea';
   placeholder?: string;
   min?: number;
   max?: number;
@@ -29,6 +29,8 @@ function onInput(e: Event) {
 
 <template>
   <div class="sf-row" :class="{ modified: ctx.isModified(path) }">
+    <label class="sf-label">{{ label }}</label>
+
     <button
       v-if="ctx.isModified(path)"
       type="button"
@@ -39,8 +41,6 @@ function onInput(e: Event) {
       <i class="fi-sr-rotate-left" />
     </button>
     <span v-else class="sf-reset-placeholder" />
-
-    <label class="sf-label">{{ label }}</label>
 
     <template v-if="type === 'color'">
       <div class="sf-color-wrap">
@@ -65,6 +65,14 @@ function onInput(e: Event) {
         type="checkbox"
         class="sf-checkbox"
         @change="onInput"
+      />
+    </template>
+    <template v-else-if="type === 'textarea'">
+      <textarea
+        :value="inputValue"
+        class="sf-input"
+        :placeholder="placeholder"
+        @input="onInput"
       />
     </template>
     <template v-else>
@@ -117,7 +125,7 @@ function onInput(e: Event) {
 }
 
 .sf-label {
-  width: 100px;
+  width: 200px;
   flex-shrink: 0;
   color: #aaa;
   font-size: 0.85rem;

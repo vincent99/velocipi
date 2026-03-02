@@ -73,7 +73,7 @@ func (d *DB) Backup(backupDir string) error {
 // Migrate reads all NNN-*.sql files from schemasDir, determines which have not
 // been applied (based on state.dbVersion), backs up the DB before any migration,
 // then applies pending migrations in a transaction.
-func (d *DB) Migrate(schemasDir string) error {
+func (d *DB) Migrate(schemasDir, backupDir string) error {
 	// Ensure state table exists so we can read dbVersion.
 	if _, err := d.db.Exec(`CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT 'null')`); err != nil {
 		return fmt.Errorf("music: create state table: %w", err)
@@ -130,7 +130,7 @@ func (d *DB) Migrate(schemasDir string) error {
 	}
 
 	// Backup before first migration.
-	if err := d.Backup("backup"); err != nil {
+	if err := d.Backup(backupDir); err != nil {
 		log.Println("music: backup warning:", err)
 	}
 
@@ -195,12 +195,12 @@ func (d *DB) SetState(key string, val any) error {
 // OpenAndMigrate opens (or creates) the music.sqlite database and runs all
 // pending schema migrations. It does not check minDbVersion, making it safe
 // to call from the sync CLI regardless of server config.
-func OpenAndMigrate(schemasDir string) (*DB, error) {
+func OpenAndMigrate(schemasDir, backupDir string) (*DB, error) {
 	d, err := Open("music.sqlite")
 	if err != nil {
 		return nil, fmt.Errorf("cannot open db: %w", err)
 	}
-	if err := d.Migrate(schemasDir); err != nil {
+	if err := d.Migrate(schemasDir, backupDir); err != nil {
 		d.Close()
 		return nil, fmt.Errorf("migration error: %w", err)
 	}
@@ -211,7 +211,7 @@ func OpenAndMigrate(schemasDir string) (*DB, error) {
 // minimum required version. Returns (nil, false) if the music subsystem should
 // be disabled due to a migration error or version mismatch.
 func InitDB(cfg MusicConfig, schemasDir string) (*DB, bool) {
-	d, err := OpenAndMigrate(schemasDir)
+	d, err := OpenAndMigrate(schemasDir, cfg.BackupDir)
 	if err != nil {
 		log.Println("music:", err)
 		return nil, false

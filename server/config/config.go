@@ -36,6 +36,7 @@ type MusicConfig struct {
 	PlayedRequiredPercent int     `yaml:"playedRequiredPercent" json:"playedRequiredPercent"` // % elapsed before a skip counts as a play
 	AcoustIDKey           string  `yaml:"acoustidKey"           json:"acoustidKey"`           // AcoustID API key (register free at acoustid.org)
 	AcoustIDMinScore      float64 `yaml:"acoustidMinScore"      json:"acoustidMinScore"`      // minimum AcoustID match score (0.0–1.0) to accept a result
+	BackupDir             string  `yaml:"backupDir"             json:"backupDir"`             // directory for database backups
 }
 
 // DVRConfig holds settings for the DVR recording subsystem.
@@ -44,6 +45,9 @@ type DVRConfig struct {
 	SegmentDuration int            `yaml:"segmentDuration" json:"segmentDuration"` // seconds
 	ThumbnailHeight int            `yaml:"thumbnailHeight" json:"thumbnailHeight"` // px height for snapshot + segment thumbnails
 	FFmpegLog       bool           `yaml:"ffmpegLog"       json:"ffmpegLog"`       // pipe ffmpeg stderr to server log
+	Record          bool           `yaml:"record"          json:"record"`          // enable recording on startup (default true)
+	MinFreeDisk     float64        `yaml:"minFreeDisk"     json:"minFreeDisk"`     // minimum free disk space in GB; 0 = disabled
+	DiskSpacePoll   string         `yaml:"diskSpacePoll"   json:"diskSpacePoll"`   // how often to poll disk space, e.g. "1m"
 	Cameras         []CameraConfig `yaml:"cameras"         json:"cameras"`
 }
 
@@ -155,7 +159,6 @@ type ScreenConfig struct {
 
 type OLEDConfig struct {
 	Driver    string `yaml:"driver"    json:"driver"` // "ssd1327" or "ge256x64b"
-	SPIPort   string `yaml:"spiPort"   json:"spiPort"`
 	SPISpeed  string `yaml:"spiSpeed"  json:"spiSpeed"`
 	GPIOChip  string `yaml:"gpioChip"  json:"gpioChip"`
 	StatusPin int    `yaml:"statusPin" json:"statusPin"`
@@ -167,6 +170,7 @@ type OLEDConfig struct {
 type Config struct {
 	Addr         string `yaml:"addr"         json:"addr"`
 	I2CDevice    string `yaml:"i2cDevice"    json:"i2cDevice"`
+	SPIDevice    string `yaml:"spiDevice"    json:"spiDevice"`
 	PingInterval string `yaml:"pingInterval" json:"pingInterval"`
 
 	AirSensor   SensorConfig   `yaml:"airSensor"   json:"airSensor"`
@@ -186,6 +190,7 @@ type Config struct {
 	LightSensorIntervalDur time.Duration    `yaml:"-" json:"-"`
 	PingIntervalDur        time.Duration    `yaml:"-" json:"-"`
 	SplashDurationDur      time.Duration    `yaml:"-" json:"-"`
+	DVRDiskSpacePollDur    time.Duration    `yaml:"-" json:"-"`
 	OLEDSPIFreq            physic.Frequency `yaml:"-" json:"-"`
 }
 
@@ -236,6 +241,7 @@ func parseDurations(cfg *Config) {
 	cfg.LightSensorIntervalDur = parseDuration(cfg.LightSensor.Interval, "lightSensor.interval")
 	cfg.PingIntervalDur = parseDuration(cfg.PingInterval, "pingInterval")
 	cfg.SplashDurationDur = parseDuration(cfg.Screen.SplashDuration, "screen.splashDuration")
+	cfg.DVRDiskSpacePollDur = parseDuration(cfg.DVR.DiskSpacePoll, "dvr.diskSpacePoll")
 
 	if err := cfg.OLEDSPIFreq.Set(cfg.OLED.SPISpeed); err != nil {
 		log.Fatalf("config: invalid oled.spiSpeed %q: %v", cfg.OLED.SPISpeed, err)

@@ -25,6 +25,15 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 )
 
+// RecordingState is the DVR manager's recording mode.
+type RecordingState string
+
+const (
+	RecordingOn     RecordingState = "on"
+	RecordingPaused RecordingState = "paused"
+	RecordingOff    RecordingState = "off"
+)
+
 const (
 	// snapshotFPS is the thumbnail capture rate fed to ffmpeg's select filter.
 	snapshotFPS = "1/5"
@@ -116,6 +125,21 @@ type CameraStatusMsg struct {
 	Recording bool   `json:"recording"` // true = actively recording
 }
 
+// DiskSpaceMsg is broadcast over WebSocket when disk space is polled.
+type DiskSpaceMsg struct {
+	Type    string  `json:"type"`    // always "diskSpace"
+	TotalGB float64 `json:"totalGB"` // total disk space in GB
+	UsedGB  float64 `json:"usedGB"`  // used disk space in GB
+	FreeGB  float64 `json:"freeGB"`  // free disk space in GB
+	UsedPct float64 `json:"usedPct"` // used percentage (0–100)
+}
+
+// DVRStateMsg is broadcast over WebSocket when the DVR recording state changes.
+type DVRStateMsg struct {
+	Type  string         `json:"type"`  // always "dvrState"
+	State RecordingState `json:"state"` // "on", "paused", or "off"
+}
+
 // streamSession tracks the active camera and switch channel for one StreamActive connection.
 type streamSession struct {
 	activeCam    string
@@ -135,16 +159,21 @@ type RecordingReadyMsg struct {
 type Manager struct {
 	mu               sync.RWMutex
 	cfg              config.DVRConfig
+	pollDur          time.Duration
 	sessionDir       string                    // chosen at Start: {recordingsDir}/{yyyy-mm-dd[-NN]}
 	live             map[string]*liveCamera    // sanitized name → live state
 	recording        map[string]bool           // sanitized name → recording state
 	sessions         map[string]*streamSession // clientID → per-connection state
+	state            RecordingState            // overall recording state: on, paused, off
+	lastDiskSpace    *DiskSpaceMsg             // most recent disk space reading
 	onStatusChange   func(CameraStatusMsg)
 	onRecordingReady func(RecordingReadyMsg)
+	onDiskSpace      func(DiskSpaceMsg)
+	onDVRState       func(DVRStateMsg)
 }
 
 // New creates a Manager. Call Start to begin recording.
-func New(cfg config.DVRConfig) *Manager {
+func New(cfg config.DVRConfig, pollDur time.Duration) *Manager {
 	live := make(map[string]*liveCamera, len(cfg.Cameras))
 	for _, cam := range cfg.Cameras {
 		live[sanitizeName(cam.Name)] = &liveCamera{
@@ -152,11 +181,21 @@ func New(cfg config.DVRConfig) *Manager {
 			frame: newFrameEntry(),
 		}
 	}
+	state := RecordingOff
+	if len(cfg.Cameras) > 0 {
+		if cfg.Record {
+			state = RecordingOn
+		} else {
+			state = RecordingOff
+		}
+	}
 	return &Manager{
 		cfg:       cfg,
+		pollDur:   pollDur,
 		live:      live,
 		recording: make(map[string]bool),
 		sessions:  make(map[string]*streamSession),
+		state:     state,
 	}
 }
 
@@ -170,6 +209,46 @@ func (m *Manager) OnStatusChange(fn func(CameraStatusMsg)) {
 // have been successfully written to disk. Must be called before Start.
 func (m *Manager) OnRecordingReady(fn func(RecordingReadyMsg)) {
 	m.onRecordingReady = fn
+}
+
+// OnDiskSpace registers a callback invoked whenever disk space is polled.
+// Must be called before Start.
+func (m *Manager) OnDiskSpace(fn func(DiskSpaceMsg)) {
+	m.onDiskSpace = fn
+}
+
+// OnDVRState registers a callback invoked whenever the DVR recording state changes.
+// Must be called before Start.
+func (m *Manager) OnDVRState(fn func(DVRStateMsg)) {
+	m.onDVRState = fn
+}
+
+// State returns the current DVR recording state.
+func (m *Manager) State() RecordingState {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.state
+}
+
+// SetState transitions the DVR recording state and fires the callback.
+// "off" → recordings and live streams are completely stopped (cameras still connect for live view).
+// "paused" → live streaming continues but no MP4 files are written.
+// "on" → full recording resumes.
+func (m *Manager) SetState(s RecordingState) {
+	m.mu.Lock()
+	prev := m.state
+	m.state = s
+	m.mu.Unlock()
+	if prev != s && m.onDVRState != nil {
+		m.onDVRState(DVRStateMsg{Type: "dvrState", State: s})
+	}
+}
+
+// LastDiskSpace returns the most recently polled disk space reading, or nil.
+func (m *Manager) LastDiskSpace() *DiskSpaceMsg {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastDiskSpace
 }
 
 // CameraStatuses returns the current recording status of all configured cameras.
@@ -230,6 +309,55 @@ func (m *Manager) SessionDir() string {
 	return m.sessionDir
 }
 
+// pollDiskSpace reads the filesystem stats for recordingsDir and broadcasts a DiskSpaceMsg.
+func (m *Manager) pollDiskSpace() {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(m.cfg.RecordingsDir, &stat); err != nil {
+		log.Println("dvr: disk space poll error:", err)
+		return
+	}
+	total := float64(stat.Blocks) * float64(stat.Bsize)
+	free := float64(stat.Bavail) * float64(stat.Bsize)
+	used := total - float64(stat.Bfree)*float64(stat.Bsize)
+	toGB := 1.0 / (1024 * 1024 * 1024)
+	var usedPct float64
+	if total > 0 {
+		usedPct = used / total * 100
+	}
+	msg := DiskSpaceMsg{
+		Type:    "diskSpace",
+		TotalGB: total * toGB,
+		UsedGB:  used * toGB,
+		FreeGB:  free * toGB,
+		UsedPct: usedPct,
+	}
+	m.mu.Lock()
+	m.lastDiskSpace = &msg
+	m.mu.Unlock()
+	if m.onDiskSpace != nil {
+		m.onDiskSpace(msg)
+	}
+}
+
+// runDiskSpaceLoop polls disk space at the configured interval until ctx is cancelled.
+func (m *Manager) runDiskSpaceLoop(ctx context.Context) {
+	dur := m.pollDur
+	if dur <= 0 {
+		dur = time.Minute
+	}
+	m.pollDiskSpace() // immediate first poll
+	ticker := time.NewTicker(dur)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.pollDiskSpace()
+		}
+	}
+}
+
 // Start launches the background recording loop for each camera.
 // It returns immediately; all loops run until ctx is cancelled.
 func (m *Manager) Start(ctx context.Context) {
@@ -240,15 +368,29 @@ func (m *Manager) Start(ctx context.Context) {
 		log.Println("dvr: cannot create recordings dir:", err)
 		return
 	}
-	dir, err := pickSessionDir(m.cfg.RecordingsDir)
-	if err != nil {
-		log.Println("dvr:", err)
-		return
+
+	// Start disk space polling regardless of recording state.
+	go m.runDiskSpaceLoop(ctx)
+
+	// Broadcast initial DVR state.
+	if m.onDVRState != nil {
+		m.onDVRState(DVRStateMsg{Type: "dvrState", State: m.state})
 	}
-	m.mu.Lock()
-	m.sessionDir = dir
-	m.mu.Unlock()
-	log.Println("dvr: session dir:", dir)
+
+	if m.state == RecordingOff {
+		log.Println("dvr: recording disabled, starting live-only camera loops")
+	} else {
+		dir, err := pickSessionDir(m.cfg.RecordingsDir)
+		if err != nil {
+			log.Println("dvr:", err)
+			return
+		}
+		m.mu.Lock()
+		m.sessionDir = dir
+		m.mu.Unlock()
+		log.Println("dvr: session dir:", dir)
+	}
+
 	for _, cam := range m.cfg.Cameras {
 		go m.runCamera(ctx, cam)
 	}
@@ -451,6 +593,47 @@ func (m *Manager) captureSegmentThumbs(mp4File, cameraName string) {
 			Filename: filename,
 		})
 	}
+
+	// Enforce minimum free disk space by deleting oldest recordings.
+	if m.cfg.MinFreeDisk > 0 {
+		m.enforceMinFreeDisk()
+	}
+}
+
+// enforceMinFreeDisk deletes the oldest recordings until at least MinFreeDisk GB is free.
+// It re-polls disk space after each deletion and broadcasts updates.
+func (m *Manager) enforceMinFreeDisk() {
+	minFreeBytes := m.cfg.MinFreeDisk * 1024 * 1024 * 1024
+	for {
+		var stat syscall.Statfs_t
+		if err := syscall.Statfs(m.cfg.RecordingsDir, &stat); err != nil {
+			log.Println("dvr: disk space check error:", err)
+			return
+		}
+		freeBytes := float64(stat.Bavail) * float64(stat.Bsize)
+		if freeBytes >= minFreeBytes {
+			return
+		}
+
+		// Find the oldest recording.
+		recs, err := m.ListRecordings()
+		if err != nil || len(recs) == 0 {
+			log.Printf("dvr: minFreeDisk: %.1f GB free < %.1f GB required but no recordings to delete",
+				freeBytes/1e9, m.cfg.MinFreeDisk)
+			return
+		}
+		// ListRecordings returns sessions descending, time ascending.
+		// The oldest is the last recording in the last (oldest) session, i.e. recs[len-1].
+		oldest := recs[len(recs)-1]
+		log.Printf("dvr: minFreeDisk: %.1f GB free < %.1f GB required, deleting %s/%s",
+			freeBytes/1e9, m.cfg.MinFreeDisk, oldest.Session, oldest.Filename)
+		if err := m.DeleteRecording(oldest.Session, oldest.Filename); err != nil {
+			log.Printf("dvr: minFreeDisk: delete error: %v", err)
+			return
+		}
+		// Re-poll and broadcast updated disk space.
+		m.pollDiskSpace()
+	}
 }
 
 // runLoop is the main per-camera restart loop. Each iteration:
@@ -465,7 +648,7 @@ func (m *Manager) captureSegmentThumbs(mp4File, cameraName string) {
 func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, jpegFIFO string) {
 	key := sanitizeName(cam.Name)
 	segSecs := m.segmentDur()
-	record := shouldRecord(cam)
+	camRecord := shouldRecord(cam)
 
 	defer m.setRecording(cam.Name, key, false)
 
@@ -474,12 +657,32 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, 
 			return
 		}
 
+		// Determine whether to write an MP4 this segment based on both
+		// the per-camera record flag and the global DVR state.
+		m.mu.RLock()
+		dvrState := m.state
+		sessDir := m.sessionDir
+		m.mu.RUnlock()
+
+		record := camRecord && dvrState == RecordingOn
+
 		now := time.Now().UTC()
 		boundary := nextBoundary(now, segSecs)
 
-		m.mu.RLock()
-		sessDir := m.sessionDir
-		m.mu.RUnlock()
+		// Ensure session dir exists when recording is active.
+		if record && sessDir == "" {
+			dir, err := pickSessionDir(m.cfg.RecordingsDir)
+			if err != nil {
+				log.Println("dvr:", err)
+				record = false
+			} else {
+				m.mu.Lock()
+				m.sessionDir = dir
+				sessDir = dir
+				m.mu.Unlock()
+				log.Println("dvr: session dir:", dir)
+			}
+		}
 
 		// Filename: {yyyy-mm-dd_hh-mm-ss}_{sanitized-cam-name}.mp4
 		mp4File := filepath.Join(sessDir, fmt.Sprintf("%s_%s.mp4",

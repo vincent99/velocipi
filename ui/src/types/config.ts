@@ -73,7 +73,6 @@ export interface ExpanderConfig {
 
 export interface OLEDConfig {
   driver: string; // "ssd1327" or "ge256x64b"
-  spiPort: string;
   spiSpeed: string;
   gpioChip: string;
   statusPin: number;
@@ -102,6 +101,9 @@ export interface DVRConfig {
   recordingsDir: string;
   segmentDuration: number; // seconds
   thumbnailHeight: number;
+  record: boolean; // enable recording on startup
+  minFreeDisk: number; // minimum free disk space in GB; 0 = disabled
+  diskSpacePoll: string; // poll interval, e.g. "1m"
   cameras: CameraConfig[];
 }
 
@@ -122,12 +124,14 @@ export interface MusicConfig {
   playedRequiredPercent: number; // % elapsed before a skip counts as a play
   acoustidKey: string; // AcoustID API key (register free at acoustid.org)
   acoustidMinScore: number; // minimum AcoustID match score (0.0–1.0) to accept a result
+  backupDir: string; // directory for database backups
 }
 
 export interface FullConfig {
   addr: string;
   appUrl: string;
   i2cDevice: string;
+  spiDevice: string;
   pingInterval: string;
   airSensor: SensorConfig;
   dvr: DVRConfig;

@@ -9,7 +9,7 @@ export const remoteMeta: PanelMeta = {
 </script>
 
 <script setup lang="ts">
-import { ref, provide, onMounted } from 'vue';
+import { ref, provide, computed, onMounted } from 'vue';
 import type { FullConfig, FullConfigResponse } from '@/types/config';
 import SettingsField from '@/components/settings/SettingsField.vue';
 import { settingsKey } from '@/components/settings/settingsContext';
@@ -20,7 +20,7 @@ const defaults = ref<FullConfig | null>(null);
 const saving = ref(false);
 const saved = ref(false);
 const error = ref('');
-const activeSection = ref('server');
+const activeSection = ref('filesystem');
 
 interface AudioDevice {
   id: string;
@@ -98,6 +98,29 @@ function reset(path: string) {
 
 provide(settingsKey, { isModified, reset, getPath, setPath });
 
+// AcoustID score is stored as 0.0–1.0 but presented as 0–100 percent.
+const acoustidScorePct = computed({
+  get: () =>
+    cfg.value ? Math.round(cfg.value.music.acoustidMinScore * 100) : 0,
+  set: (pct: number) => {
+    if (cfg.value) {
+      cfg.value.music.acoustidMinScore = pct / 100;
+    }
+  },
+});
+
+// I2C address displayed as hex.
+function getHex(path: string): string {
+  const v = getPath(path);
+  return typeof v === 'number' ? '0x' + v.toString(16).padStart(2, '0') : '';
+}
+function setHex(path: string, raw: string) {
+  const n = parseInt(raw, 16);
+  if (!isNaN(n)) {
+    setPath(path, n);
+  }
+}
+
 const keyMapFields = [
   { key: 'ui.keyMap.up', label: 'Up' },
   { key: 'ui.keyMap.down', label: 'Down' },
@@ -126,13 +149,12 @@ const expanderBitFields = [
 ];
 
 const sections = [
+  { id: 'filesystem', label: 'Filesystem' },
   { id: 'server', label: 'Server' },
-  { id: 'display', label: 'Display' },
   { id: 'ui', label: 'UI' },
   { id: 'hardware', label: 'Hardware' },
-  { id: 'dvr', label: 'DVR / Cameras' },
+  { id: 'dvr', label: 'DVR' },
   { id: 'music', label: 'Music' },
-  { id: 'tires', label: 'TPMS sensors' },
 ];
 </script>
 
@@ -166,6 +188,26 @@ const sections = [
 
       <!-- Right content -->
       <div class="settings-content">
+        <!-- Filesystem -->
+        <section v-if="activeSection === 'filesystem'">
+          <h2>Filesystem</h2>
+          <SettingsField
+            label="Music directory"
+            path="music.musicDir"
+            placeholder="music"
+          />
+          <SettingsField
+            label="Recordings directory"
+            path="dvr.recordingsDir"
+            placeholder="recordings"
+          />
+          <SettingsField
+            label="Backup directory"
+            path="music.backupDir"
+            placeholder="backup"
+          />
+        </section>
+
         <!-- Server -->
         <section v-if="activeSection === 'server'">
           <h2>Server</h2>
@@ -185,61 +227,42 @@ const sections = [
             placeholder="/dev/i2c-1"
           />
           <SettingsField
+            label="SPI device"
+            path="spiDevice"
+            placeholder="/dev/spidev0.0"
+          />
+          <SettingsField
+            label="SPI speed"
+            path="oled.spiSpeed"
+            placeholder="2.40MHz"
+          />
+          <SettingsField
             label="Ping interval"
             path="pingInterval"
             placeholder="1s"
           />
         </section>
 
-        <!-- Display -->
-        <section v-if="activeSection === 'display'">
-          <h2>Display</h2>
-          <SettingsGroup title="OLED">
+        <!-- UI -->
+        <section v-if="activeSection === 'ui'">
+          <h2>UI</h2>
+          <SettingsGroup title="Theme">
             <SettingsField
-              label="Driver"
-              path="oled.driver"
-              placeholder="ssd1327"
+              label="Tail number"
+              path="ui.tail"
+              placeholder="N711ME"
             />
             <SettingsField
-              label="SPI port"
-              path="oled.spiPort"
-              placeholder="/dev/spidev0.0"
+              label="Header color"
+              path="ui.headerColor"
+              type="color"
+              placeholder="#3b82f6"
             />
             <SettingsField
-              label="SPI speed"
-              path="oled.spiSpeed"
-              placeholder="2.40MHz"
-            />
-            <SettingsField
-              label="GPIO chip"
-              path="oled.gpioChip"
-              placeholder="gpiochip0"
-            />
-            <SettingsField
-              label="Status pin"
-              path="oled.statusPin"
-              type="number"
-              :min="0"
-            />
-            <SettingsField
-              label="Reset pin"
-              path="oled.resetPin"
-              type="number"
-              :min="0"
-            />
-            <SettingsField
-              label="Flip display"
-              path="oled.flip"
-              type="checkbox"
-            />
-          </SettingsGroup>
-          <SettingsGroup title="Screen">
-            <SettingsField
-              label="FPS"
-              path="screen.fps"
-              type="number"
-              :min="1"
-              :max="60"
+              label="Admin header color"
+              path="ui.adminHeaderColor"
+              type="color"
+              placeholder="#dc2626"
             />
             <SettingsField
               label="Splash image"
@@ -250,42 +273,6 @@ const sections = [
               label="Splash duration"
               path="screen.splashDuration"
               placeholder="2s"
-            />
-          </SettingsGroup>
-        </section>
-
-        <!-- UI -->
-        <section v-if="activeSection === 'ui'">
-          <h2>UI</h2>
-          <SettingsField
-            label="Tail number"
-            path="ui.tail"
-            placeholder="N711ME"
-          />
-          <SettingsField
-            label="Header color"
-            path="ui.headerColor"
-            type="color"
-            placeholder="#3b82f6"
-          />
-          <SettingsField
-            label="Admin header color"
-            path="ui.adminHeaderColor"
-            type="color"
-            placeholder="#dc2626"
-          />
-          <SettingsGroup title="Panel">
-            <SettingsField
-              label="Width (px)"
-              path="ui.panel.width"
-              type="number"
-              :min="1"
-            />
-            <SettingsField
-              label="Height (px)"
-              path="ui.panel.height"
-              type="number"
-              :min="1"
             />
             <SettingsField
               label="Control background"
@@ -346,6 +333,12 @@ const sections = [
               type="number"
               :min="1"
             />
+            <SettingsField
+              label="Long-press (ms)"
+              path="ui.navMenu.longPressMs"
+              type="number"
+              :min="0"
+            />
           </SettingsGroup>
           <SettingsGroup title="Key map" :columns="2">
             <SettingsField
@@ -360,14 +353,151 @@ const sections = [
         <!-- Hardware -->
         <section v-if="activeSection === 'hardware'">
           <h2>Hardware</h2>
-          <SettingsGroup title="Air sensor (BME280)">
+          <SettingsGroup title="OLED display">
             <SettingsField
-              label="I²C address"
-              path="airSensor.address"
+              label="Driver"
+              path="oled.driver"
+              placeholder="ssd1327"
+            />
+            <SettingsField
+              label="GPIO chip"
+              path="oled.gpioChip"
+              placeholder="gpiochip0"
+            />
+            <SettingsField
+              label="Status pin"
+              path="oled.statusPin"
               type="number"
               :min="0"
-              :max="127"
             />
+            <SettingsField
+              label="Reset pin"
+              path="oled.resetPin"
+              type="number"
+              :min="0"
+            />
+            <SettingsField
+              label="Flip display 180°"
+              path="oled.flip"
+              type="checkbox"
+            />
+            <SettingsField
+              label="Width (px)"
+              path="ui.panel.width"
+              type="number"
+              :min="1"
+            />
+            <SettingsField
+              label="Height (px)"
+              path="ui.panel.height"
+              type="number"
+              :min="1"
+            />
+            <SettingsField
+              label="FPS"
+              path="screen.fps"
+              type="number"
+              :min="1"
+              :max="60"
+            />
+          </SettingsGroup>
+          <SettingsGroup title="Expander (SX1509)">
+            <div
+              class="sf-row"
+              :class="{ modified: isModified('expander.address') }"
+            >
+              <button
+                v-if="isModified('expander.address')"
+                type="button"
+                class="sf-reset"
+                title="Reset to default"
+                @click="reset('expander.address')"
+              >
+                <i class="fi-sr-rotate-left" />
+              </button>
+              <span v-else class="sf-reset-placeholder" />
+              <label class="sf-label">I²C address</label>
+              <input
+                class="sf-input"
+                :value="getHex('expander.address')"
+                placeholder="0x20"
+                @change="
+                  setHex(
+                    'expander.address',
+                    ($event.target as HTMLInputElement).value
+                  )
+                "
+              />
+            </div>
+            <SettingsField
+              label="Poll interval"
+              path="expander.interval"
+              placeholder="2ms"
+            />
+            <SettingsGroup title="Pin assignments">
+              <div class="bit-grid">
+                <div
+                  v-for="f in expanderBitFields"
+                  :key="f.key"
+                  class="sf-row"
+                  :class="{ modified: isModified(f.key) }"
+                >
+                  <button
+                    v-if="isModified(f.key)"
+                    type="button"
+                    class="sf-reset"
+                    title="Reset to default"
+                    @click="reset(f.key)"
+                  >
+                    <i class="fi-sr-rotate-left" />
+                  </button>
+                  <span v-else class="sf-reset-placeholder" />
+                  <label class="sf-label">{{ f.label }}</label>
+                  <input
+                    class="sf-input"
+                    type="number"
+                    min="0"
+                    max="15"
+                    :value="getPath(f.key) as number"
+                    @change="
+                      setPath(
+                        f.key,
+                        Number(($event.target as HTMLInputElement).value)
+                      )
+                    "
+                  />
+                </div>
+              </div>
+            </SettingsGroup>
+          </SettingsGroup>
+          <SettingsGroup title="Air sensor (BME280)">
+            <div
+              class="sf-row"
+              :class="{ modified: isModified('airSensor.address') }"
+            >
+              <button
+                v-if="isModified('airSensor.address')"
+                type="button"
+                class="sf-reset"
+                title="Reset to default"
+                @click="reset('airSensor.address')"
+              >
+                <i class="fi-sr-rotate-left" />
+              </button>
+              <span v-else class="sf-reset-placeholder" />
+              <label class="sf-label">I²C address</label>
+              <input
+                class="sf-input"
+                :value="getHex('airSensor.address')"
+                placeholder="0x77"
+                @change="
+                  setHex(
+                    'airSensor.address',
+                    ($event.target as HTMLInputElement).value
+                  )
+                "
+              />
+            </div>
             <SettingsField
               label="Poll interval"
               path="airSensor.interval"
@@ -375,68 +505,100 @@ const sections = [
             />
           </SettingsGroup>
           <SettingsGroup title="Light sensor (VEML6030)">
-            <SettingsField
-              label="I²C address"
-              path="lightSensor.address"
-              type="number"
-              :min="0"
-              :max="127"
-            />
+            <div
+              class="sf-row"
+              :class="{ modified: isModified('lightSensor.address') }"
+            >
+              <button
+                v-if="isModified('lightSensor.address')"
+                type="button"
+                class="sf-reset"
+                title="Reset to default"
+                @click="reset('lightSensor.address')"
+              >
+                <i class="fi-sr-rotate-left" />
+              </button>
+              <span v-else class="sf-reset-placeholder" />
+              <label class="sf-label">I²C address</label>
+              <input
+                class="sf-input"
+                :value="getHex('lightSensor.address')"
+                placeholder="0x48"
+                @change="
+                  setHex(
+                    'lightSensor.address',
+                    ($event.target as HTMLInputElement).value
+                  )
+                "
+              />
+            </div>
             <SettingsField
               label="Poll interval"
               path="lightSensor.interval"
               placeholder="1s"
             />
           </SettingsGroup>
-          <SettingsGroup title="Expander (SX1509)">
-            <SettingsField
-              label="I²C address"
-              path="expander.address"
-              type="number"
-              :min="0"
-              :max="127"
-            />
-            <SettingsField
-              label="Poll interval"
-              path="expander.interval"
-              placeholder="2ms"
-            />
-          </SettingsGroup>
-          <SettingsGroup title="Expander bit assignments" :columns="2">
-            <SettingsField
-              v-for="f in expanderBitFields"
-              :key="f.key"
-              :label="f.label"
-              :path="f.key"
-              type="number"
-              :min="0"
-              :max="15"
-            />
+          <SettingsGroup title="TPMS sensors">
+            <p class="hint">One Bluetooth address per line.</p>
+            <SettingsGroup
+              v-for="pos in ['nose', 'left', 'right'] as const"
+              :key="pos"
+              :title="pos"
+            >
+              <template #header-action>
+                <button
+                  v-if="isModified('tires.' + pos)"
+                  type="button"
+                  class="group-reset"
+                  title="Reset to default"
+                  @click="reset('tires.' + pos)"
+                >
+                  <i class="fi-sr-rotate-left" />
+                </button>
+              </template>
+              <textarea
+                :value="(cfg.tires[pos] as string[]).join('\n')"
+                :class="{ modified: isModified('tires.' + pos) }"
+                rows="2"
+                placeholder="4a:xx:xx:xx:xx:xx"
+                @input="
+                  (cfg!.tires[pos] as string[]) = (
+                    $event.target as HTMLTextAreaElement
+                  ).value
+                    .split('\n')
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                "
+              />
+            </SettingsGroup>
           </SettingsGroup>
         </section>
 
-        <!-- DVR / Cameras -->
+        <!-- DVR -->
         <section v-if="activeSection === 'dvr'">
-          <h2>DVR / Cameras</h2>
-          <SettingsField
-            label="Recordings directory"
-            path="dvr.recordingsDir"
-            placeholder="recordings"
-          />
-          <SettingsField
-            label="Segment duration (seconds)"
-            path="dvr.segmentDuration"
-            type="number"
-            :min="10"
-          />
-          <SettingsField
-            label="Thumbnail height (px)"
-            path="dvr.thumbnailHeight"
-            type="number"
-            :min="60"
-          />
+          <h2>DVR</h2>
+          <SettingsGroup title="Recording">
+            <SettingsField
+              label="Segment duration (s)"
+              path="dvr.segmentDuration"
+              type="number"
+              :min="10"
+            />
+            <SettingsField
+              label="Thumbnail height (px)"
+              path="dvr.thumbnailHeight"
+              type="number"
+              :min="60"
+            />
+            <SettingsField
+              label="Log ffmpeg output"
+              path="dvr.ffmpegLog"
+              type="checkbox"
+            />
+          </SettingsGroup>
+
           <div class="cameras-header">
-            <span class="cameras-title">Cameras</span>
+            <h3 class="cameras-title">Cameras</h3>
             <button
               type="button"
               class="add-camera-btn"
@@ -526,16 +688,16 @@ const sections = [
           <p v-if="cfg!.dvr.cameras.length === 0" class="hint">
             No cameras configured.
           </p>
+          <p class="hint">
+            Camera fields support environment variable references
+            (e.g.&nbsp;<code>$CAMERA_HOST</code>,
+            <code>$CAMERA_PASSWORD</code>).
+          </p>
         </section>
 
         <!-- Music -->
         <section v-if="activeSection === 'music'">
           <h2>Music</h2>
-          <SettingsField
-            label="Music directory"
-            path="music.musicDir"
-            placeholder="music"
-          />
           <SettingsField
             label="Volume (%)"
             path="music.volume"
@@ -580,11 +742,29 @@ const sections = [
             </select>
           </div>
           <SettingsField
-            label="Album required % (tracks present)"
+            label="Album required % (tracks)"
             path="music.albumRequiredPercent"
             type="number"
             :min="0"
             :max="100"
+          />
+          <SettingsField
+            label="Played required % (for play count)"
+            path="music.playedRequiredPercent"
+            type="number"
+            :min="0"
+            :max="100"
+          />
+          <SettingsField
+            label="Max bitrate (kbps, 0 = off)"
+            path="music.maxBitrate"
+            type="number"
+            :min="0"
+          />
+          <SettingsField
+            label="Transcode format"
+            path="music.transcodeFormat"
+            placeholder="aac"
           />
           <SettingsField
             label="Min DB version"
@@ -597,51 +777,31 @@ const sections = [
             path="music.acoustidKey"
             placeholder="Register free at acoustid.org"
           />
-          <SettingsField
-            label="AcoustID min score (0.0–1.0)"
-            path="music.acoustidMinScore"
-            type="number"
-            :min="0"
-            :max="1"
-            :step="0.05"
-          />
-        </section>
-
-        <!-- TPMS -->
-        <section v-if="activeSection === 'tires'">
-          <h2>TPMS sensors</h2>
-          <p class="hint">One Bluetooth address per line.</p>
-          <SettingsGroup
-            v-for="pos in ['nose', 'left', 'right'] as const"
-            :key="pos"
-            :title="pos"
+          <div
+            class="sf-row"
+            :class="{ modified: isModified('music.acoustidMinScore') }"
           >
-            <template #header-action>
-              <button
-                v-if="isModified('tires.' + pos)"
-                type="button"
-                class="group-reset"
-                title="Reset to default"
-                @click="reset('tires.' + pos)"
-              >
-                <i class="fi-sr-rotate-left" />
-              </button>
-            </template>
-            <textarea
-              :value="(cfg.tires[pos] as string[]).join('\n')"
-              :class="{ modified: isModified('tires.' + pos) }"
-              rows="2"
-              placeholder="4a:xx:xx:xx:xx:xx"
-              @input="
-                (cfg!.tires[pos] as string[]) = (
-                  $event.target as HTMLTextAreaElement
-                ).value
-                  .split('\n')
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-              "
+            <button
+              v-if="isModified('music.acoustidMinScore')"
+              type="button"
+              class="sf-reset"
+              title="Reset to default"
+              @click="reset('music.acoustidMinScore')"
+            >
+              <i class="fi-sr-rotate-left" />
+            </button>
+            <span v-else class="sf-reset-placeholder" />
+            <label class="sf-label">AcoustID min score</label>
+            <input
+              v-model.number="acoustidScorePct"
+              class="sf-input"
+              type="number"
+              min="0"
+              max="100"
+              step="5"
             />
-          </SettingsGroup>
+            <span class="sf-unit">%</span>
+          </div>
         </section>
       </div>
     </form>
@@ -778,6 +938,14 @@ section {
   color: #666;
   font-size: 0.8rem;
   margin: 0 0 0.75rem;
+
+  code {
+    font-family: monospace;
+    background: #2a2a2a;
+    border-radius: 3px;
+    padding: 0 3px;
+    color: #aaa;
+  }
 }
 
 .group-reset {
@@ -817,7 +985,7 @@ textarea {
   }
 }
 
-// These mirror SettingsField's scoped styles for inline use in this file.
+// ── Inline sf-row helpers (mirrors SettingsField scoped styles) ───────────────
 .sf-row {
   display: flex;
   align-items: center;
@@ -860,6 +1028,23 @@ textarea {
   font-size: 0.85rem;
 }
 
+.sf-input {
+  flex: 1;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  font-family: monospace;
+  min-width: 0;
+
+  &:focus {
+    outline: none;
+    border-color: #666;
+  }
+}
+
 .sf-select {
   flex: 1;
   background: #2a2a2a;
@@ -877,17 +1062,35 @@ textarea {
   }
 }
 
+.sf-unit {
+  color: #666;
+  font-size: 0.82rem;
+  flex-shrink: 0;
+}
+
+// Expander bit assignments: 2-column grid within the group
+.bit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #2a2a2a;
+}
+
+// ── DVR cameras ───────────────────────────────────────────────────────────────
 .cameras-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
+  margin: 1.25rem 0 0.75rem;
 }
 
 .cameras-title {
-  font-size: 0.85rem;
-  color: #aaa;
-  font-weight: 500;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0;
 }
 
 .add-camera-btn {

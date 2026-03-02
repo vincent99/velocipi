@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -15,6 +16,12 @@ import (
 // The app page is not loaded here — the caller must call navigateTo()
 // once the HTTP server is ready.
 func initBrowser(ctx context.Context) (context.Context, context.CancelFunc) {
+	execPath, err := exec.LookPath("chromium-headless-shell")
+	if err != nil {
+		log.Println("browser: chromium-headless-shell not found in PATH:", err)
+		return ctx, func() {}
+	}
+
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx,
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
@@ -23,7 +30,7 @@ func initBrowser(ctx context.Context) (context.Context, context.CancelFunc) {
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("password-store", "basic"),
 		chromedp.WindowSize(256, 64),
-		chromedp.ExecPath("/usr/bin/chromium-headless-shell"),
+		chromedp.ExecPath(execPath),
 	)
 
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))

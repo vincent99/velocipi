@@ -13,6 +13,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAdmin } from '@/composables/useAdmin';
 import { useDeviceState } from '@/composables/useDeviceState';
+import type { DVRRecordingState } from '@/types/ws';
 
 interface RecordingFile {
   camera: string;
@@ -27,11 +28,12 @@ interface RecordingFile {
 const route = useRoute();
 const router = useRouter();
 const { isAdmin } = useAdmin();
-const { lastRecordingReady } = useDeviceState();
+const { lastRecordingReady, dvrState, diskSpace } = useDeviceState();
 
 const recordings = ref<RecordingFile[]>([]);
 const loading = ref(true);
 const error = ref('');
+const togglingState = ref(false);
 
 onMounted(async () => {
   try {
@@ -171,6 +173,38 @@ function dateForHour(hour: string): string {
   return rec?.date ?? selectedSession.value.slice(0, 10);
 }
 
+// --- DVR state ---
+
+async function toggleRecordingState() {
+  if (!dvrState.value) {
+    return;
+  }
+  const next: DVRRecordingState = dvrState.value === 'on' ? 'paused' : 'on';
+  togglingState.value = true;
+  try {
+    await fetch('/dvr/state', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: next }),
+    });
+  } finally {
+    togglingState.value = false;
+  }
+}
+
+// Disk space display helpers.
+const diskBar = computed(() => {
+  if (!diskSpace.value) {
+    return null;
+  }
+  return {
+    pct: Math.round(diskSpace.value.usedPct),
+    free: diskSpace.value.freeGB.toFixed(1),
+    total: diskSpace.value.totalGB.toFixed(1),
+    used: diskSpace.value.usedGB.toFixed(1),
+  };
+});
+
 // --- Fullscreen playback ---
 
 function playFullscreen(url: string) {
@@ -278,6 +312,43 @@ async function deleteSession() {
 
 <template>
   <div class="recordings-page">
+    <!-- Status bar: disk usage + DVR state -->
+    <div class="status-bar">
+      <div v-if="diskBar" class="disk-info">
+        <div
+          class="disk-bar-wrap"
+          :title="`${diskBar.used} GB used of ${diskBar.total} GB`"
+        >
+          <div
+            class="disk-bar-fill"
+            :style="{ width: diskBar.pct + '%' }"
+            :class="{ warn: diskBar.pct >= 80, crit: diskBar.pct >= 95 }"
+          />
+        </div>
+        <span class="disk-label">{{ diskBar.free }} GB free</span>
+      </div>
+      <div v-else class="disk-info disk-unknown">Disk: —</div>
+
+      <div class="dvr-state-wrap">
+        <span
+          class="dvr-state-dot"
+          :class="dvrState ?? 'unknown'"
+          :title="`DVR: ${dvrState ?? 'unknown'}`"
+        />
+        <span class="dvr-state-label">{{ dvrState ?? '…' }}</span>
+        <button
+          v-if="isAdmin && dvrState && dvrState !== 'off'"
+          class="dvr-toggle-btn"
+          :disabled="togglingState"
+          @click="toggleRecordingState"
+        >
+          <i v-if="dvrState === 'on'" class="fi-sr-pause" />
+          <i v-else class="fi-sr-play" />
+          {{ dvrState === 'on' ? 'Pause' : 'Resume' }}
+        </button>
+      </div>
+    </div>
+
     <div v-if="loading" class="status-msg">Loading…</div>
     <div v-else-if="error" class="error-msg">{{ error }}</div>
     <div v-else-if="sessions.length === 0" class="status-msg">
@@ -421,6 +492,116 @@ async function deleteSession() {
   height: 100%;
   color: #e0e0e0;
   font-size: 0.875rem;
+}
+
+// Status bar
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid #333;
+  background: #161616;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.disk-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+.disk-unknown {
+  color: #555;
+}
+
+.disk-bar-wrap {
+  width: 80px;
+  height: 6px;
+  background: #333;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.disk-bar-fill {
+  height: 100%;
+  background: #3b82f6;
+  border-radius: 3px;
+  transition: width 0.4s;
+
+  &.warn {
+    background: #f59e0b;
+  }
+
+  &.crit {
+    background: #ef4444;
+  }
+}
+
+.disk-label {
+  white-space: nowrap;
+}
+
+.dvr-state-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+.dvr-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #555;
+  flex-shrink: 0;
+
+  &.on {
+    background: #22c55e;
+    box-shadow: 0 0 4px #22c55e80;
+  }
+
+  &.paused {
+    background: #f59e0b;
+  }
+
+  &.off {
+    background: #555;
+  }
+}
+
+.dvr-state-label {
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.7rem;
+}
+
+.dvr-toggle-btn {
+  background: none;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+
+  &:hover:not(:disabled) {
+    border-color: #888;
+    color: #fff;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
 }
 
 .status-msg {

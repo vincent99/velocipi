@@ -28,7 +28,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	db, err := music.OpenAndMigrate("schemas")
+	db, err := music.OpenAndMigrate("schemas", cfg.Music.BackupDir)
 	if err != nil {
 		log.Fatal("musicsync:", err)
 	}

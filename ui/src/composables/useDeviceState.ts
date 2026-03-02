@@ -6,6 +6,8 @@ import type {
   MusicStateMsg,
   MusicQueueMsg,
   RecordingReadyMsg,
+  DVRRecordingState,
+  DiskSpaceMsg,
   Tire,
   InboundWsMsg,
   LogicalKey,
@@ -29,6 +31,10 @@ const musicState = ref<MusicStateMsg | null>(null);
 const musicQueue = ref<MusicQueueMsg | null>(null);
 // destTimezone: IANA timezone for the "Dest" clock on the panel
 const destTimezone = ref<string>('America/New_York');
+// dvrState: overall DVR recording state
+const dvrState = ref<DVRRecordingState | null>(null);
+// diskSpace: most recent disk space reading from server
+const diskSpace = ref<DiskSpaceMsg | null>(null);
 
 // Key echo: tracks which logical keys are currently "active" for visual feedback.
 // Encoder keys (tap-only) auto-clear after 150ms; held keys clear on keyup.
@@ -106,6 +112,12 @@ function init() {
       case 'recordingReady':
         lastRecordingReady.value = msg;
         break;
+      case 'dvrState':
+        dvrState.value = msg.state;
+        break;
+      case 'diskSpace':
+        diskSpace.value = msg;
+        break;
       case 'localCamera':
         localCamera.value = msg.camera;
         break;
@@ -138,5 +150,7 @@ export function useDeviceState() {
     destTimezone,
     musicState,
     musicQueue,
+    dvrState,
+    diskSpace,
   };
 }

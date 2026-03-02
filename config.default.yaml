@@ -1,10 +1,14 @@
 addr: "0.0.0.0:8080"
+spiDevice: "/dev/spidev0.0"
 
 dvr:
   recordingsDir: "recordings"
   segmentDuration: 600
   thumbnailHeight: 240
   ffmpegLog: false
+  record: true
+  minFreeDisk: 0
+  diskSpacePoll: "1m"
   cameras: []
 
 i2cDevice: "/dev/i2c-1"
@@ -39,7 +43,6 @@ oled:
   flip: true
   gpioChip: "gpiochip0"
   resetPin: 6
-  spiPort: "/dev/spidev0.0"
   spiSpeed: "2.40MHz"
 
 screen:
@@ -55,6 +58,7 @@ tires:
 music:
   acoustidKey: ""
   acoustidMinScore: 0.8
+  backupDir: "backup"
   albumRequiredPercent: 50
   audioDevice: "auto"
   maxBitrate: 0

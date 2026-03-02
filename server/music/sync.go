@@ -98,7 +98,7 @@ type songMeta struct {
 // It always runs Clean at the end.
 func (s *Syncer) Run(ctx context.Context) error {
 	// Backup before sync.
-	if err := s.db.Backup("backup"); err != nil {
+	if err := s.db.Backup(s.cfg.BackupDir); err != nil {
 		log.Println("music sync: backup warning:", err)
 	}
 

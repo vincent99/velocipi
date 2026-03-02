@@ -6,6 +6,35 @@ This runs on a Raspberry Pi 5 to control the screens, cameras, joysticks, audio,
 
 I don't know why you're here, but good luck.
 
+## System setup
+
+### Dependencies
+
+These should be installed on the system:
+
+```
+sudo apt install chromium chromium-headless-shell ffmpeg mpv libchromaprint-tools
+```
+
+| Binary                           | Package                   | For                                                    |
+| -------------------------------- | ------------------------- | ------------------------------------------------------ |
+| `chromium-browser` or `chromium` | `chromium`                | Browser for local screen video streaming               |
+| `chromium-headless-shell`        | `chromium-headless-shell` | Headless browser for OLED screen                       |
+| `ffmpeg`                         | `ffmpeg`                  | DVR recording/streaming, music transcoding             |
+| `ffprobe`                        | `ffmpeg`                  | Music duration/metadata extraction (comes with ffmpeg) |
+| `mpv`                            | `mpv`                     | Music playback                                         |
+| `fpcalc`                         | `libchromaprint-tools`    | Music fingerprinting (optional)                        |
+
+### Hardware config
+
+Enable I2C and SPI interfaces via `raspi-config` (Interface Options)
+
+### Hiding the mouse cursor
+
+Run this once to install a package that will hide the mouse cursor from the local screen
+
+`sudo ./util/install-hideaway.sh`
+
 ## Dev
 
 `npm run dev`
