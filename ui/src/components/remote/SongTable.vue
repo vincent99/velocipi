@@ -86,6 +86,9 @@ const {
   clearSelection,
   toggleSelectAll,
   handleCheckTd,
+  handleCheckTdTouchStart,
+  handleCheckTdTouchEnd,
+  cancelLongPress,
   handleRowClick,
   handleAlbumGroupClick,
 } = useSongSelection(
@@ -381,6 +384,10 @@ function onPlDrop(index: number, e: DragEvent) {
           <div
             class="vc-check"
             @click.stop="handleCheckTd(visibleRange.first + vi, $event)"
+            @touchstart.stop="handleCheckTdTouchStart(visibleRange.first + vi)"
+            @touchend.stop="handleCheckTdTouchEnd($event)"
+            @touchmove.passive="cancelLongPress"
+            @touchcancel="cancelLongPress"
           >
             <input
               type="checkbox"
@@ -527,6 +534,12 @@ function onPlDrop(index: number, e: DragEvent) {
               <td
                 class="col-check"
                 @click.stop="handleCheckTd(group.startIndex + si, $event)"
+                @touchstart.stop="
+                  handleCheckTdTouchStart(group.startIndex + si)
+                "
+                @touchend.stop="handleCheckTdTouchEnd($event)"
+                @touchmove.passive="cancelLongPress"
+                @touchcancel="cancelLongPress"
               >
                 <input
                   type="checkbox"
@@ -631,6 +644,7 @@ function onPlDrop(index: number, e: DragEvent) {
   flex-direction: column;
   overflow: hidden;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .table-loading {
@@ -689,8 +703,10 @@ function onPlDrop(index: number, e: DragEvent) {
   &.sortable {
     cursor: pointer;
 
-    &:hover {
-      color: #ccc;
+    @media (hover: hover) {
+      &:hover {
+        color: #ccc;
+      }
     }
   }
 
@@ -714,13 +730,15 @@ function onPlDrop(index: number, e: DragEvent) {
   font-size: 0.85rem;
   color: #e0e0e0;
 
-  &:hover {
-    background: #2a2a2a;
+  @media (hover: hover) {
+    &:hover {
+      background: #2a2a2a;
 
-    // Reveal the "..." button on row hover (button is in SongRowMenu child)
-    :deep(.row-action-btn) {
-      opacity: 1;
-      color: #888;
+      // Reveal the "..." button on row hover (button is in SongRowMenu child)
+      :deep(.row-action-btn) {
+        opacity: 1;
+        color: #888;
+      }
     }
   }
 
@@ -851,8 +869,10 @@ function onPlDrop(index: number, e: DragEvent) {
       cursor: pointer;
       user-select: none;
 
-      &:hover {
-        color: #ccc;
+      @media (hover: hover) {
+        &:hover {
+          color: #ccc;
+        }
       }
     }
   }
@@ -870,13 +890,15 @@ function onPlDrop(index: number, e: DragEvent) {
   tr {
     cursor: pointer;
 
-    &:hover {
-      background: #2a2a2a;
+    @media (hover: hover) {
+      &:hover {
+        background: #2a2a2a;
 
-      // Reveal the "..." button on row hover
-      :deep(.row-action-btn) {
-        opacity: 1;
-        color: #888;
+        // Reveal the "..." button on row hover
+        :deep(.row-action-btn) {
+          opacity: 1;
+          color: #888;
+        }
       }
     }
 
@@ -956,9 +978,11 @@ function onPlDrop(index: number, e: DragEvent) {
 }
 
 // Reveal ghost flag buttons on row hover
-.vrow:hover :deep(.flag-btn--row:not(.active)) {
-  opacity: 0.3;
-  filter: none;
+@media (hover: hover) {
+  .vrow:hover :deep(.flag-btn--row:not(.active)) {
+    opacity: 0.3;
+    filter: none;
+  }
 }
 
 // Title cells need to be flex to keep text + buttons in line
@@ -1079,8 +1103,10 @@ $mobile-bp: 600px;
   cursor: pointer;
   flex-shrink: 0;
 
-  &:hover {
-    background: #333;
+  @media (hover: hover) {
+    &:hover {
+      background: #333;
+    }
   }
 }
 
