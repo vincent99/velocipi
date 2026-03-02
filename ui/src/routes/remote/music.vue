@@ -217,7 +217,7 @@ function handleQueueListDragOver(e: DragEvent) {
   if (e.dataTransfer?.types.includes('application/x-song-ids')) {
     e.preventDefault();
     if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'move';
+      e.dataTransfer.dropEffect = 'copy';
     }
   }
 }

@@ -101,7 +101,9 @@ function onDragOver(e: DragEvent) {
   }
   e.preventDefault();
   if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = types.includes('application/x-queue-index')
+      ? 'move'
+      : 'copy';
   }
   emit('dragOver', props.queueIndex, dropPosition(e));
 }
