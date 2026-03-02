@@ -11,6 +11,17 @@ export interface PanelRoute {
 const modules = import.meta.glob('../routes/panel/**/*.vue', { eager: true });
 
 const routes: PanelRoute[] = Object.entries(modules)
+  .filter(([file, mod]) => {
+    // Only include top-level panel files (no subdirectory) that export panelMeta.
+    const stripped = file
+      .replace(/^\.\.\/routes\/panel\//, '')
+      .replace(/\.vue$/, '')
+      .replace(/\/index$/, '');
+    if (stripped.includes('/')) {
+      return false;
+    }
+    return !!(mod as { panelMeta?: PanelMeta }).panelMeta;
+  })
   .map(([file, mod]) => {
     const stripped = file
       .replace(/^\.\.\/routes\/panel\//, '')
@@ -18,10 +29,7 @@ const routes: PanelRoute[] = Object.entries(modules)
       .replace(/\/index$/, '');
 
     const path = '/panel/' + stripped;
-    const meta = (mod as { panelMeta?: PanelMeta }).panelMeta ?? {
-      name: stripped,
-      icon: '□',
-    };
+    const meta = (mod as { panelMeta?: PanelMeta }).panelMeta!;
 
     return {
       path,

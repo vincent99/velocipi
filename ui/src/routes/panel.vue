@@ -29,10 +29,15 @@ onUnmounted(() => {
 <template>
   <div
     class="panel-root"
-    :style="{ width: panelWidth + 'px', height: panelHeight + 'px' }"
+    :style="{
+      width: panelWidth + 'px',
+      height: panelHeight + 'px',
+      '--panel-w': panelWidth + 'px',
+      '--panel-h': panelHeight + 'px',
+    }"
   >
     <RouterView />
-    <NavMenu />
+    <NavMenu :hide-delay="config.value?.navMenu.hideDelay" />
   </div>
 </template>
 
