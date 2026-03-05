@@ -53,6 +53,29 @@ type LocalCameraMsg struct {
 	Camera string `json:"camera"` // current panel camera name
 }
 
+type G3XStateMsg struct {
+	Type     string  `json:"type"` // always "g3xState"
+	Lat      float64 `json:"lat"`
+	Lon      float64 `json:"lon"`
+	AltFt    float64 `json:"altFt"`
+	Heading  float64 `json:"heading"`
+	Roll     float64 `json:"roll"`
+	Pitch    float64 `json:"pitch"`
+	Yaw      float64 `json:"yaw"`
+	SpeedKts float64 `json:"speedKts"`
+}
+
+type SiyiAttitudeMsg struct {
+	Type      string  `json:"type"`   // always "siyiAttitude"
+	Camera    string  `json:"camera"` // camera name
+	Yaw       float32 `json:"yaw"`
+	Pitch     float32 `json:"pitch"`
+	Roll      float32 `json:"roll"`
+	YawRate   float32 `json:"yawRate"`
+	PitchRate float32 `json:"pitchRate"`
+	RollRate  float32 `json:"rollRate"`
+}
+
 // Inbound message types from websocket clients.
 
 type inboundMsg struct {

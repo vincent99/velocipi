@@ -98,15 +98,17 @@ type SongsResponse struct {
 }
 
 type musicAPI struct {
-	db      *DB
-	player  *Player
-	cfg     config.Config
-	isAdmin func(*http.Request) bool
+	db        *DB
+	player    *Player
+	cfg       config.Config
+	musicDir  string
+	backupDir string
+	isAdmin   func(*http.Request) bool
 }
 
 // RegisterRoutes registers all /music/* HTTP handlers on mux.
 func RegisterRoutes(mux *http.ServeMux, db *DB, player *Player, cfg config.Config, isAdmin func(*http.Request) bool) {
-	a := &musicAPI{db: db, player: player, cfg: cfg, isAdmin: isAdmin}
+	a := &musicAPI{db: db, player: player, cfg: cfg, musicDir: cfg.Storage.Music, backupDir: cfg.Storage.Backup, isAdmin: isAdmin}
 
 	mux.HandleFunc("/music/songs", a.handleSongs)
 	mux.HandleFunc("/music/albums", a.handleAlbums)
@@ -648,7 +650,7 @@ func (a *musicAPI) handleSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go func() {
-		syncer := NewSyncer(a.db, a.cfg.Music, SyncOptions{})
+		syncer := NewSyncer(a.db, a.cfg.Music, a.musicDir, a.backupDir, SyncOptions{})
 		if err := syncer.Run(context.Background()); err != nil {
 			log.Println("music sync error:", err)
 		}
@@ -1000,7 +1002,7 @@ func (a *musicAPI) handleSongsEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	musicDir := a.cfg.Music.MusicDir
+	musicDir := a.musicDir
 
 	for _, id := range body.IDs {
 		// Load current song from DB.

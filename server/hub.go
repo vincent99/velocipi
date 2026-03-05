@@ -11,8 +11,10 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 	"github.com/vincent99/velocipi/server/dvr"
 	"github.com/vincent99/velocipi/server/hardware"
+	"github.com/vincent99/velocipi/server/hardware/g3x"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/oled"
+	"github.com/vincent99/velocipi/server/hardware/siyi"
 	"github.com/vincent99/velocipi/server/music"
 )
 
@@ -29,8 +31,9 @@ type Hub struct {
 	cfg           *config.Config
 	oled          oled.Display
 	dvrManager    *dvr.Manager
-	localCamera   string                 // name of the camera shown on the local display
-	musicPlayer   music.PlayerController // nil if music subsystem is disabled
+	localCamera   string                   // name of the camera shown on the local display
+	musicPlayer   music.PlayerController   // nil if music subsystem is disabled
+	siyiManagers  map[string]*siyi.Manager // camera name → Siyi manager (nil if no Siyi cameras)
 
 	lastFrameMu sync.RWMutex
 	lastFrame   []byte // most recent decoded PNG from the screencast
@@ -256,6 +259,67 @@ func (h *Hub) setLocalCamera(name string) {
 	h.localCamera = name
 	h.mu.Unlock()
 	h.broadcastAll(LocalCameraMsg{Type: "localCamera", Camera: name})
+}
+
+// sendG3XState sends the current G3X state to a single newly-connected client.
+func (h *Hub) sendG3XState(c *client) {
+	s := hardware.G3X().State()
+	msg := G3XStateMsg{
+		Type: "g3xState", Lat: s.Lat, Lon: s.Lon, AltFt: s.AltFt,
+		Heading: s.Heading, Roll: s.Roll, Pitch: s.Pitch, Yaw: s.Yaw, SpeedKts: s.SpeedKts,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
+	}
+}
+
+// runG3XLoop runs the G3X mock avionics loop. It broadcasts state changes as
+// g3xState WS messages and feeds attitude/GPS to any Siyi gimbal managers at
+// 10 Hz (attitude) and 1 Hz (GPS).
+func (h *Hub) runG3XLoop(ctx context.Context) {
+	g := hardware.G3X()
+	g.OnChange(func(s g3x.State) {
+		msg := G3XStateMsg{
+			Type: "g3xState", Lat: s.Lat, Lon: s.Lon, AltFt: s.AltFt,
+			Heading: s.Heading, Roll: s.Roll, Pitch: s.Pitch, Yaw: s.Yaw, SpeedKts: s.SpeedKts,
+		}
+		h.broadcastAll(msg)
+	})
+	go g.Run(ctx)
+
+	// Attitude injection at 10 Hz; GPS injection at 1 Hz.
+	attTicker := time.NewTicker(100 * time.Millisecond)
+	gpsTicker := time.NewTicker(time.Second)
+	defer attTicker.Stop()
+	defer gpsTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-attTicker.C:
+			s := g.State()
+			h.mu.RLock()
+			mgrs := h.siyiManagers
+			h.mu.RUnlock()
+			for _, mgr := range mgrs {
+				go func(m *siyi.Manager) { _ = m.SendAttitude(s) }(mgr)
+			}
+		case <-gpsTicker.C:
+			s := g.State()
+			h.mu.RLock()
+			mgrs := h.siyiManagers
+			h.mu.RUnlock()
+			for _, mgr := range mgrs {
+				go func(m *siyi.Manager) { _ = m.SendGPS(s) }(mgr)
+			}
+		}
+	}
 }
 
 // handleLEDMsg controls the expander LED from a websocket message.

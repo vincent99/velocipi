@@ -20,6 +20,7 @@ import (
 	"github.com/vincent99/velocipi/server/dvr"
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/oled"
+	"github.com/vincent99/velocipi/server/hardware/siyi"
 	"github.com/vincent99/velocipi/server/music"
 )
 
@@ -109,7 +110,9 @@ func main() {
 	// /cameras — list configured cameras sorted by sort then alphabetically.
 	mux.HandleFunc("/cameras", func(w http.ResponseWriter, r *http.Request) {
 		type cameraInfo struct {
-			Name string `json:"name"`
+			Name   string `json:"name"`
+			Driver string `json:"driver"`
+			Audio  bool   `json:"audio"`
 		}
 		cams := make([]config.CameraConfig, len(cfg.DVR.Cameras))
 		copy(cams, cfg.DVR.Cameras)
@@ -129,13 +132,17 @@ func main() {
 		})
 		infos := make([]cameraInfo, 0, len(cams))
 		for _, c := range cams {
-			infos = append(infos, cameraInfo{Name: c.Name})
+			driver := c.Driver
+			if driver == "" {
+				driver = "rtsp"
+			}
+			infos = append(infos, cameraInfo{Name: c.Name, Driver: driver, Audio: c.Audio})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(infos)
 	})
 
-	dvrManager := dvr.New(cfg.DVR, cfg.DVRDiskSpacePollDur)
+	dvrManager := dvr.New(cfg.DVR, cfg.Storage.DVR, cfg.DVRDiskSpacePollDur)
 
 	// /dvr/state — GET returns current DVR state; PUT sets it (admin only).
 	mux.HandleFunc("/dvr/state", func(w http.ResponseWriter, r *http.Request) {
@@ -320,10 +327,117 @@ func main() {
 		case http.MethodGet:
 			// Serve static files from recordingsDir.
 			// rest is "{session}/{file.ext}"
-			http.ServeFile(w, r, filepath.Join(cfg.DVR.RecordingsDir, rest))
+			http.ServeFile(w, r, filepath.Join(cfg.Storage.DVR, rest))
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
+	})
+
+	// /siyi/{camera}/{action} — Siyi gimbal control routes.
+	// Camera name is URL-decoded from the path segment.
+	lookupSiyi := func(name string) *siyi.Manager {
+		hub.mu.RLock()
+		m := hub.siyiManagers[name]
+		hub.mu.RUnlock()
+		return m
+	}
+	mux.HandleFunc("/siyi/", func(w http.ResponseWriter, r *http.Request) {
+		// path: /siyi/{camera}/{action}
+		rest := r.URL.Path[len("/siyi/"):]
+		slashIdx := strings.IndexByte(rest, '/')
+		if slashIdx < 0 {
+			http.NotFound(w, r)
+			return
+		}
+		cameraName := rest[:slashIdx]
+		action := rest[slashIdx+1:]
+
+		mgr := lookupSiyi(cameraName)
+		if mgr == nil {
+			http.Error(w, "camera not found or not siyi driver", http.StatusNotFound)
+			return
+		}
+
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+
+		var err error
+		switch action {
+		case "gimbal":
+			yaw := int8(jsonInt(body, "yaw"))
+			pitch := int8(jsonInt(body, "pitch"))
+			err = mgr.GimbalRotate(yaw, pitch)
+		case "zoom":
+			if v, ok := body["absolute"]; ok {
+				err = mgr.AbsoluteZoom(float32(toFloat(v)))
+			} else {
+				err = mgr.ZoomRate(int8(jsonInt(body, "direction")))
+			}
+		case "photo":
+			err = mgr.TakePhoto()
+		case "video":
+			err = mgr.ToggleVideo()
+		case "center":
+			err = mgr.Center()
+		case "focus":
+			if jsonStr(body, "mode") == "auto" {
+				err = mgr.AutoFocus()
+			} else {
+				err = mgr.ManualFocus(int8(jsonInt(body, "direction")))
+			}
+		case "mode":
+			switch jsonStr(body, "mode") {
+			case "lock":
+				err = mgr.SetMode(siyi.ModeLock)
+			case "follow":
+				err = mgr.SetMode(siyi.ModeFollow)
+			case "fpv":
+				err = mgr.SetMode(siyi.ModeFPV)
+			default:
+				http.Error(w, "unknown mode", http.StatusBadRequest)
+				return
+			}
+		case "files":
+			// GET override for file listing (POST not ideal but kept consistent)
+			dl := siyi.NewDownloader(mgr.Host(), cfg.Storage.Snaps)
+			photos, err1 := dl.ListPhotos(r.Context())
+			videos, err2 := dl.ListVideos(r.Context())
+			if err1 != nil || err2 != nil {
+				http.Error(w, "list error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"photos": photos, "videos": videos})
+			return
+		case "download":
+			fileURL := r.URL.Query().Get("url")
+			fileName := r.URL.Query().Get("name")
+			if fileURL == "" || fileName == "" {
+				http.Error(w, "url and name params required", http.StatusBadRequest)
+				return
+			}
+			dl := siyi.NewDownloader(mgr.Host(), cfg.Storage.Snaps)
+			dest, dlErr := dl.Download(r.Context(), siyi.MediaFile{Name: fileName, URL: fileURL})
+			if dlErr != nil {
+				http.Error(w, dlErr.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"path": dest})
+			return
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	mux.Handle("/", spaHandler("ui/dist"))
@@ -363,6 +477,34 @@ func main() {
 	go hub.runTpmsLoop(ctx)
 	go hub.runInputLoop(ctx)
 	go hub.runScreencastLoop(ctx)
+	go hub.runG3XLoop(ctx)
+
+	// Start Siyi managers for cameras with driver: "siyi".
+	siyiManagers := make(map[string]*siyi.Manager)
+	for _, cam := range cfg.DVR.Cameras {
+		if cam.Driver != "siyi" {
+			continue
+		}
+		mgr := siyi.New(cam, func(name string, att siyi.GimbalAttitude) {
+			hub.broadcastAll(SiyiAttitudeMsg{
+				Type: "siyiAttitude", Camera: name,
+				Yaw: att.Yaw, Pitch: att.Pitch, Roll: att.Roll,
+				YawRate: att.YawRate, PitchRate: att.PitchRate, RollRate: att.RollRate,
+			})
+		})
+		siyiManagers[cam.Name] = mgr
+		go mgr.Start(ctx)
+		log.Printf("siyi: started manager for camera %q at %s", cam.Name, cam.Host)
+
+		if cam.SiyiAIHost != "" {
+			tracker := siyi.NewAITracker(cam.SiyiAIHost)
+			go tracker.Start(ctx)
+			log.Printf("siyi: started AI tracker for camera %q at %s", cam.Name, cam.SiyiAIHost)
+		}
+	}
+	hub.mu.Lock()
+	hub.siyiManagers = siyiManagers
+	hub.mu.Unlock()
 
 	// Connect DVR manager to hub for camera status broadcasts.
 	hub.mu.Lock()
@@ -390,7 +532,7 @@ func main() {
 	dvrManager.Start(ctx)
 
 	// Initialize music subsystem (requires mpv in PATH; disabled gracefully otherwise).
-	musicDB, musicEnabled := music.InitDB(cfg.Music, "schemas")
+	musicDB, musicEnabled := music.InitDB(cfg.Music, "schemas", cfg.Storage.Backup)
 	if musicEnabled {
 		defer musicDB.Close()
 		player := music.NewPlayer(musicDB, cfg.Music, hub)
@@ -441,4 +583,33 @@ func main() {
 	if display != nil {
 		display.Close()
 	}
+}
+
+// jsonInt extracts an integer value from a decoded JSON body map.
+func jsonInt(m map[string]any, key string) int {
+	if v, ok := m[key]; ok {
+		return int(toFloat(v))
+	}
+	return 0
+}
+
+// jsonStr extracts a string value from a decoded JSON body map.
+func jsonStr(m map[string]any, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// toFloat converts a JSON-decoded number (float64) or string to float64.
+func toFloat(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	}
+	return 0
 }

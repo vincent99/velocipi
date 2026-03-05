@@ -124,6 +124,29 @@ export interface LocalCameraMsg {
   camera: string;
 }
 
+export interface G3XStateMsg {
+  type: 'g3xState';
+  lat: number;
+  lon: number;
+  altFt: number;
+  heading: number;
+  roll: number;
+  pitch: number;
+  yaw: number;
+  speedKts: number;
+}
+
+export interface SiyiAttitudeMsg {
+  type: 'siyiAttitude';
+  camera: string;
+  yaw: number;
+  pitch: number;
+  roll: number;
+  yawRate: number;
+  pitchRate: number;
+  rollRate: number;
+}
+
 export interface MusicStateMsg {
   type: 'musicState';
   currentSongId: number | null;
@@ -154,6 +177,8 @@ export type InboundWsMsg =
   | DVRStateMsg
   | DiskSpaceMsg
   | LocalCameraMsg
+  | G3XStateMsg
+  | SiyiAttitudeMsg
   | MusicStateMsg
   | MusicQueueMsg;
 

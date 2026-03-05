@@ -67,6 +67,10 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: false,
       },
+      '/siyi': {
+        target: 'http://localhost:8080',
+        changeOrigin: false,
+      },
       '/snapshot': {
         target: 'http://localhost:8080',
         changeOrigin: false,

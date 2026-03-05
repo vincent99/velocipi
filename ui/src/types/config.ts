@@ -86,8 +86,16 @@ export interface ScreenConfig {
   fps: number;
 }
 
+export interface StorageConfig {
+  dvr: string;
+  music: string;
+  backup: string;
+  snaps: string;
+}
+
 export interface CameraConfig {
   name: string;
+  driver: string; // "rtsp" (default/empty) or "siyi"
   host: string;
   port: number;
   username: string;
@@ -95,10 +103,10 @@ export interface CameraConfig {
   audio: boolean;
   record?: boolean;
   sort?: number;
+  siyiAIHost: string; // IP of AI tracking module; empty = disabled
 }
 
 export interface DVRConfig {
-  recordingsDir: string;
   segmentDuration: number; // seconds
   thumbnailHeight: number;
   record: boolean; // enable recording on startup
@@ -114,7 +122,6 @@ export interface TireAddresses {
 }
 
 export interface MusicConfig {
-  musicDir: string;
   volume: number;
   audioDevice: string; // mpv --audio-device value; "auto" = let mpv choose
   albumRequiredPercent: number;
@@ -124,7 +131,6 @@ export interface MusicConfig {
   playedRequiredPercent: number; // % elapsed before a skip counts as a play
   acoustidKey: string; // AcoustID API key (register free at acoustid.org)
   acoustidMinScore: number; // minimum AcoustID match score (0.0–1.0) to accept a result
-  backupDir: string; // directory for database backups
 }
 
 export interface FullConfig {
@@ -133,6 +139,7 @@ export interface FullConfig {
   i2cDevice: string;
   spiDevice: string;
   pingInterval: string;
+  storage: StorageConfig;
   airSensor: SensorConfig;
   dvr: DVRConfig;
   expander: ExpanderConfig;

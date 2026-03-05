@@ -1,8 +1,13 @@
 addr: "0.0.0.0:8080"
 spiDevice: "/dev/spidev0.0"
 
+storage:
+  dvr: "recordings"
+  music: "music"
+  backup: "backup"
+  snaps: "snaps"
+
 dvr:
-  recordingsDir: "recordings"
   segmentDuration: 600
   thumbnailHeight: 240
   ffmpegLog: false
@@ -58,12 +63,10 @@ tires:
 music:
   acoustidKey: ""
   acoustidMinScore: 0.8
-  backupDir: "backup"
   albumRequiredPercent: 50
   audioDevice: "auto"
   maxBitrate: 0
   minDbVersion: 1
-  musicDir: "music"
   playedRequiredPercent: 50
   transcodeFormat: aac
   volume: 100

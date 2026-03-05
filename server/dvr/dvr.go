@@ -159,6 +159,7 @@ type RecordingReadyMsg struct {
 type Manager struct {
 	mu               sync.RWMutex
 	cfg              config.DVRConfig
+	recordingsDir    string // filesystem path for recordings storage
 	pollDur          time.Duration
 	sessionDir       string                    // chosen at Start: {recordingsDir}/{yyyy-mm-dd[-NN]}
 	live             map[string]*liveCamera    // sanitized name → live state
@@ -173,7 +174,7 @@ type Manager struct {
 }
 
 // New creates a Manager. Call Start to begin recording.
-func New(cfg config.DVRConfig, pollDur time.Duration) *Manager {
+func New(cfg config.DVRConfig, recordingsDir string, pollDur time.Duration) *Manager {
 	live := make(map[string]*liveCamera, len(cfg.Cameras))
 	for _, cam := range cfg.Cameras {
 		live[sanitizeName(cam.Name)] = &liveCamera{
@@ -190,12 +191,13 @@ func New(cfg config.DVRConfig, pollDur time.Duration) *Manager {
 		}
 	}
 	return &Manager{
-		cfg:       cfg,
-		pollDur:   pollDur,
-		live:      live,
-		recording: make(map[string]bool),
-		sessions:  make(map[string]*streamSession),
-		state:     state,
+		cfg:           cfg,
+		recordingsDir: recordingsDir,
+		pollDur:       pollDur,
+		live:          live,
+		recording:     make(map[string]bool),
+		sessions:      make(map[string]*streamSession),
+		state:         state,
 	}
 }
 
@@ -312,7 +314,7 @@ func (m *Manager) SessionDir() string {
 // pollDiskSpace reads the filesystem stats for recordingsDir and broadcasts a DiskSpaceMsg.
 func (m *Manager) pollDiskSpace() {
 	var stat syscall.Statfs_t
-	if err := syscall.Statfs(m.cfg.RecordingsDir, &stat); err != nil {
+	if err := syscall.Statfs(m.recordingsDir, &stat); err != nil {
 		log.Println("dvr: disk space poll error:", err)
 		return
 	}
@@ -364,7 +366,7 @@ func (m *Manager) Start(ctx context.Context) {
 	if len(m.cfg.Cameras) == 0 {
 		return
 	}
-	if err := os.MkdirAll(m.cfg.RecordingsDir, 0755); err != nil {
+	if err := os.MkdirAll(m.recordingsDir, 0755); err != nil {
 		log.Println("dvr: cannot create recordings dir:", err)
 		return
 	}
@@ -380,7 +382,7 @@ func (m *Manager) Start(ctx context.Context) {
 	if m.state == RecordingOff {
 		log.Println("dvr: recording disabled, starting live-only camera loops")
 	} else {
-		dir, err := pickSessionDir(m.cfg.RecordingsDir)
+		dir, err := pickSessionDir(m.recordingsDir)
 		if err != nil {
 			log.Println("dvr:", err)
 			return
@@ -606,7 +608,7 @@ func (m *Manager) enforceMinFreeDisk() {
 	minFreeBytes := m.cfg.MinFreeDisk * 1024 * 1024 * 1024
 	for {
 		var stat syscall.Statfs_t
-		if err := syscall.Statfs(m.cfg.RecordingsDir, &stat); err != nil {
+		if err := syscall.Statfs(m.recordingsDir, &stat); err != nil {
 			log.Println("dvr: disk space check error:", err)
 			return
 		}
@@ -671,7 +673,7 @@ func (m *Manager) runLoop(ctx context.Context, cam config.CameraConfig, tsFIFO, 
 
 		// Ensure session dir exists when recording is active.
 		if record && sessDir == "" {
-			dir, err := pickSessionDir(m.cfg.RecordingsDir)
+			dir, err := pickSessionDir(m.recordingsDir)
 			if err != nil {
 				log.Println("dvr:", err)
 				record = false

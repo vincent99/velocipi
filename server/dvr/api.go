@@ -42,7 +42,7 @@ func parseRecordingName(name string) (date, startTime, cam string, ok bool) {
 // ListRecordings returns all MP4 segments found under recordingsDir,
 // sorted by session descending then start time ascending.
 func (m *Manager) ListRecordings() ([]RecordingFile, error) {
-	root := m.cfg.RecordingsDir
+	root := m.recordingsDir
 	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
 		return []RecordingFile{}, nil
@@ -100,7 +100,7 @@ func (m *Manager) DeleteRecording(session, filename string) error {
 	if strings.ContainsAny(session, "/\\") || strings.ContainsAny(filename, "/\\") {
 		return fmt.Errorf("invalid session or filename")
 	}
-	dir := filepath.Join(m.cfg.RecordingsDir, session)
+	dir := filepath.Join(m.recordingsDir, session)
 	base := filepath.Join(dir, filename)
 	for _, ext := range []string{".mp4", "_thumb.jpg", "_full.jpg"} {
 		path := base + ext
@@ -114,7 +114,7 @@ func (m *Manager) DeleteRecording(session, filename string) error {
 // DeleteHour deletes all recordings (and associated JPEGs) in a given session
 // directory whose time component starts with the given hour (e.g. "15").
 func (m *Manager) DeleteHour(session, hour string) error {
-	dir := filepath.Join(m.cfg.RecordingsDir, session)
+	dir := filepath.Join(m.recordingsDir, session)
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return nil
@@ -146,7 +146,7 @@ func (m *Manager) DeleteSession(session string) error {
 	if strings.ContainsAny(session, "/\\") {
 		return fmt.Errorf("invalid session name")
 	}
-	dir := filepath.Join(m.cfg.RecordingsDir, session)
+	dir := filepath.Join(m.recordingsDir, session)
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("delete session %s: %w", session, err)
 	}

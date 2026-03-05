@@ -2,6 +2,7 @@ import { ref } from 'vue';
 
 export interface CameraInfo {
   name: string;
+  driver: string; // "rtsp" (default/empty) or "siyi"
   audio: boolean;
 }
 
@@ -14,9 +15,10 @@ export function useCameraList() {
     loaded = true;
     fetch('/cameras')
       .then((r) => (r.ok ? r.json() : []))
-      .then((data: { name: string; audio?: boolean }[]) => {
+      .then((data: { name: string; driver?: string; audio?: boolean }[]) => {
         cameraList.value = data.map((c) => ({
           name: c.name,
+          driver: c.driver ?? 'rtsp',
           audio: c.audio ?? false,
         }));
         cameras.value = data.map((c) => c.name);

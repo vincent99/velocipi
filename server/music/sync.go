@@ -51,15 +51,16 @@ type SyncOptions struct {
 
 // Syncer scans the music directory and synchronises files with the database.
 type Syncer struct {
-	db       *DB
-	musicDir string
-	cfg      MusicConfig
-	opts     SyncOptions
+	db        *DB
+	musicDir  string
+	backupDir string
+	cfg       MusicConfig
+	opts      SyncOptions
 }
 
 // NewSyncer creates a Syncer.
-func NewSyncer(db *DB, cfg MusicConfig, opts SyncOptions) *Syncer {
-	return &Syncer{db: db, musicDir: cfg.MusicDir, cfg: cfg, opts: opts}
+func NewSyncer(db *DB, cfg MusicConfig, musicDir, backupDir string, opts SyncOptions) *Syncer {
+	return &Syncer{db: db, musicDir: musicDir, backupDir: backupDir, cfg: cfg, opts: opts}
 }
 
 // relPath returns path relative to s.musicDir for log messages.
@@ -98,7 +99,7 @@ type songMeta struct {
 // It always runs Clean at the end.
 func (s *Syncer) Run(ctx context.Context) error {
 	// Backup before sync.
-	if err := s.db.Backup(s.cfg.BackupDir); err != nil {
+	if err := s.db.Backup(s.backupDir); err != nil {
 		log.Println("music sync: backup warning:", err)
 	}
 

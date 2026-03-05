@@ -14,19 +14,20 @@ import (
 
 // CameraConfig holds connection parameters for a single IP camera.
 type CameraConfig struct {
-	Name     string `yaml:"name"     json:"name"`
-	Host     string `yaml:"host"     json:"host"`
-	Port     int    `yaml:"port"     json:"port"`
-	Username string `yaml:"username" json:"username"`
-	Password string `yaml:"password" json:"password"`
-	Audio    bool   `yaml:"audio"    json:"audio"`                    // record and stream audio (default false)
-	Record   *bool  `yaml:"record,omitempty" json:"record,omitempty"` // nil or true = record; false = skip
-	Sort     *int   `yaml:"sort,omitempty" json:"sort,omitempty"`
+	Name       string `yaml:"name"       json:"name"`
+	Driver     string `yaml:"driver"     json:"driver"` // "rtsp" (default/empty) or "siyi"
+	Host       string `yaml:"host"       json:"host"`
+	Port       int    `yaml:"port"       json:"port"`
+	Username   string `yaml:"username"   json:"username"`
+	Password   string `yaml:"password"   json:"password"`
+	Audio      bool   `yaml:"audio"      json:"audio"`                  // record and stream audio (default false)
+	Record     *bool  `yaml:"record,omitempty" json:"record,omitempty"` // nil or true = record; false = skip
+	Sort       *int   `yaml:"sort,omitempty"   json:"sort,omitempty"`
+	SiyiAIHost string `yaml:"siyiAIHost" json:"siyiAIHost"` // IP of AI tracking module; empty = disabled
 }
 
 // MusicConfig holds settings for the music player subsystem.
 type MusicConfig struct {
-	MusicDir              string  `yaml:"musicDir"             json:"musicDir"`
 	Volume                int     `yaml:"volume"               json:"volume"`
 	AudioDevice           string  `yaml:"audioDevice"          json:"audioDevice"` // mpv --audio-device value; "auto" = let mpv choose
 	AlbumRequiredPercent  int     `yaml:"albumRequiredPercent" json:"albumRequiredPercent"`
@@ -36,12 +37,18 @@ type MusicConfig struct {
 	PlayedRequiredPercent int     `yaml:"playedRequiredPercent" json:"playedRequiredPercent"` // % elapsed before a skip counts as a play
 	AcoustIDKey           string  `yaml:"acoustidKey"           json:"acoustidKey"`           // AcoustID API key (register free at acoustid.org)
 	AcoustIDMinScore      float64 `yaml:"acoustidMinScore"      json:"acoustidMinScore"`      // minimum AcoustID match score (0.0–1.0) to accept a result
-	BackupDir             string  `yaml:"backupDir"             json:"backupDir"`             // directory for database backups
+}
+
+// StorageConfig holds filesystem directory paths for all subsystems.
+type StorageConfig struct {
+	DVR    string `yaml:"dvr"    json:"dvr"`    // recordings directory; default "recordings"
+	Music  string `yaml:"music"  json:"music"`  // music library root; default "music"
+	Backup string `yaml:"backup" json:"backup"` // database backup directory; default "backup"
+	Snaps  string `yaml:"snaps"  json:"snaps"`  // downloaded camera snaps/photos; default "snaps"
 }
 
 // DVRConfig holds settings for the DVR recording subsystem.
 type DVRConfig struct {
-	RecordingsDir   string         `yaml:"recordingsDir"   json:"recordingsDir"`
 	SegmentDuration int            `yaml:"segmentDuration" json:"segmentDuration"` // seconds
 	ThumbnailHeight int            `yaml:"thumbnailHeight" json:"thumbnailHeight"` // px height for snapshot + segment thumbnails
 	FFmpegLog       bool           `yaml:"ffmpegLog"       json:"ffmpegLog"`       // pipe ffmpeg stderr to server log
@@ -173,6 +180,7 @@ type Config struct {
 	SPIDevice    string `yaml:"spiDevice"    json:"spiDevice"`
 	PingInterval string `yaml:"pingInterval" json:"pingInterval"`
 
+	Storage     StorageConfig  `yaml:"storage"     json:"storage"`
 	AirSensor   SensorConfig   `yaml:"airSensor"   json:"airSensor"`
 	DVR         DVRConfig      `yaml:"dvr"         json:"dvr"`
 	Music       MusicConfig    `yaml:"music"       json:"music"`

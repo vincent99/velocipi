@@ -7,6 +7,7 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 	"github.com/vincent99/velocipi/server/hardware/airsensor"
 	"github.com/vincent99/velocipi/server/hardware/expander"
+	"github.com/vincent99/velocipi/server/hardware/g3x"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/lightsensor"
 	"github.com/vincent99/velocipi/server/hardware/tpms"
@@ -27,6 +28,9 @@ var (
 
 	ledOnce sync.Once
 	ledUnit *led.Controller
+
+	g3xOnce sync.Once
+	g3xUnit *g3x.G3X
 )
 
 func AirSensor() *airsensor.AirSensor {
@@ -80,6 +84,14 @@ func Expander() *expander.Expander {
 		expanderUnit = e
 	})
 	return expanderUnit
+}
+
+// G3X returns the singleton G3X avionics state module.
+func G3X() *g3x.G3X {
+	g3xOnce.Do(func() {
+		g3xUnit = g3x.New()
+	})
+	return g3xUnit
 }
 
 // LED returns the singleton LED controller for the expander's LED pin.

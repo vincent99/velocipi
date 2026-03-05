@@ -210,8 +210,8 @@ func OpenAndMigrate(schemasDir, backupDir string) (*DB, error) {
 // InitDB opens the music.sqlite database, runs migrations, and checks the
 // minimum required version. Returns (nil, false) if the music subsystem should
 // be disabled due to a migration error or version mismatch.
-func InitDB(cfg MusicConfig, schemasDir string) (*DB, bool) {
-	d, err := OpenAndMigrate(schemasDir, cfg.BackupDir)
+func InitDB(cfg MusicConfig, schemasDir, backupDir string) (*DB, bool) {
+	d, err := OpenAndMigrate(schemasDir, backupDir)
 	if err != nil {
 		log.Println("music:", err)
 		return nil, false

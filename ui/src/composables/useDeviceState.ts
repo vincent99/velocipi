@@ -9,6 +9,8 @@ import type {
   DVRRecordingState,
   DiskSpaceMsg,
   Tire,
+  G3XStateMsg,
+  SiyiAttitudeMsg,
   InboundWsMsg,
   LogicalKey,
 } from '@/types/ws';
@@ -35,6 +37,10 @@ const destTimezone = ref<string>('America/New_York');
 const dvrState = ref<DVRRecordingState | null>(null);
 // diskSpace: most recent disk space reading from server
 const diskSpace = ref<DiskSpaceMsg | null>(null);
+// g3xState: most recent G3X avionics state
+const g3xState = ref<G3XStateMsg | null>(null);
+// siyiAttitude: per-camera Siyi gimbal attitude (camera name → message)
+const siyiAttitude = reactive<Map<string, SiyiAttitudeMsg>>(new Map());
 
 // Key echo: tracks which logical keys are currently "active" for visual feedback.
 // Encoder keys (tap-only) auto-clear after 150ms; held keys clear on keyup.
@@ -127,6 +133,12 @@ function init() {
       case 'musicQueue':
         musicQueue.value = msg;
         break;
+      case 'g3xState':
+        g3xState.value = msg;
+        break;
+      case 'siyiAttitude':
+        siyiAttitude.set(msg.camera, msg);
+        break;
     }
   });
 
@@ -152,5 +164,7 @@ export function useDeviceState() {
     musicQueue,
     dvrState,
     diskSpace,
+    g3xState,
+    siyiAttitude,
   };
 }

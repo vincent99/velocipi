@@ -28,7 +28,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	db, err := music.OpenAndMigrate("schemas", cfg.Music.BackupDir)
+	db, err := music.OpenAndMigrate("schemas", cfg.Storage.Backup)
 	if err != nil {
 		log.Fatal("musicsync:", err)
 	}
@@ -38,7 +38,7 @@ func main() {
 		Force:  *force,
 		Rename: *rename,
 	}
-	syncer := music.NewSyncer(db, cfg.Music, opts)
+	syncer := music.NewSyncer(db, cfg.Music, cfg.Storage.Music, cfg.Storage.Backup, opts)
 	if err := syncer.Run(ctx); err != nil {
 		log.Fatal("musicsync:", err)
 	}
