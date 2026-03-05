@@ -58,7 +58,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c := &client{conn: conn, send: make(chan []byte, 2)}
+	c := &client{conn: conn, send: make(chan []byte, 32)}
 	hub.register(c)
 	log.Println("websocket client connected:", r.RemoteAddr)
 	go hub.sendReading(c)

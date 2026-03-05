@@ -9,12 +9,13 @@ const props = withDefaults(
   defineProps<{
     size?: 'small' | 'large';
     position?: 'top' | 'middle' | 'bottom';
-    leftKey?: string;
-    rightKey?: string;
+    leftKey?: string | string[];
+    rightKey?: string | string[];
     items?: PanelRoute[];
     hideDelay?: number;
-    selectKey?: string;
-    cancelKey?: string;
+    selectKey?: string | string[];
+    cancelKey?: string | string[];
+    showKey?: string | string[];
   }>(),
   {
     size: 'large',
@@ -25,6 +26,7 @@ const props = withDefaults(
     hideDelay: undefined,
     selectKey: undefined,
     cancelKey: undefined,
+    showKey: undefined,
   }
 );
 
@@ -71,6 +73,7 @@ const barStyle = computed(() => {
     overflow: 'hidden' as const,
     background: '#000',
     borderTop: props.size === 'large' ? '1px solid #333' : 'none',
+    outline: props.size === 'small' ? '1px solid #555' : 'none',
   };
   if (props.position === 'top') {
     return { ...base, top: '0' };
@@ -95,15 +98,47 @@ function resetTimer() {
   }, hideDelay.value);
 }
 
+function toKeys(
+  binding: string | string[] | undefined,
+  fallback: string
+): string[] {
+  if (binding === undefined) {
+    return [fallback];
+  }
+  return Array.isArray(binding) ? binding : [binding];
+}
+
+function matchesKey(
+  key: string,
+  binding: string | string[] | undefined
+): boolean {
+  if (!binding) {
+    return false;
+  }
+  return Array.isArray(binding) ? binding.includes(key) : key === binding;
+}
+
 const navKeys = computed<Record<string, 'left' | 'right'>>(() => {
-  const lk = props.leftKey ?? config.value?.keyMap.outerLeft ?? '[';
-  const rk = props.rightKey ?? config.value?.keyMap.outerRight ?? ']';
-  return { [lk]: 'left', [rk]: 'right' };
+  const lks = toKeys(props.leftKey, config.value?.keyMap.outerLeft ?? '[');
+  const rks = toKeys(props.rightKey, config.value?.keyMap.outerRight ?? ']');
+  const map: Record<string, 'left' | 'right'> = {};
+  for (const k of lks) {
+    map[k] = 'left';
+  }
+  for (const k of rks) {
+    map[k] = 'right';
+  }
+  return map;
 });
 
 function show() {
   const currentIndex = panels.value.findIndex((p) => p.path === route.path);
-  selectedIndex.value = currentIndex >= 0 ? currentIndex : 0;
+  if (currentIndex >= 0) {
+    selectedIndex.value = currentIndex;
+  } else {
+    const defaultIndex = panels.value.findIndex((p) => (p.sort ?? 0) === 0);
+    selectedIndex.value = defaultIndex >= 0 ? defaultIndex : 0;
+  }
   visible.value = true;
   resetTimer();
 }
@@ -117,9 +152,17 @@ function closeMenu() {
 }
 
 function onKeyDown(e: KeyboardEvent) {
+  // showKey opens the menu when not visible.
+  if (!visible.value && matchesKey(e.key, props.showKey)) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    show();
+    return;
+  }
+
   // Select/cancel keys only act when the menu is already visible.
   if (visible.value) {
-    if (props.selectKey && e.key === props.selectKey) {
+    if (matchesKey(e.key, props.selectKey)) {
       e.preventDefault();
       e.stopImmediatePropagation();
       const target = panels.value[selectedIndex.value];
@@ -129,7 +172,7 @@ function onKeyDown(e: KeyboardEvent) {
       closeMenu();
       return;
     }
-    if (props.cancelKey && e.key === props.cancelKey) {
+    if (matchesKey(e.key, props.cancelKey)) {
       e.preventDefault();
       e.stopImmediatePropagation();
       closeMenu();
@@ -139,6 +182,11 @@ function onKeyDown(e: KeyboardEvent) {
 
   const dir = navKeys.value[e.key];
   if (!dir) {
+    return;
+  }
+
+  // If showKey is configured, left/right only act when the menu is already open.
+  if (!visible.value && props.showKey) {
     return;
   }
 
@@ -284,6 +332,6 @@ defineExpose({ show });
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
-  padding: 0 2px;
+  padding: 0 4px;
 }
 </style>

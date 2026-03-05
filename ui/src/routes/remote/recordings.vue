@@ -315,19 +315,18 @@ async function deleteSession() {
     <!-- Status bar: disk usage + DVR state -->
     <div class="status-bar">
       <div v-if="diskBar" class="disk-info">
-        <div
-          class="disk-bar-wrap"
-          :title="`${diskBar.used} GB used of ${diskBar.total} GB`"
-        >
+        <div class="disk-bar-wrap">
           <div
             class="disk-bar-fill"
             :style="{ width: diskBar.pct + '%' }"
             :class="{ warn: diskBar.pct >= 80, crit: diskBar.pct >= 95 }"
           />
         </div>
-        <span class="disk-label">{{ diskBar.free }} GB free</span>
+        <span class="disk-label">
+          {{ diskBar.used }} of {{ diskBar.total }} GB used
+        </span>
       </div>
-      <div v-else class="disk-info disk-unknown">Disk: —</div>
+      <div v-else class="disk-info warn disk-unknown">Disk: Unknown</div>
 
       <div class="dvr-state-wrap">
         <span
@@ -335,7 +334,7 @@ async function deleteSession() {
           :class="dvrState ?? 'unknown'"
           :title="`DVR: ${dvrState ?? 'unknown'}`"
         />
-        <span class="dvr-state-label">{{ dvrState ?? '…' }}</span>
+        <span class="dvr-state-label">{{ dvrState ?? 'Unknown' }}</span>
         <button
           v-if="isAdmin && dvrState && dvrState !== 'off'"
           class="dvr-toggle-btn"

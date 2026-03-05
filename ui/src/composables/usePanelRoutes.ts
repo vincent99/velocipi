@@ -3,8 +3,8 @@ import type { PanelMeta } from '@/types/config';
 export interface PanelRoute {
   path: string;
   name: string;
-  icon: string;
-  iconStyle: string;
+  icon?: string;
+  iconStyle?: string;
   sort?: number;
 }
 

@@ -1,11 +1,75 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed } from 'vue';
 import { useDeviceState } from '@/composables/useDeviceState';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
+import { useConfig } from '@/composables/useConfig';
 import ScrollingText from '@/components/panel/ScrollingText.vue';
+import NavMenu from '@/components/panel/NavMenu.vue';
+import type { PanelRoute } from '@/composables/usePanelRoutes';
 
 const { musicState } = useDeviceState();
 const { currentSong } = useMusicPlayer();
+const { config } = useConfig();
+
+const navMenuRef = ref<InstanceType<typeof NavMenu> | null>(null);
+
+const musicSubPages: PanelRoute[] = [
+  {
+    path: '/panel/music/queue',
+    name: 'Queue',
+    sort: -3,
+  },
+  {
+    path: '/panel/music/smart-searches',
+    name: 'Smart',
+    sort: -2,
+  },
+  {
+    path: '/panel/music/playlists',
+    name: 'Playlists',
+    sort: -1,
+  },
+  {
+    path: '/panel/music/artists',
+    name: 'Artists',
+    sort: 0,
+  },
+  {
+    path: '/panel/music/albums',
+    name: 'Albums',
+    sort: 1,
+  },
+  {
+    path: '/panel/music/songs',
+    name: 'Songs',
+    sort: 2,
+  },
+  {
+    path: '/panel/music/genres',
+    name: 'Genres',
+    sort: 3,
+  },
+  {
+    path: '/panel/music/decades',
+    name: 'Decades',
+    sort: 4,
+  },
+];
+
+const navLeftKey = computed(() => [
+  config.value?.keyMap.left ?? 'ArrowLeft',
+  config.value?.keyMap.joyLeft ?? ',',
+]);
+const navRightKey = computed(() => [
+  config.value?.keyMap.right ?? 'ArrowRight',
+  config.value?.keyMap.joyRight ?? '.',
+]);
+const navSelectKey = computed(() => [
+  config.value?.keyMap.down ?? 'ArrowDown',
+  config.value?.keyMap.enter ?? 'Enter',
+]);
+const navCancelKey = computed(() => config.value?.keyMap.up ?? 'ArrowUp');
+const navShowKey = computed(() => config.value?.keyMap.down ?? 'ArrowDown');
 
 const artUrl = computed(() => {
   const id = currentSong.value?.coverId;
@@ -113,6 +177,19 @@ function formatTime(sec: number): string {
     <div class="progress-bar">
       <div class="progress-fill" :style="{ width: `${progressPct}%` }" />
     </div>
+
+    <NavMenu
+      ref="navMenuRef"
+      size="small"
+      position="middle"
+      :hide-delay="0"
+      :show-key="navShowKey"
+      :left-key="navLeftKey"
+      :right-key="navRightKey"
+      :select-key="navSelectKey"
+      :cancel-key="navCancelKey"
+      :items="musicSubPages"
+    />
   </div>
 </template>
 

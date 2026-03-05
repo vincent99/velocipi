@@ -3,7 +3,7 @@ import type { PanelMeta } from '@/types/config';
 export const panelMeta: PanelMeta = {
   name: 'Home',
   icon: 'home',
-  sort: -1,
+  sort: 0,
 };
 </script>
 

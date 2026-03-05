@@ -3,6 +3,7 @@ import type { PanelMeta } from '@/types/config';
 export const panelMeta: PanelMeta = {
   name: 'Settings',
   icon: 'settings-sliders',
+  sort: 2,
 };
 </script>
 
