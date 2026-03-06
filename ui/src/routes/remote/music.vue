@@ -15,16 +15,24 @@ import { useLocalPref } from '@/composables/useLocalPreferences';
 import { useSongEdit } from '@/composables/useSongEdit';
 import { useDeviceState } from '@/composables/useDeviceState';
 import QueueRow from '@/components/remote/QueueRow.vue';
+import LyricsPanel from '@/components/remote/LyricsPanel.vue';
 import SongEditModal from '@/components/remote/SongEditModal.vue';
 import SongFlagButtons from '@/components/remote/SongFlagButtons.vue';
+import { useLyrics } from '@/composables/useLyrics';
 import type { Playlist, SmartSearch } from '@/types/music';
 
 const route = useRoute();
 const router = useRouter();
 
+// Initialize lyrics singleton so it starts tracking the current song.
+useLyrics();
+
 // Mobile-only UI state
 const mobileNavOpen = ref(false);
 const mobileQueueOpen = ref(false);
+
+// Right sidebar tab selection
+const sidebarTab = ref<'queue' | 'lyrics'>('queue');
 
 const {
   musicState,
@@ -655,19 +663,37 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
         @touchstart.prevent="startResize('right', $event)"
       />
 
-      <!-- Right: queue -->
+      <!-- Right: queue / lyrics -->
       <div
         class="music-sidebar-right"
         :class="{ 'mobile-open': mobileQueueOpen }"
         :style="{ width: sidebarWidth + 'px' }"
       >
         <div class="sidebar-heading">
-          Queue
+          <div class="sidebar-tabs">
+            <button
+              class="sidebar-tab"
+              :class="{ 'sidebar-tab--active': sidebarTab === 'queue' }"
+              @click="sidebarTab = 'queue'"
+            >
+              Queue
+            </button>
+            <button
+              class="sidebar-tab"
+              :class="{ 'sidebar-tab--active': sidebarTab === 'lyrics' }"
+              @click="sidebarTab = 'lyrics'"
+            >
+              Lyrics
+            </button>
+          </div>
           <button class="mobile-queue-close" @click="mobileQueueOpen = false">
             ✕
           </button>
         </div>
+
+        <!-- Queue tab -->
         <div
+          v-if="sidebarTab === 'queue'"
           class="queue-list"
           @dragover="handleQueueListDragOver"
           @drop="handleQueueListDrop"
@@ -699,6 +725,9 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
           </template>
           <div v-else class="queue-empty">Loading…</div>
         </div>
+
+        <!-- Lyrics tab -->
+        <LyricsPanel v-else-if="sidebarTab === 'lyrics'" />
       </div>
     </div>
   </div>
@@ -1063,14 +1092,42 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
 }
 
 .sidebar-heading {
-  padding: 0.4rem 0.75rem;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid #2a2a2a;
   flex-shrink: 0;
+}
+
+.sidebar-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #555;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.4rem 0.5rem;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+
+  &:hover {
+    color: #999;
+  }
+
+  &--active {
+    color: #90caf9;
+    border-bottom-color: #3b82f6;
+  }
 }
 
 .nav-section-label {

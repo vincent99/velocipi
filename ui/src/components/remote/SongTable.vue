@@ -553,14 +553,16 @@ function onPlDrop(index: number, e: DragEvent) {
                 class="col-title"
                 :class="{ 'now-playing': isPlaying(song.id) }"
               >
-                <span class="title-text">{{ song.title }}</span>
-                <SongFlagButtons
-                  :song="song"
-                  variant="row"
-                  @change="
-                    (field, val) => handleFlagChange(song.id, field, val)
-                  "
-                />
+                <div class="col-title-inner">
+                  <span class="title-text">{{ song.title }}</span>
+                  <SongFlagButtons
+                    :song="song"
+                    variant="row"
+                    @change="
+                      (field, val) => handleFlagChange(song.id, field, val)
+                    "
+                  />
+                </div>
               </td>
               <td class="col-duration">{{ formatDuration(song.length) }}</td>
               <!-- Per-row actions (no Favorite, no playlist mode in grouped view) -->
@@ -986,8 +988,14 @@ function onPlDrop(index: number, e: DragEvent) {
 }
 
 // Title cells need to be flex to keep text + buttons in line
-.vc-title,
-.col-title {
+.vc-title {
+  display: flex;
+  align-items: center;
+}
+
+// Grouped table title cell: wrap contents in flex div instead of making
+// the <td> itself flex (flex <td> breaks table column width distribution)
+.col-title-inner {
   display: flex;
   align-items: center;
 }

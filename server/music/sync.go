@@ -116,13 +116,17 @@ func (s *Syncer) Run(ctx context.Context) error {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
+			toDelete = append(toDelete, path)
 			return nil
 		}
 		if d.IsDir() || ctx.Err() != nil {
 			return nil
 		}
-		if !musicExtensions[strings.ToLower(filepath.Ext(path))] {
-			toDelete = append(toDelete, path)
+		ext := strings.ToLower(filepath.Ext(path))
+		if !musicExtensions[ext] {
+			if ext != ".lrc" {
+				toDelete = append(toDelete, path)
+			}
 			return nil
 		}
 		found[path] = true
@@ -755,6 +759,18 @@ func (s *Syncer) RenameOrganise(ctx context.Context) error {
 			log.Printf("music rename: move %s → %s: %v", s.relPath(sr.path), s.relPath(destPath), err)
 			continue
 		}
+
+		// Move companion .lrc file if present.
+		oldLrc := strings.TrimSuffix(sr.path, filepath.Ext(sr.path)) + ".lrc"
+		if _, lrcErr := os.Stat(oldLrc); lrcErr == nil {
+			newLrc := strings.TrimSuffix(destPath, filepath.Ext(destPath)) + ".lrc"
+			if lrcErr = os.Rename(oldLrc, newLrc); lrcErr != nil {
+				log.Printf("music rename: move lrc %s → %s: %v", s.relPath(oldLrc), s.relPath(newLrc), lrcErr)
+			} else {
+				log.Printf("music rename: moved lrc %s → %s", s.relPath(oldLrc), s.relPath(newLrc))
+			}
+		}
+
 		// Update DB path and mtime.
 		info, _ := os.Stat(destPath)
 		var newMtime string

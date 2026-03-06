@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Overview
+
+Velocipi is a Go hardware monitoring system running on a Raspberry Pi 5. It bridges physical hardware (OLED display, I2C/SPI sensors, GPIO expander, Bluetooth TPMS) with a headless Chromium browser via chromedp, streaming the browser output to a Vue/Vite web frontend over WebSockets. The backend lives in `server/` and `hardware/`; the frontend lives in `ui/`.
+
 ## Commands
 
 ```bash
@@ -105,6 +109,24 @@ All three rotary encoders use the same `knobState` accumulator in `hub.go`. The 
 - Non-printable JS key names (`ArrowLeft` etc.) are mapped to kb private Unicode codepoints via `jsKeyToKb` in `hub.go` before encoding
 - Joystick directions use keydown-on-center-press / keyup-on-center-release logic
 - Knob keys are always sent as a keydown+keyup pair (no held state)
+
+## Go Dependencies
+
+- Before importing a Go package, verify it's available in `go.mod` or run `go list` — do not assume a package is present.
+- Prefer `envconfig` + `godotenv` for config management. Do **not** use `cleanenv`.
+- SQLite driver: `modernc.org/sqlite` (pure Go), driver name `"sqlite"` (not `"sqlite3"`).
+
+## Common Pitfalls
+
+### Shutdown / resource lifecycle
+
+When implementing shutdown or cleanup sequences, ensure hardware resources (OLED, LED, expander, sensors) are closed in dependency order and that no goroutines access a resource after it has been closed. Always guard against nil or closed handles during shutdown. Prefer signalling goroutines to stop (via context cancellation or a done channel) before closing the underlying hardware.
+
+### Chromedp context and event listeners
+
+- `page.Navigate` never returns a CDP response for HTTP/HTTPS URLs on this platform — call it in a goroutine and wait for a lifecycle event instead.
+- Event listeners registered via `chromedp.ListenTarget` must be attached to `browserCtx` directly — listeners on derived child contexts silently miss events.
+- Never cancel a context that is still needed for an ongoing navigation; use a separate child context for operations with timeouts.
 
 ### Chromedp navigation quirks (Raspberry Pi / chromium-headless-shell)
 

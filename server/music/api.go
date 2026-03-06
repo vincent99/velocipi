@@ -614,6 +614,34 @@ func (a *musicAPI) handleSongByIDOrAction(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// /music/songs/{id}/lyrics — return parsed LRC lines (empty array if no file)
+	if len(parts) == 2 && parts[1] == "lyrics" {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var songPath string
+		err := a.db.db.QueryRow(`SELECT path FROM song WHERE id=? AND deleted IS NULL`, id).Scan(&songPath)
+		if err == sql.ErrNoRows {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		lrcData, err := os.ReadFile(lrcPath(songPath))
+		var llines []LyricLine
+		if err == nil {
+			llines = parseLRC(lrcData)
+		}
+		if llines == nil {
+			llines = []LyricLine{}
+		}
+		jsonOK(w, map[string][]LyricLine{"lines": llines})
+		return
+	}
+
 	// /music/songs/{id} — single song lookup
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

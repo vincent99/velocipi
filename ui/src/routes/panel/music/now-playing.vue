@@ -15,6 +15,11 @@ const navMenuRef = ref<InstanceType<typeof NavMenu> | null>(null);
 
 const musicSubPages: PanelRoute[] = [
   {
+    path: '/panel/music/lyrics',
+    name: 'Lyrics',
+    sort: -4,
+  },
+  {
     path: '/panel/music/queue',
     name: 'Queue',
     sort: -3,

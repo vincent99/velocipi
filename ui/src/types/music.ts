@@ -68,6 +68,15 @@ export interface SongsResponse {
   total: number;
 }
 
+export interface LyricLine {
+  timeSec: number;
+  text: string;
+}
+
+export interface LyricsResponse {
+  lines: LyricLine[];
+}
+
 export interface QueueEntryResponse {
   songId: number;
   song: Song | null;
