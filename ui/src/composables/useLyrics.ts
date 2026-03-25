@@ -27,16 +27,14 @@ function initLyrics() {
       // are never shown for the incoming song.
       lines.value = [];
       currentIndex.value = -1;
+      loading.value = false;
 
       if (id == null) {
-        loading.value = false;
         return;
       }
 
-      const cached = lyricsCache.get(id);
-      if (cached) {
-        lines.value = cached;
-        loading.value = false;
+      if (lyricsCache.has(id)) {
+        lines.value = lyricsCache.get(id)!;
         return;
       }
 
@@ -44,7 +42,6 @@ function initLyrics() {
       try {
         const r = await fetch(`/music/songs/${id}/lyrics`);
         if (!r.ok) {
-          loading.value = false;
           return;
         }
         const data: { lines: LyricLine[] } = await r.json();

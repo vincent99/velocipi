@@ -221,13 +221,19 @@ func main() {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	// /snapshot/{camera} — multipart/x-mixed-replace stream of JPEG frames.
-	// The server pushes a new frame each time the background snapshot loop
-	// captures one; browsers update the <img> automatically.
+	// /snapshot/{camera} — snapshot endpoint.
+	// Without query params: multipart/x-mixed-replace stream of JPEG frames.
+	// With ?single: returns the latest frame as a single image/jpeg response.
 	mux.HandleFunc("/snapshot/", func(w http.ResponseWriter, r *http.Request) {
 		cameraName := r.URL.Path[len("/snapshot/"):]
 		if cameraName == "" {
 			http.NotFound(w, r)
+			return
+		}
+		if _, ok := r.URL.Query()["single"]; ok {
+			if err := dvrManager.SingleSnapshot(cameraName, w); err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+			}
 			return
 		}
 		if err := dvrManager.StreamSnapshot(r.Context(), cameraName, w, r); err != nil {

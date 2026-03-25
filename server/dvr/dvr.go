@@ -979,6 +979,28 @@ func (m *Manager) StreamSnapshot(ctx context.Context, name string, w http.Respon
 	}
 }
 
+// SingleSnapshot writes the latest cached JPEG frame for the named camera as a
+// single image/jpeg response. Returns an error if the camera is unknown or has
+// no frame yet.
+func (m *Manager) SingleSnapshot(name string, w http.ResponseWriter) error {
+	m.mu.RLock()
+	lc := m.live[sanitizeName(name)]
+	m.mu.RUnlock()
+	if lc == nil {
+		return fmt.Errorf("unknown camera %q", name)
+	}
+	data, _ := lc.frame.latest()
+	if len(data) == 0 {
+		return fmt.Errorf("no frame yet for camera %q", name)
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+	return nil
+}
+
 // resolveEnv expands a single value that may be an env-var reference.
 func resolveEnv(v string) string {
 	if len(v) > 1 && v[0] == '$' {

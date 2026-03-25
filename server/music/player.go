@@ -356,6 +356,13 @@ func (p *Player) Run(ctx context.Context) {
 				p.saveState()
 				p.broadcast()
 
+			case "undoQueueChange":
+				if p.queue.UndoChange() {
+					p.broadcastQueue()
+					p.saveState()
+					p.broadcast()
+				}
+
 			case "replace":
 				var ids []int64
 				if err := json.Unmarshal([]byte(msg.Str), &ids); err == nil {

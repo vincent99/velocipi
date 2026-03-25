@@ -224,7 +224,8 @@ export interface MusicControlMsg {
     | 'setVolume'
     | 'setShuffle'
     | 'setRepeat'
-    | 'jumpToIndex';
+    | 'jumpToIndex'
+    | 'undoQueueChange';
   value?: number; // seek: absolute seconds; skipForward/skipBack: delta seconds; setVolume: 0-100
   str?: string; // setRepeat: 'off'|'song'|'queue'; setShuffle: 'true'|'false'
 }

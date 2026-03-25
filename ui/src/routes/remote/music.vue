@@ -48,6 +48,8 @@ const {
   removeFromQueue,
   jumpToIndex,
   moveInQueue,
+  clearQueue,
+  undoQueueChange,
 } = useMusicPlayer();
 
 const { editingSongs, saving: editSaving, closeEdit, saveEdit } = useSongEdit();
@@ -113,10 +115,35 @@ const remaining = computed(() => {
 const shuffle = computed(() => musicState.value?.shuffle ?? false);
 const repeat = computed(() => musicState.value?.repeat ?? 'off');
 
+const queuePosition = computed(() => {
+  const q = musicQueue.value;
+  if (!q || q.entries.length === 0) {
+    return '';
+  }
+  return `${q.currentIndex + 1} of ${q.entries.length}`;
+});
+
+const queueTotalDuration = computed(() => {
+  const entries = musicQueue.value?.entries ?? [];
+  const total = entries.reduce((sum, e) => sum + (e.song?.length ?? 0), 0);
+  return formatDuration(total);
+});
+
 function formatTime(sec: number): string {
   const s = Math.floor(sec);
   const m = Math.floor(s / 60);
   const ss = s % 60;
+  return `${m}:${ss.toString().padStart(2, '0')}`;
+}
+
+function formatDuration(sec: number): string {
+  const s = Math.floor(sec);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (h > 0) {
+    return `${h}:${m.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
+  }
   return `${m}:${ss.toString().padStart(2, '0')}`;
 }
 
@@ -692,39 +719,66 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
         </div>
 
         <!-- Queue tab -->
-        <div
-          v-if="sidebarTab === 'queue'"
-          class="queue-list"
-          @dragover="handleQueueListDragOver"
-          @drop="handleQueueListDrop"
-        >
+        <template v-if="sidebarTab === 'queue'">
           <div
-            v-if="!musicState || musicState.queueLength === 0"
-            class="queue-empty"
+            class="queue-list"
+            @dragover="handleQueueListDragOver"
+            @drop="handleQueueListDrop"
           >
-            Queue is empty
+            <div
+              v-if="!musicState || musicState.queueLength === 0"
+              class="queue-empty"
+            >
+              Queue is empty
+            </div>
+            <template v-else-if="musicQueue">
+              <QueueRow
+                v-for="(entry, idx) in musicQueue.entries"
+                :key="entry.songId + '-' + idx"
+                :entry="entry"
+                :queue-index="idx"
+                :current-index="musicQueue.currentIndex"
+                :drop-indicator="
+                  dropTarget?.index === idx ? dropTarget.position : null
+                "
+                @remove="handleQueueRemove"
+                @play="handleQueuePlay"
+                @drag-start="handleQueueDragStart"
+                @drag-over="handleQueueDragOver"
+                @drag-end="handleQueueDragEnd"
+                @drop-queue="handleQueueRowDrop"
+                @drop-songs="handleQueueSongsDrop"
+              />
+            </template>
+            <div v-else class="queue-empty">Loading…</div>
           </div>
-          <template v-else-if="musicQueue">
-            <QueueRow
-              v-for="(entry, idx) in musicQueue.entries"
-              :key="entry.songId + '-' + idx"
-              :entry="entry"
-              :queue-index="idx"
-              :current-index="musicQueue.currentIndex"
-              :drop-indicator="
-                dropTarget?.index === idx ? dropTarget.position : null
-              "
-              @remove="handleQueueRemove"
-              @play="handleQueuePlay"
-              @drag-start="handleQueueDragStart"
-              @drag-over="handleQueueDragOver"
-              @drag-end="handleQueueDragEnd"
-              @drop-queue="handleQueueRowDrop"
-              @drop-songs="handleQueueSongsDrop"
-            />
-          </template>
-          <div v-else class="queue-empty">Loading…</div>
-        </div>
+          <div class="queue-footer">
+            <div class="queue-footer-info">
+              <span v-if="queuePosition" class="queue-position">{{
+                queuePosition
+              }}</span>
+              <span v-if="queueTotalDuration" class="queue-total-duration">{{
+                queueTotalDuration
+              }}</span>
+            </div>
+            <div class="queue-footer-actions">
+              <button
+                class="queue-footer-btn"
+                title="Undo queue change"
+                @click="undoQueueChange()"
+              >
+                Undo
+              </button>
+              <button
+                class="queue-footer-btn queue-footer-btn--danger"
+                title="Clear queue"
+                @click="clearQueue()"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </template>
 
         <!-- Lyrics tab -->
         <LyricsPanel v-else-if="sidebarTab === 'lyrics'" />
@@ -1109,6 +1163,7 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   color: #555;
   font-size: 0.72rem;
   font-weight: 600;
@@ -1237,6 +1292,63 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
   font-size: 0.8rem;
   text-align: center;
   padding: 1rem 0;
+}
+
+.queue-footer {
+  flex-shrink: 0;
+  border-top: 1px solid #2a2a2a;
+  padding: 0.3rem 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.queue-footer-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.queue-position {
+  font-size: 0.7rem;
+  color: #666;
+  white-space: nowrap;
+}
+
+.queue-total-duration {
+  font-size: 0.7rem;
+  color: #555;
+  white-space: nowrap;
+}
+
+.queue-footer-actions {
+  display: flex;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.queue-footer-btn {
+  background: #222;
+  border: 1px solid #333;
+  border-radius: 3px;
+  color: #888;
+  font-size: 0.68rem;
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    background: #2a2a2a;
+    color: #bbb;
+    border-color: #444;
+  }
+
+  &--danger:hover {
+    color: #f87171;
+    border-color: #7f1d1d;
+  }
 }
 
 .modal-overlay {

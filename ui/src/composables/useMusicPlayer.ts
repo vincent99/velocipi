@@ -90,6 +90,13 @@ export function useMusicPlayer() {
     setRepeat: (mode: 'off' | 'song' | 'queue') =>
       control('setRepeat', undefined, mode),
     jumpToIndex: (index: number) => control('jumpToIndex', index),
+    undoQueueChange: () => control('undoQueueChange'),
+    clearQueue: () =>
+      fetch('/music/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ songIds: [] }),
+      }),
     replaceQueue: (ids: number[]) =>
       fetch('/music/queue', {
         method: 'POST',

@@ -36,6 +36,31 @@ type Queue struct {
 	currentIndex int
 	shuffle      bool
 	repeat       RepeatMode
+	prevEntries  []QueueEntry // snapshot before last structural change
+	prevIndex    int          // currentIndex at that snapshot
+}
+
+// savePrev saves a copy of entries+index before a structural modification.
+// Must be called with lock held.
+func (q *Queue) savePrev() {
+	q.prevEntries = make([]QueueEntry, len(q.entries))
+	copy(q.prevEntries, q.entries)
+	q.prevIndex = q.currentIndex
+}
+
+// clampIndex brings currentIndex into a valid range for the current entries.
+// Must be called with lock held.
+func (q *Queue) clampIndex() {
+	if len(q.entries) == 0 {
+		q.currentIndex = 0
+		return
+	}
+	if q.currentIndex >= len(q.entries) {
+		q.currentIndex = len(q.entries) - 1
+	}
+	if q.currentIndex < 0 {
+		q.currentIndex = 0
+	}
 }
 
 // NewQueue creates an empty queue.
@@ -47,6 +72,7 @@ func NewQueue() *Queue {
 func (q *Queue) Replace(songIDs []int64) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.savePrev()
 	q.entries = make([]QueueEntry, len(songIDs))
 	for i, id := range songIDs {
 		q.entries[i] = QueueEntry{SongID: id, OriginalIndex: -1}
@@ -61,6 +87,7 @@ func (q *Queue) Replace(songIDs []int64) {
 func (q *Queue) EnqueueAfterCurrent(songIDs []int64) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.savePrev()
 	insert := make([]QueueEntry, len(songIDs))
 	for i, id := range songIDs {
 		insert[i] = QueueEntry{SongID: id, OriginalIndex: -1}
@@ -76,6 +103,7 @@ func (q *Queue) EnqueueAfterCurrent(songIDs []int64) {
 func (q *Queue) Append(songIDs []int64) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.savePrev()
 	for _, id := range songIDs {
 		q.entries = append(q.entries, QueueEntry{SongID: id, OriginalIndex: -1})
 	}
@@ -96,6 +124,7 @@ func (q *Queue) Current() (songID int64, index int, ok bool) {
 func (q *Queue) Advance() (songID int64, ok bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.clampIndex()
 
 	switch q.repeat {
 	case RepeatSong:
@@ -131,6 +160,7 @@ func (q *Queue) Advance() (songID int64, ok bool) {
 func (q *Queue) Prev() (songID int64, ok bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.clampIndex()
 	if q.currentIndex <= 0 {
 		if len(q.entries) > 0 {
 			return q.entries[0].SongID, true
@@ -148,6 +178,7 @@ func (q *Queue) SetShuffle(on bool) {
 	if on == q.shuffle {
 		return
 	}
+	q.savePrev()
 	q.shuffle = on
 	if on {
 		q.shuffleRemaining()
@@ -219,6 +250,7 @@ func (q *Queue) RemoveAt(index int) bool {
 	if index < 0 || index >= len(q.entries) {
 		return false
 	}
+	q.savePrev()
 	q.entries = append(q.entries[:index], q.entries[index+1:]...)
 	// Keep currentIndex valid.
 	if q.currentIndex > index {
@@ -239,6 +271,7 @@ func (q *Queue) MoveAt(fromIndex, toIndex int) bool {
 	if fromIndex < 0 || fromIndex >= n || toIndex < 0 || toIndex >= n || fromIndex == toIndex {
 		return false
 	}
+	q.savePrev()
 	entry := q.entries[fromIndex]
 	// Remove from old position.
 	q.entries = append(q.entries[:fromIndex], q.entries[fromIndex+1:]...)
@@ -263,6 +296,20 @@ func (q *Queue) Restore(s QueueState) {
 	q.currentIndex = s.CurrentIndex
 	q.shuffle = s.Shuffle
 	q.repeat = s.Repeat
+	q.clampIndex()
+}
+
+// UndoChange swaps the current queue entries/index with the previous snapshot.
+// Returns false if there is no previous state to restore.
+func (q *Queue) UndoChange() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.prevEntries == nil {
+		return false
+	}
+	q.entries, q.prevEntries = q.prevEntries, q.entries
+	q.currentIndex, q.prevIndex = q.prevIndex, q.currentIndex
+	return true
 }
 
 // shuffleRemaining randomizes all entries after currentIndex.
