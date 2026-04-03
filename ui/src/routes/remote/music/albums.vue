@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SongTable from '@/components/remote/music/SongTable.vue';
 import QueueActionButton from '@/components/remote/music/QueueActionButton.vue';
+import ItemContextMenu from '@/components/remote/music/ItemContextMenu.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongEdit } from '@/composables/useSongEdit';
 import type { Album, Song } from '@/types/music';
@@ -95,6 +96,26 @@ function backToGrid() {
 
 const albumSongIds = computed(() => albumSongs.value.map((s) => s.id));
 
+const ctxMenu = ref<{ ids: number[] | null; x: number; y: number } | null>(
+  null
+);
+
+async function onAlbumContextMenu(album: Album, e: MouseEvent) {
+  if (e.metaKey || e.ctrlKey) {
+    return;
+  }
+  e.preventDefault();
+  ctxMenu.value = { ids: null, x: e.clientX, y: e.clientY };
+  const r = await fetch(
+    `/music/songs?artist=${encodeURIComponent(album.artist)}&album=${encodeURIComponent(album.album)}`
+  );
+  if (r.ok && ctxMenu.value) {
+    const data = await r.json();
+    const songs: Song[] = data.songs ?? data;
+    ctxMenu.value.ids = songs.map((s) => s.id);
+  }
+}
+
 async function handleMark(ids: number[], marked: boolean) {
   await Promise.all(ids.map((id) => markSong(id, marked)));
 }
@@ -117,7 +138,17 @@ async function handleDelete(ids: number[]) {
   <div class="albums-view" :class="{ 'is-grid': !selectedAlbum }">
     <!-- Album detail -->
     <template v-if="selectedAlbum">
-      <div class="detail-header">
+      <div
+        class="detail-header"
+        @contextmenu="
+          (e) => {
+            if (!e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              ctxMenu = { ids: albumSongIds, x: e.clientX, y: e.clientY };
+            }
+          }
+        "
+      >
         <button class="back-btn" @click="backToGrid">← Albums</button>
         <img
           v-if="selectedAlbum.coverId"
@@ -160,6 +191,7 @@ async function handleDelete(ids: number[]) {
           :key="`${album.artist}|||${album.album}`"
           class="album-card"
           @click="selectAlbum(album)"
+          @contextmenu="onAlbumContextMenu(album, $event)"
         >
           <div class="card-cover-wrap">
             <img
@@ -176,12 +208,26 @@ async function handleDelete(ids: number[]) {
             <div class="card-artist">{{ album.artist }}</div>
             <div class="card-year">{{ album.year || '' }}</div>
           </div>
+          <button
+            class="card-menu-btn"
+            title="Actions"
+            @click.stop="onAlbumContextMenu(album, $event)"
+          >
+            …
+          </button>
         </div>
         <div v-if="albums.length === 0" class="grid-empty">
           No albums found.
         </div>
       </div>
     </template>
+    <ItemContextMenu
+      v-if="ctxMenu"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :ids="ctxMenu.ids"
+      @close="ctxMenu = null"
+    />
   </div>
 </template>
 
@@ -213,6 +259,7 @@ async function handleDelete(ids: number[]) {
 }
 
 .album-card {
+  position: relative;
   cursor: pointer;
   border-radius: 6px;
   overflow: hidden;
@@ -221,6 +268,35 @@ async function handleDelete(ids: number[]) {
 
   &:hover {
     background: #242424;
+
+    .card-menu-btn {
+      opacity: 1;
+    }
+  }
+}
+
+.card-menu-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.55);
+  border: none;
+  color: #aaa;
+  cursor: pointer;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.9rem;
+  line-height: 1;
+  opacity: 0;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.8);
+    color: #fff;
+  }
+
+  @media (hover: none) {
+    opacity: 1;
   }
 }
 

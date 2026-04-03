@@ -14,6 +14,10 @@ const props = withDefaults(defineProps<Props>(), {
   variant: 'bar',
 });
 
+const emit = defineEmits<{
+  execute: [action: QueueAction];
+}>();
+
 const { queueActionPref, isVisible, executeAction } = useQueueActions();
 
 const dropdownOpen = ref(false);
@@ -50,11 +54,13 @@ const dropdownActions = computed<QueueAction[]>(() =>
 function handleMain() {
   dropdownOpen.value = false;
   executeAction(primaryAction.value, props.ids);
+  emit('execute', primaryAction.value);
 }
 
 function handleDropdownItem(action: QueueAction) {
   dropdownOpen.value = false;
   executeAction(action, props.ids);
+  emit('execute', action);
 }
 
 function toggleDropdown() {
@@ -64,7 +70,10 @@ function toggleDropdown() {
 
 <template>
   <div class="queue-action-btn" :class="`variant-${variant}`">
-    <div class="qa-row" :class="{ 'qa-row--solo': dropdownActions.length === 0 }">
+    <div
+      class="qa-row"
+      :class="{ 'qa-row--solo': dropdownActions.length === 0 }"
+    >
       <button class="qa-main" @click="handleMain">
         {{ actionLabels[primaryAction] }}
       </button>
@@ -76,7 +85,11 @@ function toggleDropdown() {
         ▾
       </button>
     </div>
-    <div v-if="dropdownOpen && dropdownActions.length > 0" class="qa-dropdown" @click.stop>
+    <div
+      v-if="dropdownOpen && dropdownActions.length > 0"
+      class="qa-dropdown"
+      @click.stop
+    >
       <button
         v-for="action in dropdownActions"
         :key="action"

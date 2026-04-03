@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SongTable from '@/components/remote/music/SongTable.vue';
 import QueueActionButton from '@/components/remote/music/QueueActionButton.vue';
+import ItemContextMenu from '@/components/remote/music/ItemContextMenu.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongEdit } from '@/composables/useSongEdit';
 import type { Artist, Song } from '@/types/music';
@@ -135,6 +136,26 @@ function backToList() {
 
 const artistSongIds = computed(() => artistSongs.value.map((s) => s.id));
 
+const ctxMenu = ref<{ ids: number[] | null; x: number; y: number } | null>(
+  null
+);
+
+async function onArtistContextMenu(artist: Artist, e: MouseEvent) {
+  if (e.metaKey || e.ctrlKey) {
+    return;
+  }
+  e.preventDefault();
+  ctxMenu.value = { ids: null, x: e.clientX, y: e.clientY };
+  const r = await fetch(
+    `/music/songs?artist=${encodeURIComponent(artist.artist)}`
+  );
+  if (r.ok && ctxMenu.value) {
+    const data = await r.json();
+    const songs: Song[] = data.songs ?? data;
+    ctxMenu.value.ids = songs.map((s) => s.id);
+  }
+}
+
 async function handleMark(ids: number[], marked: boolean) {
   await Promise.all(ids.map((id) => markSong(id, marked)));
 }
@@ -157,7 +178,17 @@ async function handleDelete(ids: number[]) {
   <div class="artists-view">
     <!-- Artist detail -->
     <template v-if="selectedArtist">
-      <div class="detail-header">
+      <div
+        class="detail-header"
+        @contextmenu="
+          (e) => {
+            if (!e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              ctxMenu = { ids: artistSongIds, x: e.clientX, y: e.clientY };
+            }
+          }
+        "
+      >
         <button class="back-btn" @click="backToList">← Artists</button>
         <div class="detail-info">
           <div class="detail-name">{{ selectedArtist.artist }}</div>
@@ -212,6 +243,7 @@ async function handleDelete(ids: number[]) {
               >
                 Tracks{{ artistSortIndicator('tracks') }}
               </th>
+              <th class="col-actions"></th>
             </tr>
           </thead>
           <tbody>
@@ -220,20 +252,37 @@ async function handleDelete(ids: number[]) {
               :key="artist.artist"
               class="artist-row"
               @click="selectArtist(artist)"
+              @contextmenu="onArtistContextMenu(artist, $event)"
             >
               <td class="col-artist">
                 {{ artist.artist || '(Unknown Artist)' }}
               </td>
               <td class="col-albums">{{ artist.albumCount }}</td>
               <td class="col-tracks">{{ artist.trackCount }}</td>
+              <td class="col-actions" @click.stop>
+                <button
+                  class="row-menu-btn"
+                  title="Actions"
+                  @click="onArtistContextMenu(artist, $event)"
+                >
+                  …
+                </button>
+              </td>
             </tr>
             <tr v-if="sortedArtists.length === 0">
-              <td colspan="3" class="list-empty">No artists found.</td>
+              <td colspan="4" class="list-empty">No artists found.</td>
             </tr>
           </tbody>
         </table>
       </div>
     </template>
+    <ItemContextMenu
+      v-if="ctxMenu"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :ids="ctxMenu.ids"
+      @close="ctxMenu = null"
+    />
   </div>
 </template>
 
@@ -307,6 +356,39 @@ async function handleDelete(ids: number[]) {
 
   &:hover {
     background: #1e1e1e;
+
+    .row-menu-btn {
+      opacity: 1;
+    }
+  }
+}
+
+.col-actions {
+  width: 32px;
+  padding: 0 0.2rem;
+  text-align: center;
+  overflow: visible;
+}
+
+.row-menu-btn {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0;
+
+  &:hover {
+    background: #333;
+    color: #ccc;
+  }
+
+  @media (hover: none) {
+    opacity: 1;
+    color: #888;
   }
 }
 

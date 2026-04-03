@@ -13,6 +13,7 @@ import { useVirtualScroll } from '@/composables/useVirtualScroll';
 import SongFlagButtons from '@/components/remote/music/SongFlagButtons.vue';
 import SongRowMenu from '@/components/remote/music/SongRowMenu.vue';
 import SongMultiBar from '@/components/remote/music/SongMultiBar.vue';
+import SongContextMenu from '@/components/remote/music/SongContextMenu.vue';
 import type { Song } from '@/types/music';
 
 interface Props {
@@ -174,6 +175,21 @@ const {
 );
 
 const { executeAction } = useQueueActions();
+
+const ctxMenu = ref<{ songId: number; x: number; y: number } | null>(null);
+
+const ctxSong = computed(
+  () => resolvedSongs.value.find((s) => s.id === ctxMenu.value?.songId) ?? null
+);
+
+function onRowContextMenu(songId: number, e: MouseEvent) {
+  if (e.metaKey || e.ctrlKey) {
+    return;
+  }
+  e.preventDefault();
+  closeRowMenu();
+  ctxMenu.value = { songId, x: e.clientX, y: e.clientY };
+}
 
 function isPlaying(id: number): boolean {
   return musicState.value?.currentSongId === id;
@@ -386,6 +402,7 @@ function onPlDrop(index: number, e: DragEvent) {
           draggable="true"
           @click="handleRowClick(visibleRange.first + vi, $event)"
           @dblclick="handleRowDblClick(visibleRange.first + vi, $event)"
+          @contextmenu="onRowContextMenu(song.id, $event)"
           @dragstart="onRowDragStart(song.id, visibleRange.first + vi, $event)"
           @dragover="onPlDragOver(visibleRange.first + vi, $event)"
           @dragend="onPlDragEnd"
@@ -463,7 +480,12 @@ function onPlDrop(index: number, e: DragEvent) {
               :playlist-mode="playlistMode"
               :show-go-to-artist="showGoToArtist"
               :show-go-to-album="showGoToAlbum"
-              @open="openRowMenu(song.id, $event)"
+              @open="
+                (e) => {
+                  ctxMenu = null;
+                  openRowMenu(song.id, e);
+                }
+              "
               @mark="(v) => rowMenuMark(song.id, v)"
               @favorite="(v) => rowMenuFavorite(song.id, v)"
               @edit="rowMenuEdit(song.id)"
@@ -516,6 +538,7 @@ function onPlDrop(index: number, e: DragEvent) {
               draggable="true"
               @click="handleRowClick(group.startIndex + si, $event)"
               @dblclick="handleRowDblClick(group.startIndex + si, $event)"
+              @contextmenu="onRowContextMenu(song.id, $event)"
               @dragstart="
                 onRowDragStart(song.id, group.startIndex + si, $event)
               "
@@ -598,7 +621,12 @@ function onPlDrop(index: number, e: DragEvent) {
                   :show-favorite="false"
                   :show-go-to-artist="showGoToArtist"
                   :show-go-to-album="showGoToAlbum"
-                  @open="openRowMenu(song.id, $event)"
+                  @open="
+                    (e) => {
+                      ctxMenu = null;
+                      openRowMenu(song.id, e);
+                    }
+                  "
                   @mark="(v) => rowMenuMark(song.id, v)"
                   @edit="rowMenuEdit(song.id)"
                   @delete="rowMenuDelete(song.id)"
@@ -641,6 +669,61 @@ function onPlDrop(index: number, e: DragEvent) {
 
     <!-- Click-outside overlay for row menu -->
     <div v-if="rowMenu" class="menu-overlay" @click="closeRowMenu" />
+
+    <!-- Right-click context menu for song rows -->
+    <SongContextMenu
+      v-if="ctxMenu && ctxSong"
+      :song="ctxSong"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :is-admin="isAdmin"
+      :playlist-mode="playlistMode"
+      :show-go-to-artist="showGoToArtist"
+      :show-go-to-album="showGoToAlbum"
+      @close="ctxMenu = null"
+      @mark="
+        (v) => {
+          rowMenuMark(ctxMenu!.songId, v);
+          ctxMenu = null;
+        }
+      "
+      @favorite="
+        (v) => {
+          rowMenuFavorite(ctxMenu!.songId, v);
+          ctxMenu = null;
+        }
+      "
+      @edit="
+        () => {
+          rowMenuEdit(ctxMenu!.songId);
+          ctxMenu = null;
+        }
+      "
+      @delete="
+        () => {
+          rowMenuDelete(ctxMenu!.songId);
+          ctxMenu = null;
+        }
+      "
+      @remove-from-playlist="
+        () => {
+          rowMenuRemoveFromPlaylist(ctxMenu!.songId);
+          ctxMenu = null;
+        }
+      "
+      @go-to-artist="
+        () => {
+          goToArtist(ctxSong!);
+          ctxMenu = null;
+        }
+      "
+      @go-to-album="
+        () => {
+          goToAlbum(ctxSong!);
+          ctxMenu = null;
+        }
+      "
+    />
 
     <!-- Floating multi-select bar (self-contained with Teleport) -->
     <SongMultiBar

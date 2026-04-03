@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SongTable from '@/components/remote/music/SongTable.vue';
 import QueueActionButton from '@/components/remote/music/QueueActionButton.vue';
+import ItemContextMenu from '@/components/remote/music/ItemContextMenu.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongEdit } from '@/composables/useSongEdit';
 import type { Decade, Song } from '@/types/music';
@@ -90,6 +91,24 @@ function backToGrid() {
 
 const decadeSongIds = computed(() => decadeSongs.value.map((s) => s.id));
 
+const ctxMenu = ref<{ ids: number[] | null; x: number; y: number } | null>(
+  null
+);
+
+async function onDecadeContextMenu(decade: Decade, e: MouseEvent) {
+  if (e.metaKey || e.ctrlKey) {
+    return;
+  }
+  e.preventDefault();
+  ctxMenu.value = { ids: null, x: e.clientX, y: e.clientY };
+  const r = await fetch(`/music/songs?decade=${decade.decade}`);
+  if (r.ok && ctxMenu.value) {
+    const data = await r.json();
+    const songs: Song[] = data.songs ?? data;
+    ctxMenu.value.ids = songs.map((s) => s.id);
+  }
+}
+
 function decadeLabel(d: number): string {
   return d > 0 ? `${d}s` : 'Unknown';
 }
@@ -116,7 +135,17 @@ async function handleDelete(ids: number[]) {
   <div class="decades-view">
     <!-- Decade detail -->
     <template v-if="selectedDecade">
-      <div class="detail-header">
+      <div
+        class="detail-header"
+        @contextmenu="
+          (e) => {
+            if (!e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              ctxMenu = { ids: decadeSongIds, x: e.clientX, y: e.clientY };
+            }
+          }
+        "
+      >
         <button class="back-btn" @click="backToGrid">← Decades</button>
         <div class="detail-info">
           <div class="detail-name">
@@ -151,15 +180,30 @@ async function handleDelete(ids: number[]) {
           :key="decade.decade"
           class="decade-card"
           @click="selectDecade(decade)"
+          @contextmenu="onDecadeContextMenu(decade, $event)"
         >
           <div class="decade-label">{{ decadeLabel(decade.decade) }}</div>
           <div class="decade-count">{{ decade.trackCount }} tracks</div>
+          <button
+            class="card-menu-btn"
+            title="Actions"
+            @click.stop="onDecadeContextMenu(decade, $event)"
+          >
+            …
+          </button>
         </div>
         <div v-if="decades.length === 0" class="grid-empty">
           No decades found.
         </div>
       </div>
     </template>
+    <ItemContextMenu
+      v-if="ctxMenu"
+      :x="ctxMenu.x"
+      :y="ctxMenu.y"
+      :ids="ctxMenu.ids"
+      @close="ctxMenu = null"
+    />
   </div>
 </template>
 
@@ -189,6 +233,7 @@ async function handleDelete(ids: number[]) {
 }
 
 .decade-card {
+  position: relative;
   background: #1a1a1a;
   border: 1px solid #2a2a2a;
   border-radius: 6px;
@@ -203,6 +248,10 @@ async function handleDelete(ids: number[]) {
   &:hover {
     background: #222;
     border-color: #3b82f6;
+
+    .card-menu-btn {
+      opacity: 1;
+    }
   }
 }
 
@@ -216,6 +265,31 @@ async function handleDelete(ids: number[]) {
   font-size: 0.72rem;
   color: #666;
   margin-top: 2px;
+}
+
+.card-menu-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.9rem;
+  line-height: 1;
+  opacity: 0;
+
+  &:hover {
+    background: #333;
+    color: #ccc;
+  }
+
+  @media (hover: none) {
+    opacity: 1;
+    color: #888;
+  }
 }
 
 .detail-header {
