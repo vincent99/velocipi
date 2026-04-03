@@ -3,9 +3,6 @@ import { useAdmin } from '@/composables/useAdmin';
 import type { Song } from '@/types/music';
 
 export interface SongTableEmit {
-  enqueue(ids: number[]): void;
-  append(ids: number[]): void;
-  replace(ids: number[]): void;
   mark(ids: number[], marked: boolean): void;
   favorite(ids: number[], fav: boolean): void;
   delete(ids: number[]): void;
@@ -54,21 +51,6 @@ export function useSongActions(
 
   // --- Row menu action wrappers ---
 
-  function rowMenuEnqueue(songId: number) {
-    emit.enqueue([songId]);
-    closeRowMenu();
-  }
-
-  function rowMenuAppend(songId: number) {
-    emit.append([songId]);
-    closeRowMenu();
-  }
-
-  function rowMenuReplace(songId: number) {
-    emit.replace([songId]);
-    closeRowMenu();
-  }
-
   function rowMenuMark(songId: number, marked: boolean) {
     emit.mark([songId], marked);
     closeRowMenu();
@@ -99,18 +81,6 @@ export function useSongActions(
   }
 
   // --- Multi-select action wrappers ---
-
-  function multiEnqueue() {
-    emit.enqueue(multiIds.value);
-  }
-
-  function multiAppend() {
-    emit.append(multiIds.value);
-  }
-
-  function multiReplace() {
-    emit.replace(multiIds.value);
-  }
 
   function multiMark(marked: boolean) {
     emit.mark(multiIds.value, marked);
@@ -148,17 +118,11 @@ export function useSongActions(
     openRowMenu,
     closeRowMenu,
     handleFlagChange,
-    rowMenuEnqueue,
-    rowMenuAppend,
-    rowMenuReplace,
     rowMenuMark,
     rowMenuFavorite,
     rowMenuEdit,
     rowMenuDelete,
     rowMenuRemoveFromPlaylist,
-    multiEnqueue,
-    multiAppend,
-    multiReplace,
     multiMark,
     multiFavorite,
     multiEdit,

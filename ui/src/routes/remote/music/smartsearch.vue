@@ -2,6 +2,7 @@
 import { ref, watch, inject } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SongTable from '@/components/remote/music/SongTable.vue';
+import QueueActionButton from '@/components/remote/music/QueueActionButton.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongEdit } from '@/composables/useSongEdit';
 import { useAdmin } from '@/composables/useAdmin';
@@ -9,8 +10,7 @@ import type { Song, SmartSearch } from '@/types/music';
 
 const route = useRoute();
 const router = useRouter();
-const { enqueue, appendQueue, replaceQueue, markSong, favoriteSong } =
-  useMusicPlayer();
+const { markSong, favoriteSong } = useMusicPlayer();
 const { openEdit } = useSongEdit();
 const { isAdmin } = useAdmin();
 const reloadPlaylists = inject<() => void>('reloadPlaylists');
@@ -94,15 +94,7 @@ async function handleDelete() {
     <div v-if="smartSearch" class="pl-header">
       <div class="pl-name">{{ smartSearch.name }}</div>
       <div class="pl-actions">
-        <button class="pl-btn" @click="replaceQueue(songs.map((s) => s.id))">
-          Play Now
-        </button>
-        <button class="pl-btn" @click="enqueue(songs.map((s) => s.id))">
-          Queue Next
-        </button>
-        <button class="pl-btn" @click="appendQueue(songs.map((s) => s.id))">
-          Queue Later
-        </button>
+        <QueueActionButton :ids="songs.map((s) => s.id)" variant="detail" />
         <button
           v-if="isAdmin"
           class="pl-btn pl-btn--danger"
@@ -115,9 +107,6 @@ async function handleDelete() {
     <SongTable
       :songs="songs"
       :loading="loading"
-      @enqueue="(ids) => enqueue(ids)"
-      @append="(ids) => appendQueue(ids)"
-      @replace="(ids) => replaceQueue(ids)"
       @mark="handleMark"
       @favorite="handleFavorite"
       @edit="handleEdit"

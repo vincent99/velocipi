@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import type { Song } from '@/types/music';
+import QueueActionButton from '@/components/remote/music/QueueActionButton.vue';
 
 interface Props {
   song: Song;
@@ -9,22 +10,25 @@ interface Props {
   playlistMode: boolean;
   // When false (grouped album view), the Favorite action is omitted
   showFavorite?: boolean;
+  showGoToArtist?: boolean;
+  showGoToAlbum?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showFavorite: true,
+  showGoToArtist: true,
+  showGoToAlbum: true,
 });
 
 const emit = defineEmits<{
   open: [event: MouseEvent];
-  enqueue: [];
-  append: [];
-  replace: [];
   mark: [value: boolean];
   favorite: [value: boolean];
   edit: [];
   delete: [];
   'remove-from-playlist': [];
+  'go-to-artist': [];
+  'go-to-album': [];
 }>();
 
 const triggerBtn = ref<HTMLButtonElement | null>(null);
@@ -57,9 +61,21 @@ function handleOpen(event: MouseEvent) {
       …
     </button>
     <div v-if="isOpen" class="row-menu" :class="{ above }" @click.stop>
-      <button @click="emit('enqueue')">Queue Next</button>
-      <button @click="emit('append')">Queue Later</button>
-      <button @click="emit('replace')">Play Now</button>
+      <QueueActionButton :ids="[song.id]" variant="menu" />
+      <template
+        v-if="(song.artist && showGoToArtist) || (song.album && showGoToAlbum)"
+      >
+        <hr />
+        <button
+          v-if="song.artist && showGoToArtist"
+          @click="emit('go-to-artist')"
+        >
+          Go to Artist
+        </button>
+        <button v-if="song.album && showGoToAlbum" @click="emit('go-to-album')">
+          Go to Album
+        </button>
+      </template>
       <hr />
       <button @click="emit('mark', !song.marked)">
         {{ song.marked ? 'Unmark' : 'Mark' }}

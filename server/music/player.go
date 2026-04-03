@@ -389,6 +389,18 @@ func (p *Player) Run(ctx context.Context) {
 				p.saveState()
 				p.broadcast()
 				p.broadcastQueue()
+
+			case "insertAt":
+				var payload struct {
+					IDs   []int64 `json:"ids"`
+					Index int     `json:"index"`
+				}
+				if err := json.Unmarshal([]byte(msg.Str), &payload); err == nil {
+					p.queue.InsertAt(payload.Index, payload.IDs)
+				}
+				p.saveState()
+				p.broadcast()
+				p.broadcastQueue()
 			}
 
 		case <-ticker.C:

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import QueueActionButton from '@/components/remote/music/QueueActionButton.vue';
 
 interface Props {
+  ids: number[];
   count: number;
   isAdmin: boolean;
   playlistMode: boolean;
@@ -10,9 +12,6 @@ interface Props {
 defineProps<Props>();
 
 const emit = defineEmits<{
-  enqueue: [];
-  append: [];
-  replace: [];
   mark: [marked: boolean];
   favorite: [fav: boolean];
   edit: [];
@@ -46,9 +45,7 @@ function doEmit(fn: () => void) {
         </div>
         <!-- Row 2: action buttons -->
         <div class="multi-actions">
-          <button @click="emit('enqueue')">Queue Next</button>
-          <button @click="emit('append')">Queue Later</button>
-          <button @click="emit('replace')">Play Now</button>
+          <QueueActionButton :ids="ids" variant="bar" />
           <button
             class="multi-menu-btn"
             @click="multiMenuOpen = !multiMenuOpen"

@@ -99,6 +99,28 @@ func (q *Queue) EnqueueAfterCurrent(songIDs []int64) {
 	q.entries = append(q.entries[:pos], append(insert, q.entries[pos:]...)...)
 }
 
+// InsertAt inserts songIDs before the given index.
+// If index is at or before currentIndex, adjusts currentIndex accordingly.
+func (q *Queue) InsertAt(index int, songIDs []int64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.savePrev()
+	insert := make([]QueueEntry, len(songIDs))
+	for i, id := range songIDs {
+		insert[i] = QueueEntry{SongID: id, OriginalIndex: -1}
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index > len(q.entries) {
+		index = len(q.entries)
+	}
+	q.entries = append(q.entries[:index], append(insert, q.entries[index:]...)...)
+	if index <= q.currentIndex {
+		q.currentIndex += len(songIDs)
+	}
+}
+
 // Append adds songIDs to the end of the queue.
 func (q *Queue) Append(songIDs []int64) {
 	q.mu.Lock()

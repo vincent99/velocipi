@@ -7,8 +7,7 @@ import { useSongEdit } from '@/composables/useSongEdit';
 import type { Song } from '@/types/music';
 
 const route = useRoute();
-const { enqueue, appendQueue, replaceQueue, markSong, favoriteSong } =
-  useMusicPlayer();
+const { markSong, favoriteSong } = useMusicPlayer();
 const { openEdit } = useSongEdit();
 
 function handleEdit(ids: number[]) {
@@ -76,9 +75,6 @@ async function handleDelete(ids: number[]) {
       v-if="currentQuery"
       :songs="songs"
       :loading="loading"
-      @enqueue="(ids) => enqueue(ids)"
-      @append="(ids) => appendQueue(ids)"
-      @replace="(ids) => replaceQueue(ids)"
       @mark="handleMark"
       @favorite="handleFavorite"
       @delete="handleDelete"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongSort } from '@/composables/useSongSort';
 import { useSongSelection } from '@/composables/useSongSelection';
@@ -7,6 +8,7 @@ import {
   useSongActions,
   type SongTableEmit,
 } from '@/composables/useSongActions';
+import { useQueueActions } from '@/composables/useQueueActions';
 import { useVirtualScroll } from '@/composables/useVirtualScroll';
 import SongFlagButtons from '@/components/remote/music/SongFlagButtons.vue';
 import SongRowMenu from '@/components/remote/music/SongRowMenu.vue';
@@ -37,9 +39,6 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const emit = defineEmits<{
-  enqueue: [ids: number[]];
-  append: [ids: number[]];
-  replace: [ids: number[]];
   mark: [ids: number[], marked: boolean];
   favorite: [ids: number[], favorite: boolean];
   delete: [ids: number[]];
@@ -48,7 +47,37 @@ const emit = defineEmits<{
   reorder: [fromIndex: number, toIndex: number];
 }>();
 
+const route = useRoute();
+const router = useRouter();
 const { musicState } = useMusicPlayer();
+
+const showGoToArtist = computed(
+  () => !(route.path === '/remote/music/artists' && route.query.artist)
+);
+const showGoToAlbum = computed(
+  () =>
+    !(
+      route.path === '/remote/music/albums' &&
+      route.query.artist &&
+      route.query.album
+    )
+);
+
+function goToArtist(song: Song) {
+  closeRowMenu();
+  router.push({
+    path: '/remote/music/artists',
+    query: { artist: song.artist },
+  });
+}
+
+function goToAlbum(song: Song) {
+  closeRowMenu();
+  router.push({
+    path: '/remote/music/albums',
+    query: { artist: song.artist, album: song.album },
+  });
+}
 
 // Shared scroll state — created here so both useSongSort and useVirtualScroll
 // can reset it without circular dependencies.
@@ -98,9 +127,6 @@ const {
 
 // Thin adapter so useSongActions has no dependency on Vue's defineEmits
 const emitAdapter: SongTableEmit = {
-  enqueue: (ids) => emit('enqueue', ids),
-  append: (ids) => emit('append', ids),
-  replace: (ids) => emit('replace', ids),
   mark: (ids, marked) => emit('mark', ids, marked),
   favorite: (ids, fav) => emit('favorite', ids, fav),
   delete: (ids) => emit('delete', ids),
@@ -114,17 +140,11 @@ const {
   openRowMenu,
   closeRowMenu,
   handleFlagChange,
-  rowMenuEnqueue,
-  rowMenuAppend,
-  rowMenuReplace,
   rowMenuMark,
   rowMenuFavorite,
   rowMenuEdit,
   rowMenuDelete,
   rowMenuRemoveFromPlaylist,
-  multiEnqueue,
-  multiAppend,
-  multiReplace,
   multiMark,
   multiFavorite,
   multiEdit,
@@ -153,14 +173,16 @@ const {
   scrollTop
 );
 
+const { executeAction } = useQueueActions();
+
 function isPlaying(id: number): boolean {
   return musicState.value?.currentSongId === id;
 }
 
-// Double-click: select + enqueue
+// Double-click: select + queue next
 function handleRowDblClick(index: number, event: MouseEvent) {
   handleRowClick(index, event);
-  emit('enqueue', [...selectedIds.value]);
+  executeAction('queueNext', [...selectedIds.value]);
 }
 
 function handleAlbumGroupDblClick(
@@ -169,7 +191,7 @@ function handleAlbumGroupDblClick(
   event: MouseEvent
 ) {
   handleAlbumGroupClick(albumSongs, index, event);
-  emit('enqueue', [...selectedIds.value]);
+  executeAction('queueNext', [...selectedIds.value]);
 }
 
 // Delete key — removes from playlist when in playlistMode
@@ -439,15 +461,16 @@ function onPlDrop(index: number, e: DragEvent) {
               :is-open="rowMenu?.songId === song.id"
               :is-admin="isAdmin"
               :playlist-mode="playlistMode"
+              :show-go-to-artist="showGoToArtist"
+              :show-go-to-album="showGoToAlbum"
               @open="openRowMenu(song.id, $event)"
-              @enqueue="rowMenuEnqueue(song.id)"
-              @append="rowMenuAppend(song.id)"
-              @replace="rowMenuReplace(song.id)"
               @mark="(v) => rowMenuMark(song.id, v)"
               @favorite="(v) => rowMenuFavorite(song.id, v)"
               @edit="rowMenuEdit(song.id)"
               @delete="rowMenuDelete(song.id)"
               @remove-from-playlist="rowMenuRemoveFromPlaylist(song.id)"
+              @go-to-artist="goToArtist(song)"
+              @go-to-album="goToAlbum(song)"
             />
           </div>
         </div>
@@ -573,13 +596,14 @@ function onPlDrop(index: number, e: DragEvent) {
                   :is-admin="isAdmin"
                   :playlist-mode="false"
                   :show-favorite="false"
+                  :show-go-to-artist="showGoToArtist"
+                  :show-go-to-album="showGoToAlbum"
                   @open="openRowMenu(song.id, $event)"
-                  @enqueue="rowMenuEnqueue(song.id)"
-                  @append="rowMenuAppend(song.id)"
-                  @replace="rowMenuReplace(song.id)"
                   @mark="(v) => rowMenuMark(song.id, v)"
                   @edit="rowMenuEdit(song.id)"
                   @delete="rowMenuDelete(song.id)"
+                  @go-to-artist="goToArtist(song)"
+                  @go-to-album="goToAlbum(song)"
                 />
               </td>
             </tr>
@@ -620,12 +644,10 @@ function onPlDrop(index: number, e: DragEvent) {
 
     <!-- Floating multi-select bar (self-contained with Teleport) -->
     <SongMultiBar
+      :ids="multiIds"
       :count="selectedCount"
       :is-admin="isAdmin"
       :playlist-mode="playlistMode"
-      @enqueue="multiEnqueue"
-      @append="multiAppend"
-      @replace="multiReplace"
       @mark="multiMark"
       @favorite="multiFavorite"
       @edit="multiEdit"

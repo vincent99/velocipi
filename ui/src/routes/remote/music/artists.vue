@@ -2,14 +2,14 @@
 import { ref, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import SongTable from '@/components/remote/music/SongTable.vue';
+import QueueActionButton from '@/components/remote/music/QueueActionButton.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongEdit } from '@/composables/useSongEdit';
 import type { Artist, Song } from '@/types/music';
 
 const route = useRoute();
 const router = useRouter();
-const { enqueue, appendQueue, replaceQueue, markSong, favoriteSong } =
-  useMusicPlayer();
+const { markSong, favoriteSong } = useMusicPlayer();
 const { openEdit } = useSongEdit();
 
 function handleEdit(ids: number[]) {
@@ -170,9 +170,7 @@ async function handleDelete(ids: number[]) {
           </div>
         </div>
         <div class="detail-actions">
-          <button @click="replaceQueue(artistSongIds)">Play Now</button>
-          <button @click="enqueue(artistSongIds)">Queue Next</button>
-          <button @click="appendQueue(artistSongIds)">Queue Later</button>
+          <QueueActionButton :ids="artistSongIds" variant="detail" />
         </div>
       </div>
       <SongTable
@@ -182,9 +180,6 @@ async function handleDelete(ids: number[]) {
         :show-year="false"
         :album-context="true"
         :group-by-album="true"
-        @enqueue="(ids) => enqueue(ids)"
-        @append="(ids) => appendQueue(ids)"
-        @replace="(ids) => replaceQueue(ids)"
         @mark="handleMark"
         @favorite="handleFavorite"
         @delete="handleDelete"

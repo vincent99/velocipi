@@ -159,7 +159,9 @@ onUnmounted(() => {
 <template>
   <div class="mpegts-player">
     <div v-if="error" class="player-error">{{ error }}</div>
-    <div v-else-if="reconnecting" class="player-reconnecting">Reconnecting…</div>
+    <div v-else-if="reconnecting" class="player-reconnecting">
+      Reconnecting…
+    </div>
     <video ref="videoEl" class="player-video" autoplay playsinline />
   </div>
 </template>

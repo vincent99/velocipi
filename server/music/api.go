@@ -120,6 +120,7 @@ func RegisterRoutes(mux *http.ServeMux, db *DB, player *Player, cfg config.Confi
 	mux.HandleFunc("/music/queue", a.handleQueue)
 	mux.HandleFunc("/music/queue/enqueue", a.handleEnqueue)
 	mux.HandleFunc("/music/queue/append", a.handleAppend)
+	mux.HandleFunc("/music/queue/insert-at", a.handleInsertAt)
 	mux.HandleFunc("/music/queue/remove", a.handleQueueRemove)
 	mux.HandleFunc("/music/queue/move", a.handleQueueMove)
 	mux.HandleFunc("/music/control", a.handleControl)
@@ -492,6 +493,27 @@ func (a *musicAPI) handleAppend(w http.ResponseWriter, r *http.Request) {
 	}
 	ids, _ := json.Marshal(body.SongIDs)
 	a.player.Control(ControlMsg{Action: "append", Str: string(ids)})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *musicAPI) handleInsertAt(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		SongIDs []int64 `json:"songIds"`
+		Index   int     `json:"index"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	payload, _ := json.Marshal(struct {
+		IDs   []int64 `json:"ids"`
+		Index int     `json:"index"`
+	}{body.SongIDs, body.Index})
+	a.player.Control(ControlMsg{Action: "insertAt", Str: string(payload)})
 	w.WriteHeader(http.StatusNoContent)
 }
 
