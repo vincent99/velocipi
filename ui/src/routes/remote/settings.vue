@@ -698,17 +698,11 @@ const sections = [
         <!-- Music -->
         <section v-if="activeSection === 'music'">
           <h2>Music</h2>
-          <SettingsField
-            label="Volume (%)"
-            path="music.volume"
-            type="number"
-            :min="0"
-            :max="100"
-          />
           <div
             class="sf-row"
             :class="{ modified: isModified('music.audioDevice') }"
           >
+            <label class="sf-label">Audio device</label>
             <button
               v-if="isModified('music.audioDevice')"
               type="button"
@@ -719,7 +713,6 @@ const sections = [
               <i class="fi-sr-rotate-left" />
             </button>
             <span v-else class="sf-reset-placeholder" />
-            <label class="sf-label">Audio device</label>
             <select
               class="sf-select"
               :value="getPath('music.audioDevice') as string"
@@ -742,24 +735,25 @@ const sections = [
             </select>
           </div>
           <SettingsField
-            label="Album required % (tracks)"
+            label="Volume (%)"
+            path="music.volume"
+            type="range"
+            :min="0"
+            :max="100"
+          />
+          <SettingsField
+            label="Tracks needed for Album (%)"
             path="music.albumRequiredPercent"
-            type="number"
+            type="range"
             :min="0"
             :max="100"
           />
           <SettingsField
-            label="Played required % (for play count)"
+            label="Count as played after (%)"
             path="music.playedRequiredPercent"
-            type="number"
+            type="range"
             :min="0"
             :max="100"
-          />
-          <SettingsField
-            label="Max bitrate (kbps, 0 = off)"
-            path="music.maxBitrate"
-            type="number"
-            :min="0"
           />
           <SettingsField
             label="Transcode format"
@@ -767,10 +761,10 @@ const sections = [
             placeholder="aac"
           />
           <SettingsField
-            label="Min DB version"
-            path="music.minDbVersion"
+            label="Max bitrate (kbps, 0 = off)"
+            path="music.maxBitrate"
             type="number"
-            :min="1"
+            :min="0"
           />
           <SettingsField
             label="AcoustID API key"
@@ -781,6 +775,7 @@ const sections = [
             class="sf-row"
             :class="{ modified: isModified('music.acoustidMinScore') }"
           >
+            <label class="sf-label">AcoustID min score (%)</label>
             <button
               v-if="isModified('music.acoustidMinScore')"
               type="button"
@@ -791,16 +786,15 @@ const sections = [
               <i class="fi-sr-rotate-left" />
             </button>
             <span v-else class="sf-reset-placeholder" />
-            <label class="sf-label">AcoustID min score</label>
             <input
               v-model.number="acoustidScorePct"
-              class="sf-input"
-              type="number"
+              class="sf-range"
+              type="range"
               min="0"
               max="100"
               step="5"
             />
-            <span class="sf-unit">%</span>
+            <span class="sf-range-val">{{ acoustidScorePct }}</span>
           </div>
         </section>
       </div>
@@ -1022,7 +1016,7 @@ textarea {
 }
 
 .sf-label {
-  width: 100px;
+  width: 200px;
   flex-shrink: 0;
   color: #aaa;
   font-size: 0.85rem;
@@ -1060,6 +1054,22 @@ textarea {
     outline: none;
     border-color: #666;
   }
+}
+
+.sf-range {
+  flex: 1;
+  cursor: pointer;
+  accent-color: #3b82f6;
+  min-width: 0;
+}
+
+.sf-range-val {
+  width: 2.5rem;
+  text-align: right;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
 }
 
 .sf-unit {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import SongTable from '@/components/remote/SongTable.vue';
+import SongTable from '@/components/remote/music/SongTable.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongEdit } from '@/composables/useSongEdit';
 import type { Song } from '@/types/music';

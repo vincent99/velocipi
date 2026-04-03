@@ -8,17 +8,18 @@ export const remoteMeta: PanelMeta = {
 </script>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, provide } from 'vue';
+import { ref, computed, watch, provide } from 'vue';
 import { useRoute, useRouter, RouterLink, RouterView } from 'vue-router';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useLocalPref } from '@/composables/useLocalPreferences';
 import { useSongEdit } from '@/composables/useSongEdit';
-import { useDeviceState } from '@/composables/useDeviceState';
-import QueueRow from '@/components/remote/QueueRow.vue';
-import LyricsPanel from '@/components/remote/LyricsPanel.vue';
-import SongEditModal from '@/components/remote/SongEditModal.vue';
-import SongFlagButtons from '@/components/remote/SongFlagButtons.vue';
 import { useLyrics } from '@/composables/useLyrics';
+import SongEditModal from '@/components/remote/music/SongEditModal.vue';
+import SongFlagButtons from '@/components/remote/music/SongFlagButtons.vue';
+import MusicNav from '@/components/remote/music/MusicNav.vue';
+import QueueSidebar from '@/components/remote/music/QueueSidebar.vue';
+import CreatePlaylistModal from '@/components/remote/music/CreatePlaylistModal.vue';
+import CreateSmartSearchModal from '@/components/remote/music/CreateSmartSearchModal.vue';
 import type { Playlist, SmartSearch } from '@/types/music';
 
 const route = useRoute();
@@ -31,9 +32,6 @@ useLyrics();
 const mobileNavOpen = ref(false);
 const mobileQueueOpen = ref(false);
 
-// Right sidebar tab selection
-const sidebarTab = ref<'queue' | 'lyrics'>('queue');
-
 const {
   musicState,
   currentSong,
@@ -44,16 +42,9 @@ const {
   seek,
   setShuffle,
   setRepeat,
-  appendQueue,
-  removeFromQueue,
-  jumpToIndex,
-  moveInQueue,
-  clearQueue,
-  undoQueueChange,
 } = useMusicPlayer();
 
 const { editingSongs, saving: editSaving, closeEdit, saveEdit } = useSongEdit();
-const { musicQueue } = useDeviceState();
 
 // Resizable sidebar widths — persisted in localStorage
 const navWidth = useLocalPref('music.navWidth', 110);
@@ -115,35 +106,10 @@ const remaining = computed(() => {
 const shuffle = computed(() => musicState.value?.shuffle ?? false);
 const repeat = computed(() => musicState.value?.repeat ?? 'off');
 
-const queuePosition = computed(() => {
-  const q = musicQueue.value;
-  if (!q || q.entries.length === 0) {
-    return '';
-  }
-  return `${q.currentIndex + 1} of ${q.entries.length}`;
-});
-
-const queueTotalDuration = computed(() => {
-  const entries = musicQueue.value?.entries ?? [];
-  const total = entries.reduce((sum, e) => sum + (e.song?.length ?? 0), 0);
-  return formatDuration(total);
-});
-
 function formatTime(sec: number): string {
   const s = Math.floor(sec);
   const m = Math.floor(s / 60);
   const ss = s % 60;
-  return `${m}:${ss.toString().padStart(2, '0')}`;
-}
-
-function formatDuration(sec: number): string {
-  const s = Math.floor(sec);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  if (h > 0) {
-    return `${h}:${m.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
-  }
   return `${m}:${ss.toString().padStart(2, '0')}`;
 }
 
@@ -166,7 +132,8 @@ function onSeek(event: Event) {
   seek(parseFloat(input.value));
 }
 
-// Nav links — Search only shown when there is a query
+// ── Header search ─────────────────────────────────────────────────────────────
+
 const baseNavLinks = [
   { to: '/remote/music/songs', label: 'Songs' },
   { to: '/remote/music/albums', label: 'Albums' },
@@ -175,116 +142,8 @@ const baseNavLinks = [
   { to: '/remote/music/decades', label: 'Decades' },
 ];
 
-async function handleQueueRemove(queueIndex: number) {
-  await removeFromQueue(queueIndex);
-}
-
-function handleQueuePlay(queueIndex: number) {
-  jumpToIndex(queueIndex);
-}
-
-// ── Queue drag-and-drop ───────────────────────────────────────────────────────
-
-interface DropTarget {
-  index: number;
-  position: 'above' | 'below';
-}
-const dropTarget = ref<DropTarget | null>(null);
-const draggingQueueIndex = ref<number | null>(null);
-
-function handleQueueDragStart(queueIndex: number) {
-  draggingQueueIndex.value = queueIndex;
-  dropTarget.value = null;
-}
-
-function handleQueueDragOver(queueIndex: number, position: 'above' | 'below') {
-  dropTarget.value = { index: queueIndex, position };
-}
-
-function handleQueueDragEnd() {
-  draggingQueueIndex.value = null;
-  dropTarget.value = null;
-}
-
-async function handleQueueRowDrop(
-  onto: number,
-  position: 'above' | 'below',
-  from: number
-) {
-  dropTarget.value = null;
-  draggingQueueIndex.value = null;
-  let toIndex = position === 'above' ? onto : onto + 1;
-  // Adjust for removal of the source row
-  if (from < toIndex) {
-    toIndex--;
-  }
-  if (from !== toIndex) {
-    await moveInQueue(from, toIndex);
-  }
-}
-
-async function handleQueueSongsDrop(
-  onto: number,
-  position: 'above' | 'below',
-  songIds: number[]
-) {
-  dropTarget.value = null;
-  const insertAfter = position === 'above' ? onto - 1 : onto;
-  await insertSongsAtQueuePosition(songIds, insertAfter);
-}
-
-// Handle drops onto the empty queue area (below all rows)
-async function handleQueueListDrop(e: DragEvent) {
-  e.preventDefault();
-  dropTarget.value = null;
-  const dt = e.dataTransfer;
-  if (!dt) {
-    return;
-  }
-  const songStr = dt.getData('application/x-song-ids');
-  if (songStr !== '') {
-    const songIds: number[] = JSON.parse(songStr);
-    await appendQueue(songIds);
-  }
-}
-
-function handleQueueListDragOver(e: DragEvent) {
-  if (e.dataTransfer?.types.includes('application/x-song-ids')) {
-    e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'copy';
-    }
-  }
-}
-
-// Insert songIds starting at afterIndex+1 by appending then moving into position.
-async function insertSongsAtQueuePosition(
-  songIds: number[],
-  afterIndex: number
-) {
-  const totalBefore = musicQueue.value?.entries.length ?? 0;
-  await appendQueue(songIds);
-  const numNew = songIds.length;
-  const totalAfterAppend = totalBefore + numNew;
-  // Songs were appended at indices [totalAfterAppend-numNew .. totalAfterAppend-1].
-  // Move them one by one to [afterIndex+1 .. afterIndex+numNew].
-  // After moving song i to position afterIndex+1+i, the remaining songs are
-  // still at the tail, but the tail start shifts by 1 each time.
-  for (let i = 0; i < numNew; i++) {
-    const fromIdx = totalAfterAppend - numNew + i;
-    const toIdx = afterIndex + 1 + i;
-    if (fromIdx !== toIdx) {
-      await moveInQueue(fromIdx, toIdx);
-    }
-  }
-}
-
-// ── Header search ─────────────────────────────────────────────────────────────
-
-// Local input value — initialised from route and kept in sync on submit
 const searchQuery = ref((route.query.q as string | undefined) ?? '');
 
-// Keep box in sync if the user navigates to search with a different query
 watch(
   () => route.query.q as string | undefined,
   (q) => {
@@ -308,7 +167,7 @@ function submitSearch() {
   router.push({ path: '/remote/music/search', query: { q } });
 }
 
-// ── Playlists / Smart playlists ───────────────────────────────────────────────
+// ── Playlists / Smart searches ─────────────────────────────────────────────────
 
 const playlists = ref<Playlist[]>([]);
 const smartSearches = ref<SmartSearch[]>([]);
@@ -329,102 +188,10 @@ async function loadPlaylists() {
 loadPlaylists();
 provide('reloadPlaylists', loadPlaylists);
 
-// Create smart search modal
-const showCreateSmartSearch = ref(false);
-const newSmartSearchName = ref('');
-const newSmartSearchQuery = ref('');
-const creatingSmartSearch = ref(false);
-const smartSearchNameInput = ref<HTMLInputElement | null>(null);
-
-watch(showCreateSmartSearch, (open) => {
-  if (open) {
-    nextTick(() => smartSearchNameInput.value?.focus());
-  }
-});
-
-async function createSmartSearch() {
-  const name = newSmartSearchName.value.trim();
-  const query = newSmartSearchQuery.value.trim();
-  if (!name || !query) {
-    return;
-  }
-  creatingSmartSearch.value = true;
-  try {
-    const r = await fetch('/music/smartsearches', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, query }),
-    });
-    if (r.ok) {
-      showCreateSmartSearch.value = false;
-      newSmartSearchName.value = '';
-      newSmartSearchQuery.value = '';
-      await loadPlaylists();
-    }
-  } finally {
-    creatingSmartSearch.value = false;
-  }
-}
-
-// Create playlist modal
 const showCreatePlaylist = ref(false);
-const newPlaylistName = ref('');
-const creatingPlaylist = ref(false);
-const playlistNameInput = ref<HTMLInputElement | null>(null);
+const showCreateSmartSearch = ref(false);
 
-watch(showCreatePlaylist, (open) => {
-  if (open) {
-    nextTick(() => playlistNameInput.value?.focus());
-  }
-});
-
-async function createPlaylist() {
-  const name = newPlaylistName.value.trim();
-  if (!name) {
-    return;
-  }
-  creatingPlaylist.value = true;
-  try {
-    const r = await fetch('/music/playlists', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, items: [] }),
-    });
-    if (r.ok) {
-      showCreatePlaylist.value = false;
-      newPlaylistName.value = '';
-      await loadPlaylists();
-    }
-  } finally {
-    creatingPlaylist.value = false;
-  }
-}
-
-// Drop songs onto a playlist name in the nav
-const navDropTarget = ref<number | null>(null); // playlist id
-
-function onNavDragOver(playlistId: number, e: DragEvent) {
-  if (e.dataTransfer?.types.includes('application/x-song-ids')) {
-    e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = 'copy';
-    }
-    navDropTarget.value = playlistId;
-  }
-}
-
-function onNavDragLeave() {
-  navDropTarget.value = null;
-}
-
-async function onNavDrop(playlistId: number, e: DragEvent) {
-  e.preventDefault();
-  navDropTarget.value = null;
-  const songStr = e.dataTransfer?.getData('application/x-song-ids');
-  if (!songStr) {
-    return;
-  }
-  const songIds: number[] = JSON.parse(songStr);
+async function handleDropOntoPlaylist(playlistId: number, songIds: number[]) {
   const pl = playlists.value.find((p) => p.id === playlistId);
   if (!pl) {
     return;
@@ -593,83 +360,16 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
       />
 
       <!-- Left nav -->
-      <nav
-        class="music-nav"
-        :class="{ 'mobile-open': mobileNavOpen }"
-        :style="{ width: navWidth + 'px' }"
-      >
-        <RouterLink
-          v-for="link in navLinks"
-          :key="link.to"
-          :to="link.to"
-          class="nav-link"
-          active-class="nav-link--active"
-        >
-          {{ link.label }}
-        </RouterLink>
-
-        <!-- Smart Searches section -->
-        <div class="nav-section-label">
-          Smart Searches
-          <button
-            class="nav-add-btn"
-            title="New Smart Search"
-            @click.stop="showCreateSmartSearch = true"
-          >
-            +
-          </button>
-        </div>
-        <RouterLink
-          v-for="sp in smartSearches"
-          :key="'sp-' + sp.id"
-          :to="{ path: '/remote/music/smartsearch', query: { id: sp.id } }"
-          class="nav-link nav-link--playlist"
-          :class="{
-            'nav-link--active':
-              route.path === '/remote/music/smartsearch' &&
-              route.query.id == String(sp.id),
-          }"
-        >
-          {{ sp.name }}
-        </RouterLink>
-        <div v-if="smartSearches.length === 0" class="nav-empty">
-          No smart searches
-        </div>
-
-        <!-- Playlists section -->
-        <div class="nav-section-label">
-          Playlists
-          <button
-            class="nav-add-btn"
-            title="New Playlist"
-            @click.stop="showCreatePlaylist = true"
-          >
-            +
-          </button>
-        </div>
-        <div
-          v-for="pl in playlists"
-          :key="'pl-' + pl.id"
-          class="nav-link-wrap"
-          :class="{ 'nav-drop-target': navDropTarget === pl.id }"
-          @dragover="onNavDragOver(pl.id, $event)"
-          @dragleave="onNavDragLeave"
-          @drop="onNavDrop(pl.id, $event)"
-        >
-          <RouterLink
-            :to="{ path: '/remote/music/playlist', query: { id: pl.id } }"
-            class="nav-link nav-link--playlist"
-            :class="{
-              'nav-link--active':
-                route.path === '/remote/music/playlist' &&
-                route.query.id == String(pl.id),
-            }"
-          >
-            {{ pl.name }}
-          </RouterLink>
-        </div>
-        <div v-if="playlists.length === 0" class="nav-empty">No playlists</div>
-      </nav>
+      <MusicNav
+        :width="navWidth"
+        :mobile-open="mobileNavOpen"
+        :nav-links="navLinks"
+        :playlists="playlists"
+        :smart-searches="smartSearches"
+        @create-playlist="showCreatePlaylist = true"
+        @create-smart-search="showCreateSmartSearch = true"
+        @drop-onto-playlist="handleDropOntoPlaylist"
+      />
 
       <!-- Left resize handle -->
       <div
@@ -690,99 +390,12 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
         @touchstart.prevent="startResize('right', $event)"
       />
 
-      <!-- Right: queue / lyrics -->
-      <div
-        class="music-sidebar-right"
-        :class="{ 'mobile-open': mobileQueueOpen }"
-        :style="{ width: sidebarWidth + 'px' }"
-      >
-        <div class="sidebar-heading">
-          <div class="sidebar-tabs">
-            <button
-              class="sidebar-tab"
-              :class="{ 'sidebar-tab--active': sidebarTab === 'queue' }"
-              @click="sidebarTab = 'queue'"
-            >
-              Queue
-            </button>
-            <button
-              class="sidebar-tab"
-              :class="{ 'sidebar-tab--active': sidebarTab === 'lyrics' }"
-              @click="sidebarTab = 'lyrics'"
-            >
-              Lyrics
-            </button>
-          </div>
-          <button class="mobile-queue-close" @click="mobileQueueOpen = false">
-            ✕
-          </button>
-        </div>
-
-        <!-- Queue tab -->
-        <template v-if="sidebarTab === 'queue'">
-          <div
-            class="queue-list"
-            @dragover="handleQueueListDragOver"
-            @drop="handleQueueListDrop"
-          >
-            <div
-              v-if="!musicState || musicState.queueLength === 0"
-              class="queue-empty"
-            >
-              Queue is empty
-            </div>
-            <template v-else-if="musicQueue">
-              <QueueRow
-                v-for="(entry, idx) in musicQueue.entries"
-                :key="entry.songId + '-' + idx"
-                :entry="entry"
-                :queue-index="idx"
-                :current-index="musicQueue.currentIndex"
-                :drop-indicator="
-                  dropTarget?.index === idx ? dropTarget.position : null
-                "
-                @remove="handleQueueRemove"
-                @play="handleQueuePlay"
-                @drag-start="handleQueueDragStart"
-                @drag-over="handleQueueDragOver"
-                @drag-end="handleQueueDragEnd"
-                @drop-queue="handleQueueRowDrop"
-                @drop-songs="handleQueueSongsDrop"
-              />
-            </template>
-            <div v-else class="queue-empty">Loading…</div>
-          </div>
-          <div class="queue-footer">
-            <div class="queue-footer-info">
-              <span v-if="queuePosition" class="queue-position">{{
-                queuePosition
-              }}</span>
-              <span v-if="queueTotalDuration" class="queue-total-duration">{{
-                queueTotalDuration
-              }}</span>
-            </div>
-            <div class="queue-footer-actions">
-              <button
-                class="queue-footer-btn"
-                title="Undo queue change"
-                @click="undoQueueChange()"
-              >
-                Undo
-              </button>
-              <button
-                class="queue-footer-btn queue-footer-btn--danger"
-                title="Clear queue"
-                @click="clearQueue()"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-        </template>
-
-        <!-- Lyrics tab -->
-        <LyricsPanel v-else-if="sidebarTab === 'lyrics'" />
-      </div>
+      <!-- Right: queue / lyrics sidebar -->
+      <QueueSidebar
+        :width="sidebarWidth"
+        :mobile-open="mobileQueueOpen"
+        @close="mobileQueueOpen = false"
+      />
     </div>
   </div>
 
@@ -794,101 +407,15 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
     @cancel="closeEdit"
   />
 
-  <!-- Create Smart Search modal -->
-  <Teleport to="body">
-    <div
-      v-if="showCreateSmartSearch"
-      class="modal-overlay"
-      @click.self="showCreateSmartSearch = false"
-    >
-      <div class="create-pl-modal create-pl-modal--wide">
-        <div class="create-pl-title">New Smart Search</div>
-        <input
-          ref="smartSearchNameInput"
-          v-model="newSmartSearchName"
-          class="create-pl-input"
-          type="text"
-          placeholder="Name"
-          @keydown.enter="createSmartSearch"
-          @keydown.esc="showCreateSmartSearch = false"
-        />
-        <textarea
-          v-model="newSmartSearchQuery"
-          class="create-pl-textarea"
-          placeholder="WHERE clause, e.g. plays > 5"
-          rows="3"
-          spellcheck="false"
-          @keydown.esc="showCreateSmartSearch = false"
-        />
-        <div class="create-sp-hint">
-          <strong>Available fields:</strong>
-          <code>title</code>, <code>artist</code>, <code>album</code>,
-          <code>year</code>, <code>length</code> (seconds), <code>plays</code>,
-          <code>marked</code> (0 or 1), <code>trackNumber</code>,
-          <code>discNumber</code>, <code>format</code>,
-          <code>bitrate</code> (kbps)<br />
-          <strong>Examples:</strong>
-          <code>plays &gt; 10</code> ·
-          <code>length &gt; 300 AND year &gt;= 1990</code> ·
-          <code>artist = 'Radiohead'</code> ·
-          <code>marked = 1</code>
-        </div>
-        <div class="create-pl-actions">
-          <button
-            class="create-pl-cancel"
-            @click="showCreateSmartSearch = false"
-          >
-            Cancel
-          </button>
-          <button
-            class="create-pl-ok"
-            :disabled="
-              !newSmartSearchName.trim() ||
-              !newSmartSearchQuery.trim() ||
-              creatingSmartSearch
-            "
-            @click="createSmartSearch"
-          >
-            {{ creatingSmartSearch ? 'Creating…' : 'Create' }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
+  <CreatePlaylistModal
+    v-model:show="showCreatePlaylist"
+    @created="loadPlaylists"
+  />
 
-  <!-- Create Playlist modal -->
-  <Teleport to="body">
-    <div
-      v-if="showCreatePlaylist"
-      class="modal-overlay"
-      @click.self="showCreatePlaylist = false"
-    >
-      <div class="create-pl-modal">
-        <div class="create-pl-title">New Playlist</div>
-        <input
-          ref="playlistNameInput"
-          v-model="newPlaylistName"
-          class="create-pl-input"
-          type="text"
-          placeholder="Playlist name"
-          @keydown.enter="createPlaylist"
-          @keydown.esc="showCreatePlaylist = false"
-        />
-        <div class="create-pl-actions">
-          <button class="create-pl-cancel" @click="showCreatePlaylist = false">
-            Cancel
-          </button>
-          <button
-            class="create-pl-ok"
-            :disabled="!newPlaylistName.trim() || creatingPlaylist"
-            @click="createPlaylist"
-          >
-            {{ creatingPlaylist ? 'Creating…' : 'Create' }}
-          </button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
+  <CreateSmartSearchModal
+    v-model:show="showCreateSmartSearch"
+    @created="loadPlaylists"
+  />
 </template>
 
 <style scoped lang="scss">
@@ -1081,17 +608,6 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
   overflow: hidden;
 }
 
-.music-nav {
-  display: flex;
-  flex-direction: column;
-  // width set via inline style (useLocalPref)
-  flex-shrink: 0;
-  background: #161616;
-  padding: 0.5rem 0;
-  overflow-y: auto;
-  min-width: 60px;
-}
-
 .resize-handle {
   width: 5px;
   flex-shrink: 0;
@@ -1105,132 +621,12 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
   }
 }
 
-.nav-link {
-  display: block;
-  padding: 0.5rem 1rem;
-  color: #aaa;
-  text-decoration: none;
-  font-size: 0.85rem;
-  transition:
-    background 0.15s,
-    color 0.15s;
-
-  &:hover {
-    background: #222;
-    color: #e0e0e0;
-  }
-
-  &--active {
-    background: #1e3a5f;
-    color: #90caf9;
-  }
-}
-
 .music-content {
   flex: 1;
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-}
-
-.music-sidebar-right {
-  // width set via inline style (useLocalPref)
-  flex-shrink: 0;
-  background: #161616;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  min-width: 60px;
-}
-
-.sidebar-heading {
-  display: flex;
-  align-items: center;
-  border-bottom: 1px solid #2a2a2a;
-  flex-shrink: 0;
-}
-
-.sidebar-tabs {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-}
-
-.sidebar-tab {
-  flex: 1;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  color: #555;
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 0.4rem 0.5rem;
-  cursor: pointer;
-  transition:
-    color 0.15s,
-    border-color 0.15s;
-
-  &:hover {
-    color: #999;
-  }
-
-  &--active {
-    color: #90caf9;
-    border-bottom-color: #3b82f6;
-  }
-}
-
-.nav-section-label {
-  display: flex;
-  align-items: center;
-  padding: 0.5rem 0.75rem 0.2rem;
-  font-size: 0.68rem;
-  font-weight: 600;
-  color: #666;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-top: 0.25rem;
-}
-
-.nav-add-btn {
-  margin-left: auto;
-  background: none;
-  border: none;
-  color: #555;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1;
-  padding: 0 0.2rem;
-  border-radius: 3px;
-
-  &:hover {
-    background: #333;
-    color: #ccc;
-  }
-}
-
-.nav-link-wrap {
-  &.nav-drop-target > .nav-link {
-    background: #1a3a5f;
-    color: #90caf9;
-  }
-}
-
-.nav-link--playlist {
-  padding-left: 1.25rem;
-  font-size: 0.82rem;
-}
-
-.nav-empty {
-  padding: 0.25rem 1.25rem;
-  font-size: 0.78rem;
-  color: #444;
-  font-style: italic;
 }
 
 .header-search-row {
@@ -1247,10 +643,6 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
 }
 
 .mobile-sort-portal {
-  display: none; // hidden on desktop (Teleport doesn't render into it either)
-}
-
-.mobile-queue-close {
   display: none;
 }
 
@@ -1281,212 +673,10 @@ async function onNavDrop(playlistId: number, e: DragEvent) {
   }
 }
 
-.queue-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.5rem;
-}
-
-.queue-empty {
-  color: #555;
-  font-size: 0.8rem;
-  text-align: center;
-  padding: 1rem 0;
-}
-
-.queue-footer {
-  flex-shrink: 0;
-  border-top: 1px solid #2a2a2a;
-  padding: 0.3rem 0.5rem;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.queue-footer-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-
-.queue-position {
-  font-size: 0.7rem;
-  color: #666;
-  white-space: nowrap;
-}
-
-.queue-total-duration {
-  font-size: 0.7rem;
-  color: #555;
-  white-space: nowrap;
-}
-
-.queue-footer-actions {
-  display: flex;
-  gap: 0.3rem;
-  flex-shrink: 0;
-}
-
-.queue-footer-btn {
-  background: #222;
-  border: 1px solid #333;
-  border-radius: 3px;
-  color: #888;
-  font-size: 0.68rem;
-  padding: 0.2rem 0.45rem;
-  cursor: pointer;
-  white-space: nowrap;
-
-  &:hover {
-    background: #2a2a2a;
-    color: #bbb;
-    border-color: #444;
-  }
-
-  &--danger:hover {
-    color: #f87171;
-    border-color: #7f1d1d;
-  }
-}
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 600;
-}
-
-.create-pl-modal {
-  background: #1e1e1e;
-  border: 1px solid #444;
-  border-radius: 8px;
-  padding: 1.25rem 1.5rem;
-  min-width: 280px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7);
-}
-
-.create-pl-title {
-  font-weight: 600;
-  font-size: 0.95rem;
-  margin-bottom: 0.75rem;
-  color: #e0e0e0;
-}
-
-.create-pl-input {
-  width: 100%;
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 4px;
-  color: #e0e0e0;
-  font-size: 0.9rem;
-  padding: 0.4rem 0.6rem;
-  outline: none;
-  box-sizing: border-box;
-
-  &:focus {
-    border-color: #3b82f6;
-  }
-}
-
-.create-pl-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-}
-
-.create-pl-cancel {
-  background: none;
-  border: 1px solid #444;
-  color: #aaa;
-  border-radius: 4px;
-  padding: 0.3rem 0.75rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-
-  &:hover {
-    background: #333;
-    color: #ccc;
-  }
-}
-
-.create-pl-ok {
-  background: #1e3a5f;
-  border: 1px solid #2a5a9f;
-  color: #90caf9;
-  border-radius: 4px;
-  padding: 0.3rem 0.75rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-
-  &:hover:not(:disabled) {
-    background: #2a4a7f;
-    color: #fff;
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-}
-
-.create-pl-modal--wide {
-  min-width: 380px;
-  max-width: 520px;
-  width: 90vw;
-}
-
-.create-pl-textarea {
-  width: 100%;
-  margin-top: 0.5rem;
-  background: #2a2a2a;
-  border: 1px solid #444;
-  border-radius: 4px;
-  color: #e0e0e0;
-  font-size: 0.88rem;
-  font-family: 'Roboto Mono', 'Consolas', monospace;
-  padding: 0.4rem 0.6rem;
-  outline: none;
-  resize: vertical;
-  box-sizing: border-box;
-
-  &:focus {
-    border-color: #3b82f6;
-  }
-}
-
-.create-sp-hint {
-  margin-top: 0.6rem;
-  font-size: 0.75rem;
-  color: #777;
-  line-height: 1.5;
-
-  strong {
-    color: #999;
-  }
-
-  code {
-    background: #333;
-    border-radius: 3px;
-    padding: 0.05em 0.3em;
-    font-size: 0.85em;
-    color: #c8c8c8;
-    font-family: 'Roboto Mono', 'Consolas', monospace;
-  }
-}
-
-// ── Responsive: phone-sized screens (portrait iPhone and similar) ─────────────
-// Anything narrower than an iPad mini in portrait mode (768px).
-// Change this variable to adjust the breakpoint.
+// ── Responsive ────────────────────────────────────────────────────────────────
 $mobile-bp: 600px;
 
 @media (max-width: $mobile-bp) {
-  // Header stacks vertically, each row centered
   .music-header {
     flex-direction: column;
     align-items: stretch;
@@ -1512,7 +702,6 @@ $mobile-bp: 600px;
     justify-content: center;
   }
 
-  // Search row expands full-width with nav/queue buttons on the sides
   .header-search-row {
     width: 100%;
   }
@@ -1537,23 +726,6 @@ $mobile-bp: 600px;
     flex-shrink: 0;
   }
 
-  // Queue sidebar close button (inside sidebar-heading)
-  .mobile-queue-close {
-    display: block;
-    margin-left: auto;
-    background: none;
-    border: none;
-    color: #888;
-    cursor: pointer;
-    font-size: 0.85rem;
-    padding: 0 0.25rem;
-    line-height: 1;
-
-    &:hover {
-      color: #ccc;
-    }
-  }
-
   // Hide resize handles
   .resize-handle {
     display: none;
@@ -1562,42 +734,6 @@ $mobile-bp: 600px;
   // music-body is the positioning context for the absolute panels
   .music-body {
     position: relative;
-  }
-
-  // Left nav: slide in from left as an overlay
-  .music-nav {
-    position: absolute;
-    z-index: 200;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: min(280px, 85vw) !important;
-    overflow-y: auto;
-    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.6);
-    transform: translateX(-100%);
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-
-    &.mobile-open {
-      transform: translateX(0);
-    }
-  }
-
-  // Right queue: slide in from right, covering the full body area
-  .music-sidebar-right {
-    position: absolute;
-    z-index: 200;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    width: auto !important;
-    min-width: 0;
-    transform: translateX(100%);
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-
-    &.mobile-open {
-      transform: translateX(0);
-    }
   }
 
   // Backdrop: dims content behind open panels

@@ -8,9 +8,9 @@ import {
   type SongTableEmit,
 } from '@/composables/useSongActions';
 import { useVirtualScroll } from '@/composables/useVirtualScroll';
-import SongFlagButtons from '@/components/remote/SongFlagButtons.vue';
-import SongRowMenu from '@/components/remote/SongRowMenu.vue';
-import SongMultiBar from '@/components/remote/SongMultiBar.vue';
+import SongFlagButtons from '@/components/remote/music/SongFlagButtons.vue';
+import SongRowMenu from '@/components/remote/music/SongRowMenu.vue';
+import SongMultiBar from '@/components/remote/music/SongMultiBar.vue';
 import type { Song } from '@/types/music';
 
 interface Props {

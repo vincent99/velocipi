@@ -9,14 +9,23 @@ const props = defineProps<{
 
 const videoEl = ref<HTMLVideoElement | null>(null);
 const error = ref('');
+const reconnecting = ref(false);
 
 let player: mpegts.Player | null = null;
 let stallTimer: ReturnType<typeof setTimeout> | null = null;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearStallTimer() {
   if (stallTimer !== null) {
     clearTimeout(stallTimer);
     stallTimer = null;
+  }
+}
+
+function clearRetryTimer() {
+  if (retryTimer !== null) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
   }
 }
 
@@ -34,6 +43,7 @@ function resumePlayback() {
 
 function destroyPlayer() {
   clearStallTimer();
+  clearRetryTimer();
   if (player) {
     player.pause();
     player.unload();
@@ -76,6 +86,16 @@ function startStream() {
 
   player.on(mpegts.Events.ERROR, (errType: string, errDetail: string) => {
     error.value = `Stream error: ${errType} ${errDetail}`;
+    clearRetryTimer();
+    retryTimer = setTimeout(() => {
+      error.value = '';
+      reconnecting.value = true;
+      startStream();
+    }, 3000);
+  });
+
+  player.on(mpegts.Events.MEDIA_INFO, () => {
+    reconnecting.value = false;
   });
 }
 
@@ -93,6 +113,7 @@ watch(
   () => props.cameraName,
   async (name) => {
     error.value = '';
+    reconnecting.value = false;
     if (!name) {
       return;
     }
@@ -138,6 +159,7 @@ onUnmounted(() => {
 <template>
   <div class="mpegts-player">
     <div v-if="error" class="player-error">{{ error }}</div>
+    <div v-else-if="reconnecting" class="player-reconnecting">Reconnecting…</div>
     <video ref="videoEl" class="player-video" autoplay playsinline />
   </div>
 </template>
@@ -157,6 +179,15 @@ onUnmounted(() => {
   border-radius: 6px;
   padding: 0.75rem 1rem;
   color: #f88;
+  flex-shrink: 0;
+}
+
+.player-reconnecting {
+  background: #1a3a5a;
+  border: 1px solid #38f;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  color: #8af;
   flex-shrink: 0;
 }
 

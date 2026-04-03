@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, inject } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import SongTable from '@/components/remote/SongTable.vue';
+import SongTable from '@/components/remote/music/SongTable.vue';
 import { useMusicPlayer } from '@/composables/useMusicPlayer';
 import { useSongEdit } from '@/composables/useSongEdit';
 import { useAdmin } from '@/composables/useAdmin';

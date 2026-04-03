@@ -5,7 +5,7 @@ import { settingsKey } from './settingsContext';
 const props = defineProps<{
   label: string;
   path: string;
-  type?: 'text' | 'number' | 'checkbox' | 'color' | 'textarea';
+  type?: 'text' | 'number' | 'checkbox' | 'color' | 'textarea' | 'range';
   placeholder?: string;
   min?: number;
   max?: number;
@@ -74,6 +74,17 @@ function onInput(e: Event) {
         :placeholder="placeholder"
         @input="onInput"
       />
+    </template>
+    <template v-else-if="type === 'range'">
+      <input
+        :value="inputValue"
+        type="range"
+        class="sf-range"
+        :min="min ?? 0"
+        :max="max ?? 100"
+        @input="onInput"
+      />
+      <span class="sf-range-val">{{ inputValue }}</span>
     </template>
     <template v-else>
       <input
@@ -151,6 +162,22 @@ function onInput(e: Event) {
     outline: none;
     border-color: #666;
   }
+}
+
+.sf-range {
+  flex: 1;
+  cursor: pointer;
+  accent-color: #3b82f6;
+  min-width: 0;
+}
+
+.sf-range-val {
+  width: 2.5rem;
+  text-align: right;
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
 }
 
 .sf-checkbox {
