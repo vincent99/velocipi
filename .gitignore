@@ -44,3 +44,4 @@ dist
 /backup
 /music.sqlite*
 ledalarm/ledalarm-backups
+aircon/wifi.json

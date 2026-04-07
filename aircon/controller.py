@@ -12,6 +12,7 @@ max   — high fan, compressor on, always recirc
 import asyncio
 import time
 import config
+import log
 import storage
 
 
@@ -40,8 +41,10 @@ class ACController:
         self._active_fan_speed = None   # what is actually running now
         self._error            = ''
         self._last_fan_change  = 0      # time.time() of last fan speed change
+        self.on_state_change   = None   # optional callback, set by BLEServer
 
-        self._apply()
+        log.log('system', f'startup: mode={self.mode}, fan={self.fan}, setpoint={self.setpoint}°F, delta=±{self.delta}°F')
+        asyncio.create_task(self._apply())
 
     # ── Public properties ────────────────────────────────────────────────────
 
@@ -69,58 +72,66 @@ class ACController:
 
     # ── Setters (called by BLE and web server) ────────────────────────────────
 
-    def set_mode(self, mode):
+    async def set_mode(self, mode, source='system'):
         if mode not in (config.MODE_OFF, config.MODE_FAN, config.MODE_AUTO, config.MODE_MAX):
             return False
+        self._error = ''
         self.mode = mode
-        self._apply()
+        log.log(source, f'mode → {mode}')
+        await self._apply()
         self._save()
         return True
 
-    def set_fan(self, fan):
+    async def set_fan(self, fan, source='system'):
         if fan not in (config.FAN_LOW, config.FAN_MEDIUM, config.FAN_HIGH):
             return False
+        self._error = ''
         self.fan = fan
+        log.log(source, f'fan setting → {fan}')
         if self.mode == config.MODE_FAN:
             # Compressor is already off in fan mode, so it's safe to switch
             # speeds directly. Relay.set_fan de-energises all before asserting
             # the new speed, so the rotary switch is never double-driven.
-            self._relays.set_fan(fan)
+            await self._relays.set_fan(fan)
             self._active_fan_speed = fan
             self._update_led()
         self._save()
         return True
 
-    def set_setpoint(self, temp):
+    async def set_setpoint(self, temp, source='system'):
         try:
             self.setpoint = float(temp)
+            log.log(source, f'setpoint → {self.setpoint:.1f}°F')
             self._save()
             return True
         except (ValueError, TypeError):
             return False
 
-    def set_circulation(self, circ):
+    async def set_circulation(self, circ, source='system'):
         if circ not in (config.CIRC_RECIRC, config.CIRC_FRESH):
             return False
         self.circulation = circ
+        log.log(source, f'circulation → {circ}')
         if self.mode in (config.MODE_FAN, config.MODE_AUTO):
             self._servo.set(circ)
         self._save()
         return True
 
-    def set_panel_temp(self, temp):
+    async def set_panel_temp(self, temp, source='system'):
         try:
             self.panel_temp = float(temp)
+            log.log(source, f'panel_temp → {self.panel_temp:.1f}°F')
             return True
         except (ValueError, TypeError):
             return False
 
-    def set_delta(self, delta):
+    async def set_delta(self, delta, source='system'):
         try:
             v = float(delta)
             if v < 0:
                 return False
             self.delta = v
+            log.log(source, f'delta → ±{self.delta:.1f}°F')
             self._save()
             return True
         except (ValueError, TypeError):
@@ -154,7 +165,7 @@ class ACController:
     async def run(self):
         while True:
             if self.mode == config.MODE_AUTO:
-                self._auto_control()
+                await self._auto_control()
             await asyncio.sleep(config.AUTO_LOOP_INTERVAL)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
@@ -167,12 +178,14 @@ class ACController:
 
     def _update_led(self):
         self._led.update(
+            self._active_fan_speed,
             self._compressor_on,
-            self._active_fan_speed is not None,
             bool(self._error),
         )
+        if self.on_state_change:
+            self.on_state_change()
 
-    def _apply(self):
+    async def _apply(self):
         """Drive relays and servo to match the current mode."""
         mode = self.mode
 
@@ -186,7 +199,7 @@ class ACController:
             # Compressor off first, then switch fan speed.
             self._relays.set_compressor(False)
             self._compressor_on = False
-            self._relays.set_fan(self.fan)
+            await self._relays.set_fan(self.fan)
             self._servo.set(self.circulation)
             self._active_fan_speed = self.fan
 
@@ -195,14 +208,14 @@ class ACController:
             # On entry ensure compressor is off before touching the fan.
             self._relays.set_compressor(False)
             self._compressor_on = False
-            self._relays.set_fan(self._active_fan_speed or config.FAN_LOW)
+            await self._relays.set_fan(self._active_fan_speed or config.FAN_LOW)
             self._servo.set(self.circulation)
             if self._active_fan_speed is None:
                 self._active_fan_speed = config.FAN_LOW
 
         elif mode == config.MODE_MAX:
             # Fan must come up before compressor.
-            self._relays.set_fan(config.FAN_HIGH)
+            await self._relays.set_fan(config.FAN_HIGH)
             self._active_fan_speed = config.FAN_HIGH
             self._relays.set_compressor(True)
             self._servo.set(config.CIRC_RECIRC)
@@ -210,10 +223,12 @@ class ACController:
 
         self._update_led()
 
-    def _auto_control(self):
+    async def _auto_control(self):
         """Run one iteration of the auto-mode control loop."""
         current = self.current_temp
         if current is None:
+            if not self._error:
+                log.log('auto', 'error: no temperature reading')
             self._error = 'No temperature reading'
             self._update_led()
             return
@@ -228,11 +243,13 @@ class ACController:
                 # Fan is already running; safe to start compressor.
                 self._compressor_on = True
                 self._relays.set_compressor(True)
+                log.log('auto', f'compressor ON  (temp={current:.1f}°F, setpoint={self.setpoint:.1f}°F)')
         else:
             if current < self.setpoint - self.delta:
                 # Stop compressor first; fan adjustment follows below.
                 self._compressor_on = False
                 self._relays.set_compressor(False)
+                log.log('auto', f'compressor OFF (temp={current:.1f}°F, setpoint={self.setpoint:.1f}°F)')
 
         # ── Fan speed: 3-step selection with rate limiting ────────────────────
         now = time.time()
@@ -254,8 +271,9 @@ class ACController:
                 target_fan = config.FAN_LOW
 
             if target_fan != self._active_fan_speed:
+                log.log('auto', f'fan {self._active_fan_speed} → {target_fan} (Δ={max_diff:.1f}°F)')
                 self._active_fan_speed = target_fan
-                self._relays.set_fan(target_fan)
+                await self._relays.set_fan(target_fan)
                 self._last_fan_change = now
 
         # ── Servo follows circulation preference ──────────────────────────────

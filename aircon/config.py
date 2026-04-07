@@ -1,12 +1,12 @@
 # Pin assignments — change each pin in exactly one place here.
 
 # Relay outputs
-PIN_RELAY_FAN_LOW    = 1   # Relay 1 — blower fan low speed
-PIN_RELAY_FAN_MED    = 2   # Relay 2 — blower fan medium
-PIN_RELAY_FAN_HIGH   = 41  # Relay 3 — blower fan high
-PIN_RELAY_COMPRESSOR = 42  # Relay 4 — compressor on
-PIN_RELAY_5          = 45  # Relay 5 — unused
-PIN_RELAY_6          = 46  # Relay 6 — unused
+PIN_RELAY_FAN_LOW    = 26  # Relay 1 — blower fan low speed
+PIN_RELAY_FAN_MED    = 27  # Relay 2 — blower fan medium
+PIN_RELAY_FAN_HIGH   = 28  # Relay 3 — blower fan high
+PIN_RELAY_COMPRESSOR = 29  # Relay 4 — compressor on
+PIN_RELAY_5          = 30  # Relay 5 — unused
+PIN_RELAY_6          = 31  # Relay 6 — unused
 
 # Relay logic level (set False for active-low relay modules)
 RELAY_ACTIVE_HIGH = True
@@ -15,20 +15,20 @@ RELAY_ACTIVE_HIGH = True
 PIN_BUZZER = 21
 
 # WS2812 RGB LED (single pixel)
-PIN_LED_RGB = 38
+PIN_LED_RGB = 36
 
 # DS18B20 1-wire temperature probes (one per pin)
-PIN_TEMP_CABIN   = 16
-PIN_TEMP_BLOWER  = 17
-PIN_TEMP_EXHAUST = 18
-PIN_TEMP_BAGGAGE = 19
-PIN_TEMP_TAIL    = 20
+PIN_TEMP_CABIN   = 2
+PIN_TEMP_BLOWER  = 3
+PIN_TEMP_EXHAUST = 4
+PIN_TEMP_BAGGAGE = 5
+PIN_TEMP_TAIL    = 6
 
 # Mystery PWM signal from compressor
-PIN_PWM_MONITOR = 22
+PIN_PWM_MONITOR = 7
 
 # PWM servo — recirc/fresh-air valve
-PIN_SERVO = 15
+PIN_SERVO = 8
 
 # Servo pulse widths in microseconds — calibrate to actual hardware
 SERVO_RECIRC_US = 1000
@@ -74,8 +74,18 @@ TEMP_READ_INTERVAL = 3
 STORAGE_FILE = '/aircon_settings.json'
 
 # ── WiFi ─────────────────────────────────────────────────────────────────────
-WIFI_SSID     = 'your-ssid'
-WIFI_PASSWORD = 'your-password'
+# Credentials are read from /wifi.json on the Pico filesystem so they are
+# never stored in source control.  File format: {"ssid": "...", "password": "..."}
+def _load_wifi():
+    import json as _json
+    try:
+        with open('/wifi.json') as _f:
+            _d = _json.load(_f)
+        return _d['ssid'], _d['password']
+    except Exception:
+        return '', ''
+
+WIFI_SSID, WIFI_PASSWORD = _load_wifi()
 
 # ── Web server ────────────────────────────────────────────────────────────────
 WEB_PORT = 80
@@ -85,18 +95,13 @@ BLE_DEVICE_NAME   = 'AirCon'
 BLE_NOTIFY_INTERVAL = 2  # seconds between GATT notifications
 
 # ── BLE UUIDs (128-bit custom service) ───────────────────────────────────────
-BLE_SVC_UUID       = 'a1b2c3d4-0000-0000-abcd-ef1234567890'
-BLE_UUID_MODE      = 'a1b2c3d4-0001-0000-abcd-ef1234567890'
-BLE_UUID_FAN       = 'a1b2c3d4-0002-0000-abcd-ef1234567890'
-BLE_UUID_SETPOINT  = 'a1b2c3d4-0003-0000-abcd-ef1234567890'
-BLE_UUID_CIRC      = 'a1b2c3d4-0004-0000-abcd-ef1234567890'
-BLE_UUID_PANEL     = 'a1b2c3d4-0005-0000-abcd-ef1234567890'
-BLE_UUID_CURR_TEMP = 'a1b2c3d4-0006-0000-abcd-ef1234567890'
-BLE_UUID_COMP_ST   = 'a1b2c3d4-0007-0000-abcd-ef1234567890'
-BLE_UUID_REAR_TEMP = 'a1b2c3d4-0008-0000-abcd-ef1234567890'
-BLE_UUID_BLOW_TEMP = 'a1b2c3d4-0009-0000-abcd-ef1234567890'
-BLE_UUID_EXHU_TEMP = 'a1b2c3d4-000a-0000-abcd-ef1234567890'
-BLE_UUID_BAGG_TEMP = 'a1b2c3d4-000b-0000-abcd-ef1234567890'
-BLE_UUID_COMP_TEMP = 'a1b2c3d4-000c-0000-abcd-ef1234567890'
-BLE_UUID_DELTA     = 'a1b2c3d4-000d-0000-abcd-ef1234567890'
-BLE_UUID_ERROR     = 'a1b2c3d4-000e-0000-abcd-ef1234567890'
+# Writable: mode, fan, setpoint, circ, panel, delta
+# Read/notify: status (JSON snapshot of temps, compressor state, error)
+BLE_SVC_UUID      = 'aaaaaaaa-1111-cccc-00dd-000000000000'
+BLE_UUID_MODE     = 'aaaaaaaa-1111-cccc-00dd-000000000001'
+BLE_UUID_FAN      = 'aaaaaaaa-1111-cccc-00dd-000000000002'
+BLE_UUID_SETPOINT = 'aaaaaaaa-1111-cccc-00dd-000000000003'
+BLE_UUID_CIRC     = 'aaaaaaaa-1111-cccc-00dd-000000000004'
+BLE_UUID_PANEL    = 'aaaaaaaa-1111-cccc-00dd-000000000005'
+BLE_UUID_DELTA    = 'aaaaaaaa-1111-cccc-00dd-000000000006'
+BLE_UUID_STATUS   = 'aaaaaaaa-1111-cccc-00dd-000000000007'

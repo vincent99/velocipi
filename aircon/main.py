@@ -56,8 +56,9 @@ async def main():
     # ── Servers ───────────────────────────────────────────────────────────────
     ble = BLEServer(ctrl)
     web = WebServer(ctrl)
+    ctrl.on_state_change = ble.notify_state_changed
 
-    # Ready signal
+    asyncio.create_task(led.run())
     asyncio.create_task(buzzer.double_beep())
 
     print(f'Mode: {ctrl.mode}  Setpoint: {ctrl.setpoint}°F  Delta: {ctrl.delta}°F')

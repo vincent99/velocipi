@@ -1,309 +1,437 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AirCon</title>
-<style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AirCon</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
 
-body {
-  background: #111;
-  color: #ddd;
-  font-family: monospace;
-  font-size: 15px;
-  padding: 1rem;
-  max-width: 480px;
-}
+      body {
+        background: #111;
+        color: #ddd;
+        font-family: monospace;
+        font-size: 15px;
+        padding: 1rem;
+        max-width: 480px;
+      }
 
-h1 { color: #4fc3f7; font-size: 1.1rem; letter-spacing: 0.1em; margin-bottom: 1rem; }
-h2 { color: #90caf9; font-size: 0.85rem; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
+      h1 {
+        color: #4fc3f7;
+        font-size: 1.1rem;
+        letter-spacing: 0.1em;
+        margin-bottom: 1rem;
+      }
+      h2 {
+        color: #90caf9;
+        font-size: 0.85rem;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.5rem;
+      }
 
-.card {
-  background: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 6px;
-  padding: 0.75rem;
-  margin-bottom: 0.65rem;
-}
+      .card {
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 6px;
+        padding: 0.75rem;
+        margin-bottom: 0.65rem;
+      }
 
-.row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.25rem 0;
-}
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.25rem 0;
+      }
 
-.lbl {
-  color: #888;
-  min-width: 130px;
-  font-size: 0.85rem;
-}
+      .lbl {
+        color: #888;
+        min-width: 130px;
+        font-size: 0.85rem;
+      }
 
-.val {
-  color: #fff;
-  font-weight: bold;
-}
+      .val {
+        color: #fff;
+        font-weight: bold;
+      }
 
-.temp { color: #80cbc4; }
+      .temp {
+        color: #80cbc4;
+      }
 
-.btn-group { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+      .btn-group {
+        display: flex;
+        gap: 0.4rem;
+        flex-wrap: wrap;
+      }
 
-button {
-  background: #2a2a2a;
-  border: 1px solid #444;
-  color: #aaa;
-  padding: 0.35rem 0.7rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-family: monospace;
-  font-size: 0.85rem;
-  transition: background 0.1s;
-}
-button:hover { background: #383838; }
-button.active { background: #1565c0; border-color: #42a5f5; color: #fff; }
+      button {
+        background: #2a2a2a;
+        border: 1px solid #444;
+        color: #aaa;
+        padding: 0.35rem 0.7rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: monospace;
+        font-size: 0.85rem;
+        transition: background 0.1s;
+      }
+      button:hover {
+        background: #383838;
+      }
+      button.active {
+        background: #1565c0;
+        border-color: #42a5f5;
+        color: #fff;
+      }
 
-input[type=number] {
-  background: #2a2a2a;
-  border: 1px solid #444;
-  color: #fff;
-  padding: 0.3rem 0.45rem;
-  border-radius: 4px;
-  width: 72px;
-  font-family: monospace;
-  font-size: 0.85rem;
-}
-input[type=number]:focus { outline: 1px solid #42a5f5; }
+      input[type="number"] {
+        background: #2a2a2a;
+        border: 1px solid #444;
+        color: #fff;
+        padding: 0.3rem 0.45rem;
+        border-radius: 4px;
+        width: 72px;
+        font-family: monospace;
+        font-size: 0.85rem;
+      }
+      input[type="number"]:focus {
+        outline: 1px solid #42a5f5;
+      }
 
-.pill {
-  display: inline-block;
-  padding: 0.2rem 0.55rem;
-  border-radius: 10px;
-  font-size: 0.8rem;
-  font-weight: bold;
-  letter-spacing: 0.05em;
-}
-.pill-on  { background: #1b5e20; color: #a5d6a7; }
-.pill-off { background: #1c1c1c; color: #555; border: 1px solid #333; }
+      .pill {
+        display: inline-block;
+        padding: 0.2rem 0.55rem;
+        border-radius: 10px;
+        font-size: 0.8rem;
+        font-weight: bold;
+        letter-spacing: 0.05em;
+      }
+      .pill-on {
+        background: #1b5e20;
+        color: #a5d6a7;
+      }
+      .pill-off {
+        background: #1c1c1c;
+        color: #555;
+        border: 1px solid #333;
+      }
 
-.error-row { color: #ef5350; font-size: 0.85rem; padding: 0.2rem 0; }
+      .error-row {
+        color: #ef5350;
+        font-size: 0.85rem;
+        padding: 0.2rem 0;
+      }
 
-.hidden { display: none !important; }
+      .hidden {
+        display: none !important;
+      }
 
-.dim { color: #555; }
+      .dim {
+        color: #555;
+      }
 
-#refresh-dot {
-  display: inline-block;
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: #555;
-  margin-left: 0.5rem;
-  vertical-align: middle;
-}
-#refresh-dot.blink { background: #4caf50; }
-</style>
-</head>
-<body>
+      #refresh-dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #555;
+        margin-left: 0.5rem;
+        vertical-align: middle;
+      }
+      #refresh-dot.blink {
+        background: #4caf50;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>AIRCON <span id="refresh-dot"></span></h1>
 
-<h1>AIRCON <span id="refresh-dot"></span></h1>
+    <!-- Status bar -->
+    <div class="card" id="card-status">
+      <div class="row">
+        <span class="lbl">Compressor</span>
+        <span id="comp-pill" class="pill pill-off">OFF</span>
+      </div>
+      <div class="row" id="row-error" style="display: none">
+        <span class="lbl">Error</span>
+        <span id="error-txt" class="error-row"></span>
+      </div>
+    </div>
 
-<!-- Status bar -->
-<div class="card" id="card-status">
-  <div class="row">
-    <span class="lbl">Compressor</span>
-    <span id="comp-pill" class="pill pill-off">OFF</span>
-  </div>
-  <div class="row" id="row-error" style="display:none">
-    <span class="lbl">Error</span>
-    <span id="error-txt" class="error-row"></span>
-  </div>
-</div>
+    <!-- Mode -->
+    <div class="card">
+      <h2>MODE</h2>
+      <div class="btn-group">
+        <button id="btn-off" onclick="setAttr('mode', 'off')">Off</button>
+        <button id="btn-fan" onclick="setAttr('mode', 'fan')">Fan</button>
+        <button id="btn-auto" onclick="setAttr('mode', 'auto')">Auto</button>
+        <button id="btn-max" onclick="setAttr('mode', 'max')">Max</button>
+      </div>
+    </div>
 
-<!-- Mode -->
-<div class="card">
-  <h2>MODE</h2>
-  <div class="btn-group">
-    <button id="btn-off"  onclick="setAttr('mode','off')">Off</button>
-    <button id="btn-fan"  onclick="setAttr('mode','fan')">Fan</button>
-    <button id="btn-auto" onclick="setAttr('mode','auto')">Auto</button>
-    <button id="btn-max"  onclick="setAttr('mode','max')">Max</button>
-  </div>
-</div>
+    <!-- Fan speed (mode=fan only) -->
+    <div class="card hidden" id="card-fan">
+      <h2>FAN SPEED</h2>
+      <div class="btn-group">
+        <button id="btn-low" onclick="setAttr('fan', 'low')">Low</button>
+        <button id="btn-medium" onclick="setAttr('fan', 'medium')">
+          Medium
+        </button>
+        <button id="btn-high" onclick="setAttr('fan', 'high')">High</button>
+      </div>
+    </div>
 
-<!-- Fan speed (mode=fan only) -->
-<div class="card hidden" id="card-fan">
-  <h2>FAN SPEED</h2>
-  <div class="btn-group">
-    <button id="btn-low"    onclick="setAttr('fan','low')">Low</button>
-    <button id="btn-medium" onclick="setAttr('fan','medium')">Medium</button>
-    <button id="btn-high"   onclick="setAttr('fan','high')">High</button>
-  </div>
-</div>
+    <!-- Auto settings (mode=auto only) -->
+    <div class="card hidden" id="card-auto">
+      <h2>AUTO SETTINGS</h2>
+      <div class="row">
+        <span class="lbl">Setpoint (°F)</span>
+        <input
+          type="number"
+          id="inp-setpoint"
+          step="0.5"
+          min="50"
+          max="95"
+          onchange="setNum('setpoint', this.value)"
+        />
+      </div>
+      <div class="row">
+        <span class="lbl">Delta (°F)</span>
+        <input
+          type="number"
+          id="inp-delta"
+          step="0.5"
+          min="0.5"
+          max="10"
+          onchange="setNum('delta', this.value)"
+        />
+      </div>
+    </div>
 
-<!-- Auto settings (mode=auto only) -->
-<div class="card hidden" id="card-auto">
-  <h2>AUTO SETTINGS</h2>
-  <div class="row">
-    <span class="lbl">Setpoint (°F)</span>
-    <input type="number" id="inp-setpoint" step="0.5" min="50" max="95"
-           onchange="setNum('setpoint', this.value)">
-  </div>
-  <div class="row">
-    <span class="lbl">Delta (°F)</span>
-    <input type="number" id="inp-delta" step="0.5" min="0.5" max="10"
-           onchange="setNum('delta', this.value)">
-  </div>
-</div>
+    <!-- Circulation (mode=fan or auto) -->
+    <div class="card hidden" id="card-circ">
+      <h2>CIRCULATION</h2>
+      <div class="btn-group">
+        <button id="btn-recirc" onclick="setAttr('circulation', 'recirc')">
+          Recirculate
+        </button>
+        <button id="btn-fresh" onclick="setAttr('circulation', 'fresh')">
+          Fresh Air
+        </button>
+      </div>
+    </div>
 
-<!-- Circulation (mode=fan or auto) -->
-<div class="card hidden" id="card-circ">
-  <h2>CIRCULATION</h2>
-  <div class="btn-group">
-    <button id="btn-recirc" onclick="setAttr('circulation','recirc')">Recirculate</button>
-    <button id="btn-fresh"  onclick="setAttr('circulation','fresh')">Fresh Air</button>
-  </div>
-</div>
+    <!-- Temperatures -->
+    <div class="card">
+      <h2>TEMPERATURES</h2>
+      <div class="row">
+        <span class="lbl">Current</span>
+        <span id="t-current" class="val temp">--</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Cabin Front</span>
+        <span id="t-panel" class="val temp">--</span>
+        <input
+          type="number"
+          id="inp-panel"
+          step="0.5"
+          placeholder="0=none"
+          title="Set 0 to disable panel temp"
+          onchange="setNum('panel_temp', this.value)"
+        />
+      </div>
+      <div class="row">
+        <span class="lbl">Cabin Rear</span>
+        <span id="t-cabin" class="val temp">--</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Blower outlet</span>
+        <span id="t-blower" class="val temp">--</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Exhaust</span>
+        <span id="t-exhaust" class="val temp">--</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Baggage</span>
+        <span id="t-baggage" class="val temp">--</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Tail</span
+        ><span id="t-tail" class="val temp">--</span>
+      </div>
+    </div>
 
-<!-- Temperatures -->
-<div class="card">
-  <h2>TEMPERATURES</h2>
-  <div class="row"><span class="lbl">Current</span>    <span id="t-current" class="val temp">--</span></div>
-  <div class="row">
-    <span class="lbl">Panel (external)</span>
-    <span id="t-panel" class="val temp">--</span>
-    <input type="number" id="inp-panel" step="0.5" placeholder="0=none"
-           title="Set 0 to disable panel temp"
-           onchange="setNum('panel_temp', this.value)">
-  </div>
-  <div class="row"><span class="lbl">Cabin (rear)</span>   <span id="t-cabin"   class="val temp">--</span></div>
-  <div class="row"><span class="lbl">Blower outlet</span>  <span id="t-blower"  class="val temp">--</span></div>
-  <div class="row"><span class="lbl">Exhaust</span>        <span id="t-exhaust" class="val temp">--</span></div>
-  <div class="row"><span class="lbl">Baggage</span>        <span id="t-baggage" class="val temp">--</span></div>
-  <div class="row"><span class="lbl">Tail (compressor)</span><span id="t-tail" class="val temp">--</span></div>
-</div>
+    <!-- Compressor PWM signal -->
+    <div class="card">
+      <h2>COMPRESSOR SIGNAL</h2>
+      <div class="row">
+        <span class="lbl">Frequency</span>
+        <span id="pwm-freq" class="val">--</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Duty cycle</span>
+        <span id="pwm-duty" class="val">--</span>
+      </div>
+    </div>
 
-<!-- Compressor PWM signal -->
-<div class="card">
-  <h2>COMPRESSOR SIGNAL</h2>
-  <div class="row"><span class="lbl">Frequency</span>   <span id="pwm-freq" class="val">--</span></div>
-  <div class="row"><span class="lbl">Duty cycle</span>  <span id="pwm-duty" class="val">--</span></div>
-</div>
+    <script>
+      "use strict";
 
-<script>
-'use strict';
+      var state = {};
 
-var state = {};
+      function fmt(v) {
+        if (
+          v === null ||
+          v === undefined ||
+          (v === 0 && arguments[1] === "panel")
+        ) {
+          return "--";
+        }
+        var n = parseFloat(v);
+        if (isNaN(n)) {
+          return "--";
+        }
+        return n.toFixed(1) + "\u00b0F";
+      }
 
-function fmt(v) {
-  if (v === null || v === undefined || v === 0 && arguments[1] === 'panel') { return '--'; }
-  var n = parseFloat(v);
-  if (isNaN(n)) { return '--'; }
-  return n.toFixed(1) + '\u00b0F';
-}
+      function setActive(id, active) {
+        var el = document.getElementById(id);
+        if (!el) {
+          return;
+        }
+        if (active) {
+          el.classList.add("active");
+        } else {
+          el.classList.remove("active");
+        }
+      }
 
-function setActive(id, active) {
-  var el = document.getElementById(id);
-  if (!el) { return; }
-  if (active) { el.classList.add('active'); }
-  else        { el.classList.remove('active'); }
-}
+      function show(id, visible) {
+        var el = document.getElementById(id);
+        if (!el) {
+          return;
+        }
+        if (visible) {
+          el.classList.remove("hidden");
+        } else {
+          el.classList.add("hidden");
+        }
+      }
 
-function show(id, visible) {
-  var el = document.getElementById(id);
-  if (!el) { return; }
-  if (visible) { el.classList.remove('hidden'); }
-  else         { el.classList.add('hidden'); }
-}
+      function setText(id, text) {
+        var el = document.getElementById(id);
+        if (el) {
+          el.textContent = text;
+        }
+      }
 
-function setText(id, text) {
-  var el = document.getElementById(id);
-  if (el) { el.textContent = text; }
-}
+      function setInputIfUnfocused(id, value) {
+        var el = document.getElementById(id);
+        if (el && document.activeElement !== el) {
+          el.value = value;
+        }
+      }
 
-function setInputIfUnfocused(id, value) {
-  var el = document.getElementById(id);
-  if (el && document.activeElement !== el) { el.value = value; }
-}
+      function applyState(s) {
+        state = s;
 
-function applyState(s) {
-  state = s;
+        // Compressor pill
+        var comp = s.compressor === "on";
+        var pill = document.getElementById("comp-pill");
+        pill.textContent = comp ? "ON" : "OFF";
+        pill.className = "pill " + (comp ? "pill-on" : "pill-off");
 
-  // Compressor pill
-  var comp = s.compressor === 'on';
-  var pill = document.getElementById('comp-pill');
-  pill.textContent = comp ? 'ON' : 'OFF';
-  pill.className = 'pill ' + (comp ? 'pill-on' : 'pill-off');
+        // Error
+        var hasErr = s.error && s.error.length > 0;
+        document.getElementById("row-error").style.display = hasErr
+          ? ""
+          : "none";
+        setText("error-txt", s.error || "");
 
-  // Error
-  var hasErr = s.error && s.error.length > 0;
-  document.getElementById('row-error').style.display = hasErr ? '' : 'none';
-  setText('error-txt', s.error || '');
+        // Mode buttons
+        ["off", "fan", "auto", "max"].forEach(function (m) {
+          setActive("btn-" + m, s.mode === m);
+        });
 
-  // Mode buttons
-  ['off','fan','auto','max'].forEach(function(m) {
-    setActive('btn-' + m, s.mode === m);
-  });
+        // Conditional sections
+        show("card-fan", s.mode === "fan");
+        show("card-auto", s.mode === "auto");
+        show("card-circ", s.mode === "fan" || s.mode === "auto");
 
-  // Conditional sections
-  show('card-fan',  s.mode === 'fan');
-  show('card-auto', s.mode === 'auto');
-  show('card-circ', s.mode === 'fan' || s.mode === 'auto');
+        // Fan buttons
+        ["low", "medium", "high"].forEach(function (f) {
+          setActive("btn-" + f, s.fan === f);
+        });
 
-  // Fan buttons
-  ['low','medium','high'].forEach(function(f) {
-    setActive('btn-' + f, s.fan === f);
-  });
+        // Circulation buttons
+        setActive("btn-recirc", s.circulation === "recirc");
+        setActive("btn-fresh", s.circulation === "fresh");
 
-  // Circulation buttons
-  setActive('btn-recirc', s.circulation === 'recirc');
-  setActive('btn-fresh',  s.circulation === 'fresh');
+        // Setpoint / delta / panel inputs (don't disrupt typing)
+        setInputIfUnfocused("inp-setpoint", s.setpoint);
+        setInputIfUnfocused("inp-delta", s.delta);
+        setInputIfUnfocused("inp-panel", s.panel_temp || 0);
 
-  // Setpoint / delta / panel inputs (don't disrupt typing)
-  setInputIfUnfocused('inp-setpoint', s.setpoint);
-  setInputIfUnfocused('inp-delta',    s.delta);
-  setInputIfUnfocused('inp-panel',    s.panel_temp || 0);
+        // Temperatures
+        setText("t-current", fmt(s.current_temp));
+        setText("t-panel", s.panel_temp ? fmt(s.panel_temp) : "--");
+        setText("t-cabin", fmt(s.cabin_temp));
+        setText("t-blower", fmt(s.blower_temp));
+        setText("t-exhaust", fmt(s.exhaust_temp));
+        setText("t-baggage", fmt(s.baggage_temp));
+        setText("t-tail", fmt(s.tail_temp));
 
-  // Temperatures
-  setText('t-current', fmt(s.current_temp));
-  setText('t-panel',   s.panel_temp ? fmt(s.panel_temp) : '--');
-  setText('t-cabin',   fmt(s.cabin_temp));
-  setText('t-blower',  fmt(s.blower_temp));
-  setText('t-exhaust', fmt(s.exhaust_temp));
-  setText('t-baggage', fmt(s.baggage_temp));
-  setText('t-tail',    fmt(s.tail_temp));
+        // PWM
+        setText("pwm-freq", s.pwm_freq ? s.pwm_freq.toFixed(1) + " Hz" : "--");
+        setText("pwm-duty", s.pwm_duty ? s.pwm_duty.toFixed(1) + "%" : "--");
+      }
 
-  // PWM
-  setText('pwm-freq', s.pwm_freq ? s.pwm_freq.toFixed(1) + ' Hz'  : '--');
-  setText('pwm-duty', s.pwm_duty ? s.pwm_duty.toFixed(1) + '%'    : '--');
-}
+      function poll() {
+        fetch("/state")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (s) {
+            applyState(s);
+            var dot = document.getElementById("refresh-dot");
+            dot.classList.add("blink");
+            setTimeout(function () {
+              dot.classList.remove("blink");
+            }, 200);
+          })
+          .catch(function () {});
+      }
 
-function poll() {
-  fetch('/state')
-    .then(function(r) { return r.json(); })
-    .then(function(s) {
-      applyState(s);
-      var dot = document.getElementById('refresh-dot');
-      dot.classList.add('blink');
-      setTimeout(function() { dot.classList.remove('blink'); }, 200);
-    })
-    .catch(function() {});
-}
+      function setAttr(attr, value) {
+        fetch("/set/" + attr, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: String(value),
+        })
+          .then(function () {
+            poll();
+          })
+          .catch(function () {});
+      }
 
-function setAttr(attr, value) {
-  fetch('/set/' + attr, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: String(value),
-  }).then(function() { poll(); }).catch(function() {});
-}
+      function setNum(attr, value) {
+        var n = parseFloat(value);
+        if (!isNaN(n)) {
+          setAttr(attr, n);
+        }
+      }
 
-function setNum(attr, value) {
-  var n = parseFloat(value);
-  if (!isNaN(n)) { setAttr(attr, n); }
-}
-
-poll();
-setInterval(poll, 2000);
-</script>
-</body>
+      poll();
+      setInterval(poll, 2000);
+    </script>
+  </body>
 </html>

@@ -95,7 +95,7 @@ async def _handle(reader, writer, ctrl):
                 'delta':       ctrl.set_delta,
             }
             setter = setters.get(attr)
-            if setter and setter(value):
+            if setter and await setter(value, 'web'):
                 _response(writer, '200 OK', 'text/plain', b'OK')
             else:
                 _response(writer, '400 Bad Request', 'text/plain', b'invalid attribute or value')
