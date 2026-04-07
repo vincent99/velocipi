@@ -3,13 +3,30 @@ import { defineComponent, computed, h } from 'vue';
 import type { PanelMeta } from '@/types/config';
 import { useDeviceState } from '@/composables/useDeviceState';
 
-// Mini header component: 2x2 grid of mode / fan / setpoint / current temp.
+const modeIcon: Record<string, string> = {
+  off: 'fi-sr-power-off',
+  fan: 'fi-sr-wind',
+  auto: 'fi-sr-user-robot',
+  cool: 'fi-sr-snowflake',
+};
+const fanIcon: Record<string, string> = {
+  off: 'fi-sr-signal-alt-slash',
+  low: 'fi-sr-signal-alt',
+  medium: 'fi-sr-signal-alt-1',
+  high: 'fi-sr-signal-alt-2',
+};
+
+// Mini header component: top row = mode icon + fan icon; bottom row = current temp + setpoint.
 const AirConHeader = defineComponent({
   name: 'AirConHeader',
   setup() {
     const { airConState } = useDeviceState();
-    const mode = computed(() => airConState.value?.mode ?? '—');
-    const fan = computed(() => airConState.value?.fan ?? '—');
+    const modeIconClass = computed(
+      () => modeIcon[airConState.value?.mode ?? ''] ?? 'fi-sr-power-off'
+    );
+    const fanIconClass = computed(
+      () => fanIcon[airConState.value?.fan ?? ''] ?? 'fi-sr-signal-alt-slash'
+    );
     const setpoint = computed(() => {
       const sp = airConState.value?.setpoint;
       return sp != null ? sp.toFixed(0) + '°' : '—';
@@ -22,19 +39,13 @@ const AirConHeader = defineComponent({
     return () =>
       h('div', { class: 'ac-hdr' }, [
         h('div', { class: 'ac-cell' }, [
-          h('span', { class: 'ac-lbl' }, 'Mode'),
-          h('span', { class: 'ac-val' }, mode.value),
+          h('i', { class: modeIconClass.value }),
         ]),
+        h('div', { class: 'ac-cell' }, [h('i', { class: fanIconClass.value })]),
         h('div', { class: 'ac-cell' }, [
-          h('span', { class: 'ac-lbl' }, 'Fan'),
-          h('span', { class: 'ac-val' }, fan.value),
-        ]),
-        h('div', { class: 'ac-cell' }, [
-          h('span', { class: 'ac-lbl' }, 'Set'),
           h('span', { class: 'ac-val' }, setpoint.value),
         ]),
         h('div', { class: 'ac-cell' }, [
-          h('span', { class: 'ac-lbl' }, 'Temp'),
           h('span', { class: 'ac-val' }, currTemp.value),
         ]),
       ]);
@@ -51,10 +62,10 @@ export const headerComponent = AirConHeader;
 </script>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useDeviceState } from '@/composables/useDeviceState';
 
-const { airConState } = useDeviceState();
+const { airConState, g3xState } = useDeviceState();
 
 const busy = ref(false);
 const lastError = ref('');
@@ -80,44 +91,61 @@ async function set(field: string, value: string) {
 
 const state = computed(() => airConState.value);
 const connected = computed(() => state.value?.connected ?? false);
+const mode = computed(() => state.value?.mode ?? 'off');
 
-// Setpoint editing
-const setpointInput = ref('');
-const setpointEditing = ref(false);
+const fanDisabled = computed(
+  () => busy.value || mode.value === 'off' || mode.value === 'auto'
+);
+const setpointDisabled = computed(
+  () => busy.value || mode.value === 'off' || mode.value === 'fan'
+);
+const circDisabled = computed(
+  () => busy.value || mode.value === 'off' || mode.value === 'auto'
+);
 
-function startEditSetpoint() {
-  setpointInput.value = state.value?.setpoint?.toFixed(1) ?? '72.0';
-  setpointEditing.value = true;
-}
+// Setpoint slider — tracks server state; live display while dragging
+const dragging = ref(false);
+const sliderValue = ref(state.value?.setpoint ?? 72);
 
-async function commitSetpoint() {
-  setpointEditing.value = false;
-  const v = parseFloat(setpointInput.value);
-  if (!isNaN(v)) {
-    await set('setpoint', v.toFixed(2));
+watch(
+  () => state.value?.setpoint,
+  (v) => {
+    if (v != null && !dragging.value) {
+      sliderValue.value = v;
+    }
   }
+);
+
+const sliderMin = computed(() => {
+  const sp = state.value?.setpoint ?? 72;
+  return Math.min(60, Math.floor(sp));
+});
+
+const sliderMax = computed(() => {
+  const sp = state.value?.setpoint ?? 72;
+  return Math.max(80, Math.ceil(sp));
+});
+
+function onSliderInput(e: Event) {
+  dragging.value = true;
+  sliderValue.value = parseFloat((e.target as HTMLInputElement).value);
 }
 
-// Delta editing
-const deltaInput = ref('');
-const deltaEditing = ref(false);
-
-function startEditDelta() {
-  deltaInput.value = state.value?.delta?.toFixed(1) ?? '2.0';
-  deltaEditing.value = true;
-}
-
-async function commitDelta() {
-  deltaEditing.value = false;
-  const v = parseFloat(deltaInput.value);
-  if (!isNaN(v)) {
-    await set('delta', v.toFixed(2));
-  }
+async function onSliderChange(e: Event) {
+  const v = parseFloat((e.target as HTMLInputElement).value);
+  sliderValue.value = v;
+  dragging.value = false;
+  await set('setpoint', v.toFixed(2));
 }
 
 function fmt(v: number | null | undefined, digits = 1): string {
   return v != null ? v.toFixed(digits) + '°F' : '—';
 }
+
+const oatLabel = computed(() => {
+  const oat = g3xState.value?.oatCelsius;
+  return oat != null ? ((oat * 9) / 5 + 32).toFixed(0) + '°F' : '—';
+});
 </script>
 
 <template>
@@ -131,102 +159,77 @@ function fmt(v: number | null | undefined, digits = 1): string {
       <!-- Status banner -->
       <div v-if="lastError" class="ac-error">{{ lastError }}</div>
 
-      <!-- Controls -->
+      <!-- Combined mode / fan / circ + setpoint -->
       <div class="ac-section">
-        <h2>Mode</h2>
-        <div class="ac-btn-row">
-          <button
-            v-for="m in ['off', 'fan', 'auto', 'cool']"
-            :key="m"
-            class="ac-btn"
-            :class="{ active: state?.mode === m }"
-            :disabled="busy"
-            @click="set('mode', m)"
-          >
-            {{ m }}
-          </button>
+        <div class="ac-mode-grid">
+          <div class="ac-mode-group">
+            <div class="ac-group-lbl">Mode</div>
+            <div class="ac-btn-col">
+              <button
+                v-for="m in ['off', 'fan', 'auto', 'cool']"
+                :key="m"
+                class="ac-btn"
+                :class="{ active: state?.mode === m }"
+                :disabled="busy"
+                @click="set('mode', m)"
+              >
+                {{ m }}
+              </button>
+            </div>
+          </div>
+          <div class="ac-mode-group">
+            <div class="ac-group-lbl">Fan</div>
+            <div class="ac-btn-col">
+              <button
+                v-for="f in ['low', 'medium', 'high']"
+                :key="f"
+                class="ac-btn"
+                :class="{ active: state?.fan === f }"
+                :disabled="fanDisabled"
+                @click="set('fan', f)"
+              >
+                {{ f }}
+              </button>
+            </div>
+          </div>
+          <div class="ac-mode-group">
+            <div class="ac-group-lbl">Circulation</div>
+            <div class="ac-btn-col">
+              <button
+                v-for="c in ['recirc', 'fresh']"
+                :key="c"
+                class="ac-btn"
+                :class="{ active: state?.circulation === c }"
+                :disabled="circDisabled"
+                @click="set('circ', c)"
+              >
+                {{ c }}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div class="ac-section">
-        <h2>Fan Speed</h2>
-        <div class="ac-btn-row">
-          <button
-            v-for="f in ['low', 'medium', 'high']"
-            :key="f"
-            class="ac-btn"
-            :class="{ active: state?.fan === f }"
-            :disabled="busy"
-            @click="set('fan', f)"
+        <!-- Setpoint row -->
+        <div class="ac-setpoint-row">
+          <span class="ac-big-val" :class="{ disabled: setpointDisabled }"
+            >{{ sliderValue.toFixed(0) }}°F</span
           >
-            {{ f }}
-          </button>
-        </div>
-      </div>
-
-      <div class="ac-section">
-        <h2>Circulation</h2>
-        <div class="ac-btn-row">
-          <button
-            v-for="c in ['recirc', 'fresh']"
-            :key="c"
-            class="ac-btn"
-            :class="{ active: state?.circulation === c }"
-            :disabled="busy"
-            @click="set('circ', c)"
-          >
-            {{ c }}
-          </button>
-        </div>
-      </div>
-
-      <div class="ac-section">
-        <h2>Setpoint</h2>
-        <div v-if="!setpointEditing" class="ac-value-row">
-          <span class="ac-big-val">{{ state?.setpoint?.toFixed(1) }}°F</span>
-          <button class="ac-edit-btn" @click="startEditSetpoint">Edit</button>
-        </div>
-        <div v-else class="ac-value-row">
           <input
-            v-model="setpointInput"
-            type="number"
-            step="0.5"
-            class="ac-input"
-            @keydown.enter="commitSetpoint"
-            @keydown.escape="setpointEditing = false"
+            class="ac-slider"
+            type="range"
+            :min="sliderMin"
+            :max="sliderMax"
+            step="1"
+            :value="sliderValue"
+            :disabled="setpointDisabled"
+            @input="onSliderInput"
+            @change="onSliderChange"
           />
-          <button class="ac-edit-btn" @click="commitSetpoint">Set</button>
-          <button class="ac-edit-btn" @click="setpointEditing = false">
-            Cancel
-          </button>
         </div>
       </div>
 
+      <!-- Status readings + compressor -->
       <div class="ac-section">
-        <h2>Hysteresis (Delta)</h2>
-        <div v-if="!deltaEditing" class="ac-value-row">
-          <span class="ac-big-val">{{ state?.delta?.toFixed(1) }}°F</span>
-          <button class="ac-edit-btn" @click="startEditDelta">Edit</button>
-        </div>
-        <div v-else class="ac-value-row">
-          <input
-            v-model="deltaInput"
-            type="number"
-            step="0.5"
-            class="ac-input"
-            @keydown.enter="commitDelta"
-            @keydown.escape="deltaEditing = false"
-          />
-          <button class="ac-edit-btn" @click="commitDelta">Set</button>
-          <button class="ac-edit-btn" @click="deltaEditing = false">
-            Cancel
-          </button>
-        </div>
-      </div>
-
-      <!-- Status readings -->
-      <div class="ac-section">
-        <h2>Temperatures</h2>
         <div class="ac-readings">
           <div class="ac-reading">
             <span class="ac-reading-lbl">Current</span>
@@ -239,6 +242,17 @@ function fmt(v: number | null | undefined, digits = 1): string {
           <div class="ac-reading">
             <span class="ac-reading-lbl">Panel</span>
             <span class="ac-reading-val">{{ fmt(state?.panelTemp) }}</span>
+          </div>
+          <div class="ac-reading">
+            <span class="ac-reading-lbl">Compressor</span>
+            <span
+              class="ac-reading-val"
+              :class="{ 'ac-comp-on': state?.compressor === 'on' }"
+            >
+              {{
+                state?.compressor != null ? state.compressor.toUpperCase() : '—'
+              }}
+            </span>
           </div>
           <div class="ac-reading">
             <span class="ac-reading-lbl">Blower</span>
@@ -256,13 +270,10 @@ function fmt(v: number | null | undefined, digits = 1): string {
             <span class="ac-reading-lbl">Tail</span>
             <span class="ac-reading-val">{{ fmt(state?.tailTemp) }}</span>
           </div>
-        </div>
-      </div>
-
-      <div class="ac-section">
-        <h2>Compressor</h2>
-        <div class="ac-comp-status" :class="{ on: state?.compressor }">
-          {{ state?.compressor ? 'ON' : 'OFF' }}
+          <div class="ac-reading">
+            <span class="ac-reading-lbl">OAT</span>
+            <span class="ac-reading-val">{{ oatLabel }}</span>
+          </div>
         </div>
       </div>
 
@@ -323,14 +334,44 @@ function fmt(v: number | null | undefined, digits = 1): string {
   }
 }
 
-.ac-btn-row {
+// Mode / fan / circ — 3 rows on phone, 3 columns on tablet+
+.ac-mode-grid {
   display: flex;
-  gap: 0.5rem;
+  flex-direction: column;
+  gap: 0.75rem;
+
+  @media (min-width: 640px) {
+    flex-direction: row;
+    gap: 1rem;
+
+    .ac-mode-group {
+      flex: 1;
+    }
+  }
+}
+
+.ac-group-lbl {
+  font-size: 0.7rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.35rem;
+}
+
+.ac-btn-col {
+  display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
+  gap: 0.4rem;
+
+  @media (min-width: 640px) {
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
 }
 
 .ac-btn {
-  padding: 0.4rem 1rem;
+  padding: 0.5rem 1rem;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 4px;
@@ -356,47 +397,79 @@ function fmt(v: number | null | undefined, digits = 1): string {
   }
 }
 
-.ac-value-row {
+// Setpoint row — large value + full-width slider
+.ac-setpoint-row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .ac-big-val {
-  font-size: 1.4rem;
-  font-weight: 600;
+  font-size: 1.8rem;
+  font-weight: 700;
   color: #e0e0e0;
-  min-width: 5rem;
-}
+  min-width: 5.5rem;
+  text-align: right;
+  flex-shrink: 0;
 
-.ac-edit-btn {
-  padding: 0.3rem 0.75rem;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-  color: #aaa;
-  cursor: pointer;
-  font-size: 0.8rem;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.15);
-    color: #e0e0e0;
+  &.disabled {
+    opacity: 0.4;
   }
 }
 
-.ac-input {
-  width: 7rem;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 4px;
-  color: #e0e0e0;
-  font-size: 1.1rem;
-  padding: 0.3rem 0.5rem;
+// Chunky touch-friendly range slider
+.ac-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3rem;
+  background: transparent;
+  cursor: pointer;
+  touch-action: none;
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  &::-webkit-slider-runnable-track {
+    height: 0.75rem;
+    border-radius: 0.375rem;
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    background: #3b82f6;
+    margin-top: -1rem;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  }
+
+  &::-moz-range-track {
+    height: 0.75rem;
+    border-radius: 0.375rem;
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  &::-moz-range-thumb {
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    border: none;
+    background: #3b82f6;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  }
 }
 
 .ac-readings {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.5rem;
 }
 
@@ -419,15 +492,8 @@ function fmt(v: number | null | undefined, digits = 1): string {
   color: #e0e0e0;
 }
 
-.ac-comp-status {
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #888;
-  padding: 0.25rem 0;
-
-  &.on {
-    color: #4ade80;
-  }
+.ac-comp-on {
+  color: #4ade80;
 }
 
 .ac-error-val {
@@ -449,23 +515,34 @@ function fmt(v: number | null | undefined, digits = 1): string {
   gap: 1px;
 }
 
+/* top row: icons pushed toward the midline */
+.ac-hdr .ac-cell:nth-child(-n + 2) {
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 1px;
+}
+
+/* bottom row: temps pushed toward the midline */
+.ac-hdr .ac-cell:nth-child(3),
+.ac-hdr .ac-cell:nth-child(4) {
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 1px;
+}
+
 .ac-cell {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
   line-height: 1;
-}
 
-.ac-lbl {
-  font-size: 0.45rem;
-  color: rgba(255, 255, 255, 0.6);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  i {
+    font-size: 1.1rem;
+    color: #fff;
+  }
 }
 
 .ac-val {
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #fff;
 }

@@ -286,7 +286,7 @@ func (h *Hub) runG3XLoop(ctx context.Context) {
 	g.OnChange(func(s g3x.State) {
 		msg := G3XStateMsg{
 			Type: "g3xState", Lat: s.Lat, Lon: s.Lon, AltFt: s.AltFt,
-			Heading: s.Heading, Roll: s.Roll, Pitch: s.Pitch, Yaw: s.Yaw, SpeedKts: s.SpeedKts,
+			Heading: s.Heading, Roll: s.Roll, Pitch: s.Pitch, Yaw: s.Yaw, SpeedKts: s.SpeedKts, OATCelsius: s.OAT,
 		}
 		h.broadcastAll(msg)
 	})

@@ -40,15 +40,16 @@ type SettingValue struct {
 }
 
 // statusPayload is the JSON structure sent by the status characteristic.
+// comp is "on" | "off" | null (a string, not a bool).
 type statusPayload struct {
-	CurrentTemp  *float64 `json:"curr"`
-	Compressor   *bool    `json:"comp"`
-	CabinTemp    *float64 `json:"cabin"`
-	BlowerTemp   *float64 `json:"blower"`
-	ExhaustTemp  *float64 `json:"exhaust"`
-	BaggageTemp  *float64 `json:"baggage"`
-	TailTemp     *float64 `json:"tail"`
-	Error        string   `json:"err"`
+	CurrentTemp *float64 `json:"curr"`
+	Compressor  *string  `json:"comp"`
+	CabinTemp   *float64 `json:"cabin"`
+	BlowerTemp  *float64 `json:"blower"`
+	ExhaustTemp *float64 `json:"exhaust"`
+	BaggageTemp *float64 `json:"baggage"`
+	TailTemp    *float64 `json:"tail"`
+	Error       string   `json:"err"`
 }
 
 // TempSample records all temperature readings at a point in time.
@@ -74,9 +75,9 @@ type State struct {
 	Delta       float64                 `json:"delta"`    // convenience alias for Settings["delta"].Value
 	Settings    map[string]SettingValue `json:"settings"` // all 6 tunable settings with defaults
 	// Read-only status fields (from the status JSON characteristic)
-	CurrentTemp  *float64 `json:"currentTemp"`
-	Compressor   *bool    `json:"compressor"`
-	CabinTemp    *float64 `json:"cabinTemp"`
+	CurrentTemp *float64 `json:"currentTemp"`
+	Compressor  *string  `json:"compressor"` // "on" | "off" | null
+	CabinTemp   *float64 `json:"cabinTemp"`
 	BlowerTemp   *float64 `json:"blowerTemp"`
 	ExhaustTemp  *float64 `json:"exhaustTemp"`
 	BaggageTemp  *float64 `json:"baggageTemp"`
@@ -459,7 +460,7 @@ func (c *Client) applyStatusJSON(data []byte) {
 		return
 	}
 	c.state.CurrentTemp = p.CurrentTemp
-	c.state.Compressor = p.Compressor
+	c.state.Compressor = p.Compressor // "on" | "off" | null
 	c.state.CabinTemp = p.CabinTemp
 	c.state.BlowerTemp = p.BlowerTemp
 	c.state.ExhaustTemp = p.ExhaustTemp

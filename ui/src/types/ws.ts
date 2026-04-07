@@ -134,6 +134,7 @@ export interface G3XStateMsg {
   pitch: number;
   yaw: number;
   speedKts: number;
+  oatCelsius: number;
 }
 
 export interface SiyiAttitudeMsg {
@@ -173,7 +174,7 @@ export interface AirConState {
   panelTemp: number; // °F
   delta: number; // °F hysteresis
   currentTemp: number | null;
-  compressor: boolean | null;
+  compressor: string | null; // "on" | "off" | null
   cabinTemp: number | null;
   blowerTemp: number | null;
   exhaustTemp: number | null;

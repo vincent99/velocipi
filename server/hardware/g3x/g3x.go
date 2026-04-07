@@ -6,9 +6,12 @@ package g3x
 import (
 	"context"
 	"math"
+	"math/rand"
 	"sync"
 	"time"
 )
+
+func randFloat() float64 { return rand.Float64() }
 
 // State holds the current GPS/attitude state of the aircraft.
 type State struct {
@@ -20,6 +23,7 @@ type State struct {
 	Pitch    float64 // degrees, positive = nose up
 	Yaw      float64 // degrees true, same as Heading for fixed-wing
 	SpeedKts float64 // knots ground speed
+	OAT      float64 // outside air temperature, °C
 }
 
 // G3X tracks avionics state and broadcasts updates.
@@ -40,6 +44,7 @@ var initialState = State{
 	Pitch:    0,
 	Yaw:      45,
 	SpeedKts: 200,
+	OAT:      40,
 }
 
 // New creates a G3X module initialised with the mock starting state.
@@ -95,6 +100,11 @@ func (g *G3X) tick() {
 
 	s.Lat += dLat
 	s.Lon += dLon
+
+	// Random walk: OAT ±0.1°C/s, altitude ±10 ft/s.
+	s.OAT += (math.Round(randFloat()*2-1) * 0.1)
+	s.AltFt += (math.Round(randFloat()*2-1) * 10)
+
 	g.state = s
 	cb := g.onChange
 	g.mu.Unlock()

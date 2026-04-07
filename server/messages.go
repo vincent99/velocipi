@@ -55,15 +55,16 @@ type LocalCameraMsg struct {
 }
 
 type G3XStateMsg struct {
-	Type     string  `json:"type"` // always "g3xState"
-	Lat      float64 `json:"lat"`
-	Lon      float64 `json:"lon"`
-	AltFt    float64 `json:"altFt"`
-	Heading  float64 `json:"heading"`
-	Roll     float64 `json:"roll"`
-	Pitch    float64 `json:"pitch"`
-	Yaw      float64 `json:"yaw"`
-	SpeedKts float64 `json:"speedKts"`
+	Type       string  `json:"type"` // always "g3xState"
+	Lat        float64 `json:"lat"`
+	Lon        float64 `json:"lon"`
+	AltFt      float64 `json:"altFt"`
+	Heading    float64 `json:"heading"`
+	Roll       float64 `json:"roll"`
+	Pitch      float64 `json:"pitch"`
+	Yaw        float64 `json:"yaw"`
+	SpeedKts   float64 `json:"speedKts"`
+	OATCelsius float64 `json:"oatCelsius"`
 }
 
 type SiyiAttitudeMsg struct {

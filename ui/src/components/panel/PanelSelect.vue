@@ -18,8 +18,9 @@ const props = withDefaults(
     rowSpan?: number;
     options: SelectOption[];
     modelValue: string;
+    disabled?: boolean;
   }>(),
-  { colSpan: 1, rowSpan: 1 }
+  { colSpan: 1, rowSpan: 1, disabled: false }
 );
 
 const emit = defineEmits<{
@@ -68,6 +69,9 @@ const displayOption = computed(() => props.options[pendingIndex.value]);
 const tall = computed(() => (props.rowSpan ?? 1) >= 2);
 
 function onInner(dir: 'left' | 'right') {
+  if (props.disabled) {
+    return;
+  }
   const len = props.options.length;
   if (len === 0) {
     return;
@@ -80,6 +84,9 @@ function onInner(dir: 'left' | 'right') {
 }
 
 function onConfirm() {
+  if (props.disabled) {
+    return;
+  }
   const opt = props.options[pendingIndex.value];
   if (opt) {
     emit('update:modelValue', opt.value);
@@ -114,6 +121,7 @@ onMounted(() => {
     :row="row"
     :col-span="colSpan"
     :row-span="rowSpan"
+    :disabled="disabled"
     @inner="onInner"
     @confirm="onConfirm"
     @cancel="onCancel"

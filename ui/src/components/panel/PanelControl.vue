@@ -16,8 +16,9 @@ const props = withDefaults(
     row: number;
     colSpan?: number;
     rowSpan?: number;
+    disabled?: boolean;
   }>(),
-  { colSpan: 1, rowSpan: 1 }
+  { colSpan: 1, rowSpan: 1, disabled: false }
 );
 
 const grid = inject<PanelGridContext>(PANEL_GRID_KEY);
@@ -55,7 +56,10 @@ const gridStyle = computed(() => ({
 <template>
   <div
     :style="gridStyle"
-    :class="['panel-control', { selected: isSelected, active: isActive }]"
+    :class="[
+      'panel-control',
+      { selected: isSelected, active: isActive, disabled: props.disabled },
+    ]"
   >
     <slot :is-selected="isSelected" :is-active="isActive" />
   </div>
@@ -88,6 +92,10 @@ const gridStyle = computed(() => ({
     border: 2px solid var(--panel-active-border, #888888);
     background: var(--panel-active-bg, #ffffff);
     color: var(--panel-active-text, #000000);
+  }
+
+  &.disabled {
+    opacity: 0.35;
   }
 }
 </style>
