@@ -38,7 +38,7 @@ SERVO_FRESH_US  = 2000
 MODE_OFF  = 'off'   # everything off
 MODE_FAN  = 'fan'   # fan only, no compressor
 MODE_AUTO = 'auto'  # manage fan + compressor to reach setpoint
-MODE_MAX  = 'max'   # full fan, compressor on, always recirc
+MODE_COOL = 'cool'  # compressor always on, servo follows circ setting, fan speed is user-chosen
 
 # ── Fan speed constants ───────────────────────────────────────────────────────
 FAN_LOW    = 'low'
@@ -91,7 +91,18 @@ WIFI_SSID, WIFI_PASSWORD = _load_wifi()
 WEB_PORT = 80
 
 # ── BLE ───────────────────────────────────────────────────────────────────────
-BLE_DEVICE_NAME   = 'AirCon'
+# Device name is read from /name.txt (one line, no trailing newline needed).
+# If the file is absent the default 'AirCon' is used.  Add /name.txt to the
+# Pico filesystem via mpremote/Thonny; it is listed in .gitignore.
+def _load_device_name():
+    try:
+        with open('/name.txt') as _f:
+            _name = _f.read().strip()
+        return _name if _name else 'AirCon'
+    except Exception:
+        return 'AirCon'
+
+BLE_DEVICE_NAME   = _load_device_name()
 BLE_NOTIFY_INTERVAL = 2  # seconds between GATT notifications
 
 # ── BLE UUIDs (128-bit custom service) ───────────────────────────────────────

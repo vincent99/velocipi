@@ -173,6 +173,17 @@ type OLEDConfig struct {
 	Flip      bool   `yaml:"flip"      json:"flip"`
 }
 
+// AirConConfig holds BLE client settings for the aircon controller.
+type AirConConfig struct {
+	// DeviceName is the BLE local name advertised by the AirCon controller
+	// (e.g. "AirCon"). If empty, the aircon subsystem is disabled.
+	DeviceName string `yaml:"deviceName" json:"deviceName"`
+	// ServiceUUID is the 128-bit custom GATT service UUID advertised by the controller.
+	ServiceUUID string `yaml:"serviceUUID" json:"serviceUUID"`
+	// HistoryMinutes is how many minutes of temperature data to keep in memory.
+	HistoryMinutes int `yaml:"historyMinutes" json:"historyMinutes"`
+}
+
 // Config holds all runtime configuration.
 type Config struct {
 	Addr         string `yaml:"addr"         json:"addr"`
@@ -190,6 +201,7 @@ type Config struct {
 	Screen      ScreenConfig   `yaml:"screen"      json:"screen"`
 	Tires       TireAddresses  `yaml:"tires"       json:"tires"`
 	UI          UIConfig       `yaml:"ui"          json:"ui"`
+	AirCon      AirConConfig   `yaml:"airCon"      json:"airCon"`
 
 	// Parsed values — not serialized, populated by Load()
 	AppURL                 string           `yaml:"-" json:"-"` // http://localhost:<VELOCIPI_PORT>/panel/

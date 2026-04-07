@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/hardware/aircon"
 	"github.com/vincent99/velocipi/server/hardware/airsensor"
 	"github.com/vincent99/velocipi/server/hardware/expander"
 	"github.com/vincent99/velocipi/server/hardware/g3x"
@@ -14,6 +15,9 @@ import (
 )
 
 var (
+	airConOnce sync.Once
+	airConUnit *aircon.Client
+
 	airOnce   sync.Once
 	airSensor *airsensor.AirSensor
 
@@ -32,6 +36,27 @@ var (
 	g3xOnce sync.Once
 	g3xUnit *g3x.G3X
 )
+
+// AirCon returns the singleton AirCon BLE client, or nil if not configured.
+func AirCon() *aircon.Client {
+	airConOnce.Do(func() {
+		cfg := config.Load().Config
+		if cfg.AirCon.DeviceName == "" {
+			return
+		}
+		c, err := aircon.New(aircon.Config{
+			DeviceName:     cfg.AirCon.DeviceName,
+			ServiceUUID:    cfg.AirCon.ServiceUUID,
+			HistoryMinutes: cfg.AirCon.HistoryMinutes,
+		})
+		if err != nil {
+			log.Println("hardware: aircon init error:", err)
+			return
+		}
+		airConUnit = c
+	})
+	return airConUnit
+}
 
 func AirSensor() *airsensor.AirSensor {
 	airOnce.Do(func() {

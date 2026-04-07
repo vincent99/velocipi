@@ -6,7 +6,8 @@ Modes
 off   — all relays off, servo to recirc
 fan   — fan at the stored speed, no compressor, servo follows circulation setting
 auto  — manage compressor (hysteresis around setpoint) and fan speed automatically
-max   — high fan, compressor on, always recirc
+cool  — compressor always on, servo follows circulation setting; fan speed is
+        user-chosen (keeps current speed if already running, else defaults to high)
 """
 
 import asyncio
@@ -73,7 +74,7 @@ class ACController:
     # ── Setters (called by BLE and web server) ────────────────────────────────
 
     async def set_mode(self, mode, source='system'):
-        if mode not in (config.MODE_OFF, config.MODE_FAN, config.MODE_AUTO, config.MODE_MAX):
+        if mode not in (config.MODE_OFF, config.MODE_FAN, config.MODE_AUTO, config.MODE_COOL):
             return False
         self._error = ''
         self.mode = mode
@@ -88,10 +89,9 @@ class ACController:
         self._error = ''
         self.fan = fan
         log.log(source, f'fan setting → {fan}')
-        if self.mode == config.MODE_FAN:
-            # Compressor is already off in fan mode, so it's safe to switch
-            # speeds directly. Relay.set_fan de-energises all before asserting
-            # the new speed, so the rotary switch is never double-driven.
+        if self.mode in (config.MODE_FAN, config.MODE_COOL):
+            # In fan/cool mode it's safe to switch fan speeds directly.
+            # Relay.set_fan de-energises all before asserting the new speed.
             await self._relays.set_fan(fan)
             self._active_fan_speed = fan
             self._update_led()
@@ -112,7 +112,7 @@ class ACController:
             return False
         self.circulation = circ
         log.log(source, f'circulation → {circ}')
-        if self.mode in (config.MODE_FAN, config.MODE_AUTO):
+        if self.mode in (config.MODE_FAN, config.MODE_AUTO, config.MODE_COOL):
             self._servo.set(circ)
         self._save()
         return True
@@ -213,12 +213,13 @@ class ACController:
             if self._active_fan_speed is None:
                 self._active_fan_speed = config.FAN_LOW
 
-        elif mode == config.MODE_MAX:
-            # Fan must come up before compressor.
-            await self._relays.set_fan(config.FAN_HIGH)
-            self._active_fan_speed = config.FAN_HIGH
+        elif mode == config.MODE_COOL:
+            # Keep current fan speed if already running, else default to high.
+            target_fan = self._active_fan_speed if self._active_fan_speed else config.FAN_HIGH
+            await self._relays.set_fan(target_fan)
+            self._active_fan_speed = target_fan
             self._relays.set_compressor(True)
-            self._servo.set(config.CIRC_RECIRC)
+            self._servo.set(self.circulation)
             self._compressor_on = True
 
         self._update_led()

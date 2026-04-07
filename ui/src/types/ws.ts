@@ -164,6 +164,45 @@ export interface MusicQueueMsg {
   entries: QueueEntryResponse[];
 }
 
+export interface AirConState {
+  connected: boolean;
+  mode: string; // "off" | "fan" | "auto" | "max"
+  fan: string; // "low" | "medium" | "high"
+  setpoint: number; // °F
+  circulation: string; // "recirc" | "fresh"
+  panelTemp: number; // °F
+  delta: number; // °F hysteresis
+  currentTemp: number | null;
+  compressor: boolean | null;
+  cabinTemp: number | null;
+  blowerTemp: number | null;
+  exhaustTemp: number | null;
+  baggageTemp: number | null;
+  tailTemp: number | null;
+  error: string;
+}
+
+export interface AirConTempSample {
+  time: string; // ISO timestamp
+  currentTemp?: number;
+  cabinTemp?: number;
+  blowerTemp?: number;
+  exhaustTemp?: number;
+  baggageTemp?: number;
+  tailTemp?: number;
+  panelTemp?: number;
+}
+
+export interface AirConStateMsg {
+  type: 'airConState';
+  state: AirConState;
+}
+
+export interface AirConHistoryMsg {
+  type: 'airConHistory';
+  history: AirConTempSample[];
+}
+
 export type InboundWsMsg =
   | PingMsg
   | AirReadingMsg
@@ -180,7 +219,9 @@ export type InboundWsMsg =
   | G3XStateMsg
   | SiyiAttitudeMsg
   | MusicStateMsg
-  | MusicQueueMsg;
+  | MusicQueueMsg
+  | AirConStateMsg
+  | AirConHistoryMsg;
 
 // Outbound messages (client → server, sent on /ws)
 

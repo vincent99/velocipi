@@ -1,3 +1,4 @@
+import type { Component } from 'vue';
 import type { PanelMeta } from '@/types/config';
 import { useAdmin } from '@/composables/useAdmin';
 
@@ -8,6 +9,8 @@ export interface RemoteRoute {
   iconStyle: string;
   sort: number;
   headerScreen: boolean;
+  /** Optional component rendered in the nav header box instead of the icon+label. */
+  headerComponent?: Component;
 }
 
 const modules = import.meta.glob('../routes/remote/**/*.vue', { eager: true });
@@ -38,6 +41,9 @@ const routes: RemoteRoute[] = Object.entries(modules)
       return null;
     }
 
+    const headerComponent = (mod as { headerComponent?: Component })
+      .headerComponent;
+
     return {
       path,
       name: meta.name,
@@ -45,6 +51,7 @@ const routes: RemoteRoute[] = Object.entries(modules)
       iconStyle: meta.iconStyle ?? 'sr',
       sort: meta.sort ?? 0,
       headerScreen: meta.headerScreen ?? true,
+      headerComponent,
     };
   })
   .filter((r): r is RemoteRoute => r !== null)

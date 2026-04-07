@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/vincent99/velocipi/server/hardware/aircon"
 	"github.com/vincent99/velocipi/server/hardware/airsensor"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/tpms"
@@ -74,6 +75,18 @@ type SiyiAttitudeMsg struct {
 	YawRate   float32 `json:"yawRate"`
 	PitchRate float32 `json:"pitchRate"`
 	RollRate  float32 `json:"rollRate"`
+}
+
+// AirConStateMsg broadcasts the current aircon state to all WS clients.
+type AirConStateMsg struct {
+	Type  string        `json:"type"` // always "airConState"
+	State aircon.State  `json:"state"`
+}
+
+// AirConHistoryMsg sends the temperature history to a newly-connected client.
+type AirConHistoryMsg struct {
+	Type    string               `json:"type"` // always "airConHistory"
+	History []aircon.TempSample  `json:"history"`
 }
 
 // Inbound message types from websocket clients.

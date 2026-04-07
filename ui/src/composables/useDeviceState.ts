@@ -11,6 +11,8 @@ import type {
   Tire,
   G3XStateMsg,
   SiyiAttitudeMsg,
+  AirConState,
+  AirConTempSample,
   InboundWsMsg,
   LogicalKey,
 } from '@/types/ws';
@@ -41,6 +43,10 @@ const diskSpace = ref<DiskSpaceMsg | null>(null);
 const g3xState = ref<G3XStateMsg | null>(null);
 // siyiAttitude: per-camera Siyi gimbal attitude (camera name → message)
 const siyiAttitude = reactive<Map<string, SiyiAttitudeMsg>>(new Map());
+// airConState: current aircon controller state
+const airConState = ref<AirConState | null>(null);
+// airConHistory: temperature history samples
+const airConHistory = ref<AirConTempSample[]>([]);
 
 // Key echo: tracks which logical keys are currently "active" for visual feedback.
 // Encoder keys (tap-only) auto-clear after 150ms; held keys clear on keyup.
@@ -139,6 +145,12 @@ function init() {
       case 'siyiAttitude':
         siyiAttitude.set(msg.camera, msg);
         break;
+      case 'airConState':
+        airConState.value = msg.state;
+        break;
+      case 'airConHistory':
+        airConHistory.value = msg.history;
+        break;
     }
   });
 
@@ -166,5 +178,7 @@ export function useDeviceState() {
     diskSpace,
     g3xState,
     siyiAttitude,
+    airConState,
+    airConHistory,
   };
 }

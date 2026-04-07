@@ -121,14 +121,20 @@ const mergedItems = computed<HeaderItem[]>(() => {
           :class="{ active: item.route.path === route.path }"
           @click="navigate(item.route.path)"
         >
-          <span class="box-icon">
-            <i
-              v-if="item.route.icon.length > 1"
-              :class="`fi-${item.route.iconStyle}-${item.route.icon}`"
-            />
-            <template v-else>{{ item.route.icon }}</template>
-          </span>
-          <span class="box-label">{{ item.route.name }}</span>
+          <component
+            :is="item.route.headerComponent"
+            v-if="item.route.headerComponent"
+          />
+          <template v-else>
+            <span class="box-icon">
+              <i
+                v-if="item.route.icon.length > 1"
+                :class="`fi-${item.route.iconStyle}-${item.route.icon}`"
+              />
+              <template v-else>{{ item.route.icon }}</template>
+            </span>
+            <span class="box-label">{{ item.route.name }}</span>
+          </template>
         </div>
       </template>
 
@@ -184,14 +190,20 @@ const mergedItems = computed<HeaderItem[]>(() => {
             :class="{ active: item.route.path === route.path }"
             @click="navigate(item.route.path)"
           >
-            <span class="box-icon">
-              <i
-                v-if="item.route.icon.length > 1"
-                :class="`fi-${item.route.iconStyle}-${item.route.icon}`"
-              />
-              <template v-else>{{ item.route.icon }}</template>
-            </span>
-            <span class="box-label">{{ item.route.name }}</span>
+            <component
+              :is="item.route.headerComponent"
+              v-if="item.route.headerComponent"
+            />
+            <template v-else>
+              <span class="box-icon">
+                <i
+                  v-if="item.route.icon.length > 1"
+                  :class="`fi-${item.route.iconStyle}-${item.route.icon}`"
+                />
+                <template v-else>{{ item.route.icon }}</template>
+              </span>
+              <span class="box-label">{{ item.route.name }}</span>
+            </template>
           </div>
         </template>
 

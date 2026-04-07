@@ -12,6 +12,7 @@ The HTML file is read from /static/index.html on the Pico filesystem.
 import asyncio
 import json
 import config
+import log
 
 _HTML_PATH = '/static/index.html'
 _HTML_CACHE = None  # loaded once on first request
@@ -128,7 +129,7 @@ class WebServer:
             await _handle(reader, writer, ctrl)
 
         await asyncio.start_server(handle, '0.0.0.0', self._port)
-        print(f'Web server listening on port {self._port}')
+        log.log('web', f'listening on port {self._port}')
         # Keep the coroutine alive — the server runs in the background.
         while True:
             await asyncio.sleep(3600)

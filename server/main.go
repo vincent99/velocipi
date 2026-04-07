@@ -19,6 +19,7 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 	"github.com/vincent99/velocipi/server/dvr"
 	"github.com/vincent99/velocipi/server/hardware"
+	"github.com/vincent99/velocipi/server/hardware/blescan"
 	"github.com/vincent99/velocipi/server/hardware/oled"
 	"github.com/vincent99/velocipi/server/hardware/siyi"
 	"github.com/vincent99/velocipi/server/music"
@@ -446,6 +447,8 @@ func main() {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	registerAirConRoutes(mux)
+
 	mux.Handle("/", spaHandler("ui/dist"))
 	handler := corsMiddleware(mux)
 
@@ -478,12 +481,14 @@ func main() {
 	}
 
 	// Start background loops.
+	go blescan.Run(ctx) // shared BLE scan fan-out; must start before TPMS/AirCon
 	go hub.runAirSensorLoop(ctx)
 	go hub.runLightSensorLoop(ctx)
 	go hub.runTpmsLoop(ctx)
 	go hub.runInputLoop(ctx)
 	go hub.runScreencastLoop(ctx)
 	go hub.runG3XLoop(ctx)
+	go hub.runAirConLoop(ctx)
 
 	// Start Siyi managers for cameras with driver: "siyi".
 	siyiManagers := make(map[string]*siyi.Manager)

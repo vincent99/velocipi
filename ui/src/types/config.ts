@@ -133,6 +133,12 @@ export interface MusicConfig {
   acoustidMinScore: number; // minimum AcoustID match score (0.0–1.0) to accept a result
 }
 
+export interface AirConConfig {
+  deviceName: string;
+  serviceUUID: string;
+  historyMinutes: number;
+}
+
 export interface FullConfig {
   addr: string;
   appUrl: string;
@@ -149,6 +155,7 @@ export interface FullConfig {
   tires: TireAddresses;
   ui: Config;
   music: MusicConfig;
+  airCon: AirConConfig;
 }
 
 export interface FullConfigResponse {

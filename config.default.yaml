@@ -55,6 +55,11 @@ screen:
   splashDuration: "2s"
   splashImage: "ui/public/img/logo.png"
 
+airCon:
+  deviceName: "AirCon"
+  serviceUUID: "aaaaaaaa-1111-cccc-00dd-000000000000"
+  historyMinutes: 30
+
 tires:
   nose:
   left:

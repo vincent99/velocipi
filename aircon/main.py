@@ -25,10 +25,15 @@ async def wifi_task():
     """Background task: connect to WiFi and reconnect whenever the link drops."""
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+    already_connected = False
     while True:
         if wlan.isconnected():
+            if not already_connected:
+                log.log('wifi', f'connected — http://{wlan.ifconfig()[0]}/')
+                already_connected = True
             await asyncio.sleep(10)
             continue
+        already_connected = False
 
         if config.WIFI_SSID:
             log.log('wifi', f'connecting to {config.WIFI_SSID} ...')

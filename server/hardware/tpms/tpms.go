@@ -7,6 +7,7 @@ import (
 
 	"github.com/sigurn/crc16"
 	"github.com/vincent99/velocipi/server/config"
+	"github.com/vincent99/velocipi/server/hardware/blescan"
 	"tinygo.org/x/bluetooth"
 )
 
@@ -38,19 +39,8 @@ func Listen(addrs *config.TireAddresses) (*TPMS, error) {
 		positions: positions,
 	}
 
-	err := tpms.adapter.Enable()
-	if err != nil {
-		return nil, err
-	}
-
 	fmt.Printf("Listening for TPMS devices...\n")
-	go func() {
-		err = tpms.adapter.Scan(tpms.scan)
-		if err != nil {
-			fmt.Printf("Error scanning bluetooth: %s", err)
-		}
-	}()
-
+	blescan.Register(tpms.scan)
 	return tpms, nil
 }
 

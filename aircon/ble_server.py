@@ -8,7 +8,7 @@ Install aioble if not already present:
 Service UUID: aaaaaaaa-1111-cccc-00dd-000000000000
 
 Characteristics (all UTF-8 strings):
-  0001  mode      rw  "off" | "fan" | "auto" | "max"
+  0001  mode      rw  "off" | "fan" | "auto" | "cool"
   0002  fan       rw  "low" | "medium" | "high"
   0003  setpoint  rw  float as string, e.g. "72.50"
   0004  circ      rw  "recirc" | "fresh"
