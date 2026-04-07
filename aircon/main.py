@@ -2,16 +2,18 @@
 Entry point for the AirCon Pico 2W controller.
 
 Boot sequence:
-  1. Connect to WiFi
-  2. Initialise hardware (sensors, relays, LED, servo, buzzer)
-  3. Restore persisted settings into the controller
-  4. Start asyncio tasks: temperature loop, AC control loop, BLE server, web server
-  5. Beep twice to indicate ready
+  1. Initialise hardware (sensors, relays, LED, servo, buzzer)
+  2. Restore persisted settings into the controller
+  3. Start asyncio tasks: temperature loop, AC control loop, BLE server, web server
+  4. Beep twice to indicate ready
+  5. WiFi connects in the background; web server becomes reachable once it's up
+     and will reconnect automatically if the link drops
 """
 
 import asyncio
 import network
 import config
+import log
 from sensors import TemperatureSensors, PWMMonitor
 from actuators import Relays, RGBLed, Servo, Buzzer
 from controller import ACController
@@ -19,29 +21,41 @@ from ble_server import BLEServer
 from web_server import WebServer
 
 
-async def connect_wifi():
+async def wifi_task():
+    """Background task: connect to WiFi and reconnect whenever the link drops."""
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    if not wlan.isconnected():
-        print(f'Connecting to {config.WIFI_SSID} ...')
-        wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
-        for _ in range(20):
-            if wlan.isconnected():
-                break
-            await asyncio.sleep(1)
+    while True:
+        if wlan.isconnected():
+            await asyncio.sleep(10)
+            continue
 
-    if wlan.isconnected():
-        ip = wlan.ifconfig()[0]
-        print(f'WiFi connected — http://{ip}/')
-        return ip
-    else:
-        print('WiFi failed; web server will not be reachable')
-        return None
+        if config.WIFI_SSID:
+            log.log('wifi', f'connecting to {config.WIFI_SSID} ...')
+            try:
+                wlan.connect(config.WIFI_SSID, config.WIFI_PASSWORD)
+            except Exception as e:
+                log.log('wifi', f'connect error: {e}')
+                await asyncio.sleep(30)
+                continue
+
+            for _ in range(20):
+                if wlan.isconnected():
+                    break
+                await asyncio.sleep(1)
+
+            if wlan.isconnected():
+                log.log('wifi', f'connected — http://{wlan.ifconfig()[0]}/')
+            else:
+                wlan.disconnect()
+                log.log('wifi', 'connection failed, retrying in 30s')
+                await asyncio.sleep(30)
+        else:
+            log.log('wifi', 'no SSID configured')
+            await asyncio.sleep(60)
 
 
 async def main():
-    await connect_wifi()
-
     # ── Hardware init ─────────────────────────────────────────────────────────
     sensors = TemperatureSensors()
     pwm     = PWMMonitor()
@@ -61,10 +75,11 @@ async def main():
     asyncio.create_task(led.run())
     asyncio.create_task(buzzer.double_beep())
 
-    print(f'Mode: {ctrl.mode}  Setpoint: {ctrl.setpoint}°F  Delta: {ctrl.delta}°F')
+    log.log('system', f'mode={ctrl.mode}  setpoint={ctrl.setpoint}°F  delta=±{ctrl.delta}°F')
 
     # ── Run all tasks concurrently ────────────────────────────────────────────
     await asyncio.gather(
+        wifi_task(),     # connect/reconnect WiFi in background
         sensors.run(),   # read temperature probes continuously
         ctrl.run(),      # auto-mode control loop
         ble.run(),       # BLE GATT server
