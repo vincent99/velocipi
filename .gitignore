@@ -3,6 +3,8 @@
 *.dll
 *.so
 *.dylib
+*.lck
+*.zip
 
 # Test binary, built with `go test -c`
 *.test
@@ -41,3 +43,4 @@ dist
 /music
 /backup
 /music.sqlite*
+ledalarm/ledalarm-backups
