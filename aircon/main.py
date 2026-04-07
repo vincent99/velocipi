@@ -12,6 +12,7 @@ Boot sequence:
 
 import asyncio
 import network
+import ntptime
 import config
 import log
 from sensors import TemperatureSensors, PWMMonitor
@@ -19,6 +20,17 @@ from actuators import Relays, RGBLed, Servo, Buzzer
 from controller import ACController
 from ble_server import BLEServer
 from web_server import WebServer
+
+
+def _sync_ntp():
+    """Synchronise RTC from NTP; logs success or failure. Does not raise."""
+    try:
+        ntptime.settime()
+        import time
+        t = time.localtime()
+        log.log('ntp', f'time set — {t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d} UTC')
+    except Exception as e:
+        log.log('ntp', f'sync failed: {e}')
 
 
 async def wifi_task():
@@ -30,6 +42,7 @@ async def wifi_task():
         if wlan.isconnected():
             if not already_connected:
                 log.log('wifi', f'connected — http://{wlan.ifconfig()[0]}/')
+                _sync_ntp()
                 already_connected = True
             await asyncio.sleep(10)
             continue
@@ -51,6 +64,7 @@ async def wifi_task():
 
             if wlan.isconnected():
                 log.log('wifi', f'connected — http://{wlan.ifconfig()[0]}/')
+                _sync_ntp()
             else:
                 wlan.disconnect()
                 log.log('wifi', 'connection failed, retrying in 30s')
