@@ -19,9 +19,8 @@ import storage
 
 class ACController:
 
-    def __init__(self, relays, servo, led, sensors, pwm_monitor):
+    def __init__(self, relays, led, sensors, pwm_monitor):
         self._relays  = relays
-        self._servo   = servo
         self._led     = led
         self._sensors = sensors
         self._pwm     = pwm_monitor
@@ -113,7 +112,7 @@ class ACController:
         self.circulation = circ
         log.log(source, f'circulation → {circ}')
         if self.mode in (config.MODE_FAN, config.MODE_AUTO, config.MODE_COOL):
-            self._servo.set(circ)
+            self._relays.set_circulation(circ)
         self._save()
         return True
 
@@ -191,7 +190,7 @@ class ACController:
 
         if mode == config.MODE_OFF:
             self._relays.all_off()
-            self._servo.set(config.CIRC_RECIRC)
+            self._relays.set_circulation(config.CIRC_RECIRC)
             self._compressor_on    = False
             self._active_fan_speed = None
 
@@ -200,7 +199,7 @@ class ACController:
             self._relays.set_compressor(False)
             self._compressor_on = False
             await self._relays.set_fan(self.fan)
-            self._servo.set(self.circulation)
+            self._relays.set_circulation(self.circulation)
             self._active_fan_speed = self.fan
 
         elif mode == config.MODE_AUTO:
@@ -209,7 +208,7 @@ class ACController:
             self._relays.set_compressor(False)
             self._compressor_on = False
             await self._relays.set_fan(self._active_fan_speed or config.FAN_LOW)
-            self._servo.set(self.circulation)
+            self._relays.set_circulation(self.circulation)
             if self._active_fan_speed is None:
                 self._active_fan_speed = config.FAN_LOW
 
@@ -219,7 +218,7 @@ class ACController:
             await self._relays.set_fan(target_fan)
             self._active_fan_speed = target_fan
             self._relays.set_compressor(True)
-            self._servo.set(self.circulation)
+            self._relays.set_circulation(self.circulation)
             self._compressor_on = True
 
         self._update_led()
@@ -278,6 +277,6 @@ class ACController:
                 self._last_fan_change = now
 
         # ── Servo follows circulation preference ──────────────────────────────
-        self._servo.set(self.circulation)
+        self._relays.set_circulation(self.circulation)
 
         self._update_led()

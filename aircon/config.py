@@ -5,7 +5,7 @@ PIN_RELAY_FAN_LOW    = 26  # Relay 1 — blower fan low speed
 PIN_RELAY_FAN_MED    = 27  # Relay 2 — blower fan medium
 PIN_RELAY_FAN_HIGH   = 28  # Relay 3 — blower fan high
 PIN_RELAY_COMPRESSOR = 29  # Relay 4 — compressor on
-PIN_RELAY_5          = 30  # Relay 5 — unused
+PIN_RELAY_FRESH_AIR  = 30  # Relay 5 — circulation: off=recirc, on=fresh air
 PIN_RELAY_6          = 31  # Relay 6 — unused
 
 # Relay logic level (set False for active-low relay modules)
@@ -26,13 +26,6 @@ PIN_TEMP_TAIL    = 6
 
 # Mystery PWM signal from compressor
 PIN_PWM_MONITOR = 7
-
-# PWM servo — recirc/fresh-air valve
-PIN_SERVO = 8
-
-# Servo pulse widths in microseconds — calibrate to actual hardware
-SERVO_RECIRC_US = 1000
-SERVO_FRESH_US  = 2000
 
 # ── Mode constants ────────────────────────────────────────────────────────────
 MODE_OFF  = 'off'   # everything off

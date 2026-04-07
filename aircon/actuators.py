@@ -1,4 +1,4 @@
-"""Hardware actuators: relays, WS2812 LED, servo, buzzer."""
+"""Hardware actuators: relays, WS2812 LED, buzzer."""
 
 import asyncio
 import machine
@@ -17,10 +17,11 @@ class Relays:
     """Controls the four active relay outputs."""
 
     def __init__(self):
-        self._fan_low  = machine.Pin(config.PIN_RELAY_FAN_LOW,    machine.Pin.OUT)
-        self._fan_med  = machine.Pin(config.PIN_RELAY_FAN_MED,    machine.Pin.OUT)
-        self._fan_high = machine.Pin(config.PIN_RELAY_FAN_HIGH,   machine.Pin.OUT)
-        self._comp     = machine.Pin(config.PIN_RELAY_COMPRESSOR, machine.Pin.OUT)
+        self._fan_low   = machine.Pin(config.PIN_RELAY_FAN_LOW,    machine.Pin.OUT)
+        self._fan_med   = machine.Pin(config.PIN_RELAY_FAN_MED,    machine.Pin.OUT)
+        self._fan_high  = machine.Pin(config.PIN_RELAY_FAN_HIGH,   machine.Pin.OUT)
+        self._comp      = machine.Pin(config.PIN_RELAY_COMPRESSOR, machine.Pin.OUT)
+        self._fresh_air = machine.Pin(config.PIN_RELAY_FRESH_AIR,  machine.Pin.OUT)
         self.all_off()
 
     async def set_fan(self, speed):
@@ -64,8 +65,12 @@ class Relays:
             return  # refuse — no fan running
         self._comp.value(_relay_level(on))
 
+    def set_circulation(self, circulation):
+        """off=recirc, on=fresh air."""
+        self._fresh_air.value(_relay_level(circulation == config.CIRC_FRESH))
+
     def all_off(self):
-        for p in (self._fan_low, self._fan_med, self._fan_high, self._comp):
+        for p in (self._fan_low, self._fan_med, self._fan_high, self._comp, self._fresh_air):
             p.value(_relay_level(False))
 
 
@@ -134,27 +139,6 @@ class RGBLed:
                 self._write(*(self._color if lit else self._OFF))
                 lit = not lit
                 await asyncio.sleep_ms(500 // hz)
-
-
-class Servo:
-    """
-    PWM servo on PIN_SERVO controlling the recirc/fresh-air flap.
-
-    Pulse widths are defined in config.py — calibrate SERVO_RECIRC_US and
-    SERVO_FRESH_US to the actual mechanical endpoints of your valve.
-    """
-
-    def __init__(self):
-        self._pwm = machine.PWM(machine.Pin(config.PIN_SERVO), freq=50)
-        self.set(config.CIRC_RECIRC)
-
-    def _us_to_duty16(self, us):
-        # 50 Hz → 20 ms period.  duty_u16 range is 0–65535.
-        return int(us / 20_000 * 65535)
-
-    def set(self, circulation):
-        us = config.SERVO_FRESH_US if circulation == config.CIRC_FRESH else config.SERVO_RECIRC_US
-        self._pwm.duty_u16(self._us_to_duty16(us))
 
 
 class Buzzer:

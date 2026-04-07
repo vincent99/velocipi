@@ -10,12 +10,15 @@ The HTML file is read from /static/index.html on the Pico filesystem.
 """
 
 import asyncio
+import gc
 import json
 import config
 import log
 
+_active = 0  # currently open handler coroutines
+
 _HTML_PATH = '/static/index.html'
-_HTML_CACHE = None  # loaded once on first request
+_HTML_CACHE = None  # loaded and encoded once on first request
 
 
 def _load_html():
@@ -23,13 +26,13 @@ def _load_html():
     if _HTML_CACHE is None:
         try:
             with open(_HTML_PATH) as f:
-                _HTML_CACHE = f.read()
+                _HTML_CACHE = f.read().encode()
         except Exception:
             _HTML_CACHE = (
-                '<!DOCTYPE html><html><body>'
-                '<h1>UI not found</h1>'
-                '<p>Copy static/index.html to /static/index.html on the Pico.</p>'
-                '</body></html>'
+                b'<!DOCTYPE html><html><body>'
+                b'<h1>UI not found</h1>'
+                b'<p>Copy static/index.html to /static/index.html on the Pico.</p>'
+                b'</body></html>'
             )
     return _HTML_CACHE
 
@@ -47,6 +50,10 @@ def _response(writer, status, content_type, body: bytes):
 
 
 async def _handle(reader, writer, ctrl):
+    global _active
+    _active += 1
+    if _active > 1:
+        log.log('web', f'concurrent handlers: {_active}  mem_free={gc.mem_free()}')
     try:
         # Request line
         line = await asyncio.wait_for(reader.readline(), 5)
@@ -76,8 +83,14 @@ async def _handle(reader, writer, ctrl):
         # ── Route dispatch ────────────────────────────────────────────────────
 
         if method == 'GET' and path == '/':
-            html = _load_html().encode()
-            _response(writer, '200 OK', 'text/html; charset=utf-8', html)
+            _response(writer, '200 OK', 'text/html; charset=utf-8', _load_html())
+
+        elif method == 'GET' and path == '/aircon.png':
+            try:
+                with open('/static/aircon.png', 'rb') as f:
+                    _response(writer, '200 OK', 'image/png', f.read())
+            except Exception:
+                _response(writer, '404 Not Found', 'text/plain', b'not found')
 
         elif method == 'GET' and path == '/state':
             data = json.dumps(ctrl.get_state()).encode()
@@ -104,14 +117,15 @@ async def _handle(reader, writer, ctrl):
         else:
             _response(writer, '404 Not Found', 'text/plain', b'not found')
 
-        await writer.drain()
+        await asyncio.wait_for(writer.drain(), 5)
 
-    except Exception:
-        pass
+    except Exception as e:
+        log.log('web', f'handler error: {e}  active={_active}  mem_free={gc.mem_free()}')
     finally:
+        _active -= 1
         try:
             writer.close()
-            await writer.wait_closed()
+            await asyncio.wait_for(writer.wait_closed(), 2)
         except Exception:
             pass
 

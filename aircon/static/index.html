@@ -149,62 +149,114 @@
       #refresh-dot.blink {
         background: #4caf50;
       }
+
+      #last-update {
+        color: #555;
+        font-size: 0.75rem;
+        margin-left: 0.4rem;
+        vertical-align: middle;
+      }
     </style>
   </head>
   <body>
-    <h1>AIRCON <span id="refresh-dot"></span></h1>
+    <h1>AIRCON <span id="refresh-dot"></span><span id="last-update"></span></h1>
 
-    <!-- Status bar -->
-    <div class="card" id="card-status">
-      <div class="row">
-        <span class="lbl">Compressor</span>
-        <span id="comp-pill" class="pill pill-off">OFF</span>
-      </div>
-      <div class="row" id="row-error" style="display: none">
-        <span class="lbl">Error</span>
-        <span id="error-txt" class="error-row"></span>
-      </div>
-    </div>
-
-    <!-- Mode -->
+    <!-- Control -->
     <div class="card">
-      <h2>MODE</h2>
-      <div class="btn-group">
-        <button id="btn-off" onclick="setAttr('mode', 'off')">Off</button>
-        <button id="btn-fan" onclick="setAttr('mode', 'fan')">Fan</button>
-        <button id="btn-auto" onclick="setAttr('mode', 'auto')">Auto</button>
-        <button id="btn-max" onclick="setAttr('mode', 'max')">Max</button>
-      </div>
-    </div>
-
-    <!-- Fan speed (mode=fan only) -->
-    <div class="card hidden" id="card-fan">
-      <h2>FAN SPEED</h2>
-      <div class="btn-group">
-        <button id="btn-low" onclick="setAttr('fan', 'low')">Low</button>
-        <button id="btn-medium" onclick="setAttr('fan', 'medium')">
-          Medium
-        </button>
-        <button id="btn-high" onclick="setAttr('fan', 'high')">High</button>
-      </div>
-    </div>
-
-    <!-- Auto settings (mode=auto only) -->
-    <div class="card hidden" id="card-auto">
-      <h2>AUTO SETTINGS</h2>
+      <h2>CONTROL</h2>
       <div class="row">
-        <span class="lbl">Setpoint (°F)</span>
+        <span class="lbl">Mode</span>
+        <div class="btn-group">
+          <button id="btn-off" onclick="setAttr('mode', 'off')">Off</button>
+          <button id="btn-fan" onclick="setAttr('mode', 'fan')">Fan</button>
+          <button id="btn-cool" onclick="setAttr('mode', 'cool')">Cool</button>
+          <button id="btn-auto" onclick="setAttr('mode', 'auto')">Auto</button>
+        </div>
+      </div>
+      <div class="row hidden" id="row-fan">
+        <span class="lbl">Fan</span>
+        <div class="btn-group">
+          <button id="btn-low" onclick="setAttr('fan', 'low')">Low</button>
+          <button id="btn-medium" onclick="setAttr('fan', 'medium')">Med</button>
+          <button id="btn-high" onclick="setAttr('fan', 'high')">High</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="lbl">Recirculate</span>
+        <div class="btn-group">
+          <button id="btn-recirc" onclick="setAttr('circulation', 'recirc')">Recycle</button>
+          <button id="btn-fresh" onclick="setAttr('circulation', 'fresh')">Fresh Air</button>
+        </div>
+      </div>
+      <div class="row hidden" id="row-setpoint">
+        <span class="lbl">Setpoint (&deg;F)</span>
         <input
           type="number"
           id="inp-setpoint"
           step="0.5"
           min="50"
-          max="95"
+          max="99"
           onchange="setNum('setpoint', this.value)"
         />
       </div>
+    </div>
+
+    <!-- Status -->
+    <div class="card">
+      <h2>STATUS</h2>
       <div class="row">
-        <span class="lbl">Delta (°F)</span>
+        <span class="lbl">Fan</span>
+        <span id="fan-state" class="val">&mdash;</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Compressor</span>
+        <span id="comp-pill" class="pill pill-off">OFF</span>
+      </div>
+      <div class="row">
+        <span class="lbl">PWM</span>
+        <span id="pwm-freq" class="val">&mdash;</span>
+        <span class="dim">/</span>
+        <span id="pwm-duty" class="val">&mdash;</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Current Temp</span>
+        <span id="t-current" class="val temp">&mdash;</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Cabin Front</span>
+        <span id="t-panel" class="val temp">&mdash;</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Cabin Rear</span>
+        <span id="t-cabin" class="val temp">&mdash;</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Blower Outlet</span>
+        <span id="t-blower" class="val temp">&mdash;</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Baggage</span>
+        <span id="t-baggage" class="val temp">&mdash;</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Tail</span>
+        <span id="t-tail" class="val temp">&mdash;</span>
+      </div>
+      <div class="row">
+        <span class="lbl">Exhaust</span>
+        <span id="t-exhaust" class="val temp">&mdash;</span>
+      </div>
+      <div class="row hidden" id="row-error">
+        <span class="lbl">Error</span>
+        <span id="error-txt" class="error-row"></span>
+      </div>
+    </div>
+
+    <!-- Config -->
+    <div class="card">
+      <h2>CONFIG</h2>
+      <div class="row">
+        <span class="lbl">Auto Delta (&deg;F)</span>
         <input
           type="number"
           id="inp-delta"
@@ -214,31 +266,8 @@
           onchange="setNum('delta', this.value)"
         />
       </div>
-    </div>
-
-    <!-- Circulation (mode=fan or auto) -->
-    <div class="card hidden" id="card-circ">
-      <h2>CIRCULATION</h2>
-      <div class="btn-group">
-        <button id="btn-recirc" onclick="setAttr('circulation', 'recirc')">
-          Recirculate
-        </button>
-        <button id="btn-fresh" onclick="setAttr('circulation', 'fresh')">
-          Fresh Air
-        </button>
-      </div>
-    </div>
-
-    <!-- Temperatures -->
-    <div class="card">
-      <h2>TEMPERATURES</h2>
       <div class="row">
-        <span class="lbl">Current</span>
-        <span id="t-current" class="val temp">--</span>
-      </div>
-      <div class="row">
-        <span class="lbl">Cabin Front</span>
-        <span id="t-panel" class="val temp">--</span>
+        <span class="lbl">Cabin Front (&deg;F)</span>
         <input
           type="number"
           id="inp-panel"
@@ -248,57 +277,23 @@
           onchange="setNum('panel_temp', this.value)"
         />
       </div>
-      <div class="row">
-        <span class="lbl">Cabin Rear</span>
-        <span id="t-cabin" class="val temp">--</span>
-      </div>
-      <div class="row">
-        <span class="lbl">Blower outlet</span>
-        <span id="t-blower" class="val temp">--</span>
-      </div>
-      <div class="row">
-        <span class="lbl">Exhaust</span>
-        <span id="t-exhaust" class="val temp">--</span>
-      </div>
-      <div class="row">
-        <span class="lbl">Baggage</span>
-        <span id="t-baggage" class="val temp">--</span>
-      </div>
-      <div class="row">
-        <span class="lbl">Tail</span
-        ><span id="t-tail" class="val temp">--</span>
-      </div>
     </div>
 
-    <!-- Compressor PWM signal -->
-    <div class="card">
-      <h2>COMPRESSOR SIGNAL</h2>
-      <div class="row">
-        <span class="lbl">Frequency</span>
-        <span id="pwm-freq" class="val">--</span>
-      </div>
-      <div class="row">
-        <span class="lbl">Duty cycle</span>
-        <span id="pwm-duty" class="val">--</span>
-      </div>
-    </div>
+    <img src="/aircon.png" style="width:100%;display:block;margin-top:0.5rem" />
 
     <script>
       "use strict";
 
       var state = {};
+      var _polling = false;
 
       function fmt(v) {
-        if (
-          v === null ||
-          v === undefined ||
-          (v === 0 && arguments[1] === "panel")
-        ) {
-          return "--";
+        if (v === null || v === undefined) {
+          return "\u2014";
         }
         var n = parseFloat(v);
         if (isNaN(n)) {
-          return "--";
+          return "\u2014";
         }
         return n.toFixed(1) + "\u00b0F";
       }
@@ -344,71 +339,80 @@
       function applyState(s) {
         state = s;
 
+        // Mode buttons
+        ["off", "fan", "cool", "auto"].forEach(function (m) {
+          setActive("btn-" + m, s.mode === m);
+        });
+
+        // Recirculate buttons
+        setActive("btn-recirc", s.circulation === "recirc");
+        setActive("btn-fresh", s.circulation === "fresh");
+
+        // Fan control (fan or cool mode)
+        show("row-fan", s.mode === "fan" || s.mode === "cool");
+        ["low", "medium", "high"].forEach(function (f) {
+          setActive("btn-" + f, s.fan === f);
+        });
+
+        // Setpoint (auto only)
+        show("row-setpoint", s.mode === "auto");
+        setInputIfUnfocused("inp-setpoint", s.setpoint);
+
+        // Fan state display
+        setText("fan-state", s.fan || "off");
+
         // Compressor pill
         var comp = s.compressor === "on";
         var pill = document.getElementById("comp-pill");
         pill.textContent = comp ? "ON" : "OFF";
         pill.className = "pill " + (comp ? "pill-on" : "pill-off");
 
-        // Error
-        var hasErr = s.error && s.error.length > 0;
-        document.getElementById("row-error").style.display = hasErr
-          ? ""
-          : "none";
-        setText("error-txt", s.error || "");
-
-        // Mode buttons
-        ["off", "fan", "auto", "max"].forEach(function (m) {
-          setActive("btn-" + m, s.mode === m);
-        });
-
-        // Conditional sections
-        show("card-fan", s.mode === "fan");
-        show("card-auto", s.mode === "auto");
-        show("card-circ", s.mode === "fan" || s.mode === "auto");
-
-        // Fan buttons
-        ["low", "medium", "high"].forEach(function (f) {
-          setActive("btn-" + f, s.fan === f);
-        });
-
-        // Circulation buttons
-        setActive("btn-recirc", s.circulation === "recirc");
-        setActive("btn-fresh", s.circulation === "fresh");
-
-        // Setpoint / delta / panel inputs (don't disrupt typing)
-        setInputIfUnfocused("inp-setpoint", s.setpoint);
-        setInputIfUnfocused("inp-delta", s.delta);
-        setInputIfUnfocused("inp-panel", s.panel_temp || 0);
+        // PWM
+        setText("pwm-freq", s.pwm_freq ? s.pwm_freq.toFixed(1) + " Hz" : "\u2014");
+        setText("pwm-duty", s.pwm_duty ? s.pwm_duty.toFixed(1) + "%" : "\u2014");
 
         // Temperatures
         setText("t-current", fmt(s.current_temp));
-        setText("t-panel", s.panel_temp ? fmt(s.panel_temp) : "--");
+        setText("t-panel", s.panel_temp ? fmt(s.panel_temp) : "\u2014");
         setText("t-cabin", fmt(s.cabin_temp));
         setText("t-blower", fmt(s.blower_temp));
-        setText("t-exhaust", fmt(s.exhaust_temp));
         setText("t-baggage", fmt(s.baggage_temp));
         setText("t-tail", fmt(s.tail_temp));
+        setText("t-exhaust", fmt(s.exhaust_temp));
 
-        // PWM
-        setText("pwm-freq", s.pwm_freq ? s.pwm_freq.toFixed(1) + " Hz" : "--");
-        setText("pwm-duty", s.pwm_duty ? s.pwm_duty.toFixed(1) + "%" : "--");
+        // Error
+        var hasErr = s.error && s.error.length > 0;
+        show("row-error", hasErr);
+        setText("error-txt", s.error || "");
+
+        // Config inputs
+        setInputIfUnfocused("inp-delta", s.delta);
+        setInputIfUnfocused("inp-panel", s.panel_temp || 0);
       }
 
       function poll() {
-        fetch("/state")
+        if (_polling) return;
+        _polling = true;
+        var abort = new AbortController();
+        setTimeout(function () { abort.abort(); }, 5000);
+        fetch("/state", { signal: abort.signal })
           .then(function (r) {
             return r.json();
           })
           .then(function (s) {
+            _polling = false;
             applyState(s);
             var dot = document.getElementById("refresh-dot");
             dot.classList.add("blink");
             setTimeout(function () {
               dot.classList.remove("blink");
             }, 200);
+            var now = new Date();
+            var pad = function (n) { return String(n).padStart(2, "0"); };
+            document.getElementById("last-update").textContent =
+              pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pad(now.getSeconds());
           })
-          .catch(function () {});
+          .catch(function () { _polling = false; });
       }
 
       function setAttr(attr, value) {

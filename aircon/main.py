@@ -11,12 +11,15 @@ Boot sequence:
 """
 
 import asyncio
+import gc
+import machine
 import network
 import ntptime
 import config
 import log
+import web_server
 from sensors import TemperatureSensors, PWMMonitor
-from actuators import Relays, RGBLed, Servo, Buzzer
+from actuators import Relays, RGBLed, Buzzer
 from controller import ACController
 from ble_server import BLEServer
 from web_server import WebServer
@@ -33,10 +36,21 @@ def _sync_ntp():
         log.log('ntp', f'sync failed: {e}')
 
 
+async def monitor_task():
+    """Periodically log memory and open connection count."""
+    while True:
+        await asyncio.sleep(60)
+        before = gc.mem_free()
+        gc.collect()
+        after = gc.mem_free()
+        log.log('monitor', f'mem_free={after}  reclaimed={after-before}  alloc={gc.mem_alloc()}  web_active={web_server._active}')
+
+
 async def wifi_task():
     """Background task: connect to WiFi and reconnect whenever the link drops."""
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
+    wlan.config(pm=0xa11140)  # CYW43_NO_POWERSAVE_MODE — keep radio always-on
     already_connected = False
     while True:
         if wlan.isconnected():
@@ -75,16 +89,21 @@ async def wifi_task():
 
 
 async def main():
+    # ── Disable power-save modes (always-on device) ───────────────────────────
+    # GPIO23 controls the SMPS mode on Pico W/2W.
+    # Low (default) = pulse-skipping PFM mode; High = forced PWM, lower ripple,
+    # better RF performance for the CYW43 running WiFi + BLE simultaneously.
+    machine.Pin(23, machine.Pin.OUT, value=1)
+
     # ── Hardware init ─────────────────────────────────────────────────────────
     sensors = TemperatureSensors()
     pwm     = PWMMonitor()
     relays  = Relays()
     led     = RGBLed()
-    servo   = Servo()
     buzzer  = Buzzer()
 
     # ── Controller (loads persisted state) ────────────────────────────────────
-    ctrl = ACController(relays, servo, led, sensors, pwm)
+    ctrl = ACController(relays, led, sensors, pwm)
 
     # ── Servers ───────────────────────────────────────────────────────────────
     ble = BLEServer(ctrl)
@@ -97,12 +116,22 @@ async def main():
     log.log('system', f'mode={ctrl.mode}  setpoint={ctrl.setpoint}°F  delta=±{ctrl.delta}°F')
 
     # ── Run all tasks concurrently ────────────────────────────────────────────
+    # Wrap each coroutine so an unhandled exception is logged rather than
+    # silently killing the task (MicroPython gather swallows them).
+    async def guarded(name, coro):
+        try:
+            await coro
+        except Exception as e:
+            log.log('crash', f'{name}: {e}')
+            raise
+
     await asyncio.gather(
-        wifi_task(),     # connect/reconnect WiFi in background
-        sensors.run(),   # read temperature probes continuously
-        ctrl.run(),      # auto-mode control loop
-        ble.run(),       # BLE GATT server
-        web.run(),       # HTTP server
+        guarded('wifi',    wifi_task()),
+        guarded('monitor', monitor_task()),
+        guarded('sensors', sensors.run()),
+        guarded('ctrl',    ctrl.run()),
+        guarded('ble',     ble.run()),
+        guarded('web',     web.run()),
     )
 
 
