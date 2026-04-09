@@ -3,7 +3,11 @@
 import json
 import config
 
-_KEYS = ('mode', 'fan', 'setpoint', 'circulation', 'delta')
+_KEYS = (
+    'mode', 'fan', 'setpoint', 'circulation', 'delta',
+    'fan_high_thresh', 'fan_med_thresh', 'fan_change_interval',
+    'auto_loop_interval', 'temp_read_interval',
+)
 
 
 def load():

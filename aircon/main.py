@@ -18,6 +18,7 @@ import ntptime
 import config
 import log
 import web_server
+
 from sensors import TemperatureSensors, PWMMonitor
 from actuators import Relays, RGBLed, Buzzer
 from controller import ACController
@@ -34,6 +35,16 @@ def _sync_ntp():
         log.log('ntp', f'time set — {t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d} UTC')
     except Exception as e:
         log.log('ntp', f'sync failed: {e}')
+
+
+async def watchdog_task():
+    """Wait for all tasks to start up, then arm the watchdog and feed it every 4 s."""
+    await asyncio.sleep(30)  # allow startup to complete
+    log.log('watchdog', 'arming')
+    wdt = machine.WDT(timeout=8000)
+    while True:
+        wdt.feed()
+        await asyncio.sleep(4)
 
 
 async def monitor_task():
@@ -126,6 +137,7 @@ async def main():
             raise
 
     await asyncio.gather(
+        guarded('watchdog', watchdog_task()),
         guarded('wifi',    wifi_task()),
         guarded('monitor', monitor_task()),
         guarded('sensors', sensors.run()),

@@ -22,6 +22,7 @@ class TemperatureSensors:
 
     def __init__(self):
         self._temps = {name: None for name in self.PROBE_NAMES}
+        self.temp_read_interval = config.DEFAULT_TEMP_READ_INTERVAL
         # Build one DS18X20 object per pin.
         self._buses = []
         for pin_num in self.PROBE_PINS:
@@ -60,7 +61,7 @@ class TemperatureSensors:
                 except Exception:
                     self._temps[name] = None
 
-            await asyncio.sleep(config.TEMP_READ_INTERVAL)
+            await asyncio.sleep(self.temp_read_interval)
 
     def get(self, name):
         """Return the latest °F reading for a probe, or None."""

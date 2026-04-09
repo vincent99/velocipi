@@ -43,6 +43,7 @@ dist
 /music
 /backup
 /music.sqlite*
-ledalarm/ledalarm-backups
+*-backups
 aircon/wifi.json
 aircon/name.txt
+.history

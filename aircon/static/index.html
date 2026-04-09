@@ -256,17 +256,6 @@
     <div class="card">
       <h2>CONFIG</h2>
       <div class="row">
-        <span class="lbl">Auto Delta (&deg;F)</span>
-        <input
-          type="number"
-          id="inp-delta"
-          step="0.5"
-          min="0.5"
-          max="10"
-          onchange="setNum('delta', this.value)"
-        />
-      </div>
-      <div class="row">
         <span class="lbl">Cabin Front (&deg;F)</span>
         <input
           type="number"
@@ -277,9 +266,37 @@
           onchange="setNum('panel_temp', this.value)"
         />
       </div>
+      <div class="row">
+        <span class="lbl">Auto Delta (&deg;F)</span>
+        <input type="number" id="inp-delta" step="0.5" min="0.5" max="10"
+          onchange="setSetting('delta', this.value)" />
+      </div>
+      <div class="row">
+        <span class="lbl">Fan High (&deg;F)</span>
+        <input type="number" id="inp-fan-high" step="0.5" min="0.5"
+          onchange="setSetting('fan_high_thresh', this.value)" />
+      </div>
+      <div class="row">
+        <span class="lbl">Fan Med (&deg;F)</span>
+        <input type="number" id="inp-fan-med" step="0.5" min="0.5"
+          onchange="setSetting('fan_med_thresh', this.value)" />
+      </div>
+      <div class="row">
+        <span class="lbl">Fan Change (s)</span>
+        <input type="number" id="inp-fan-change" step="1" min="1"
+          onchange="setSetting('fan_change_interval', this.value)" />
+      </div>
+      <div class="row">
+        <span class="lbl">Auto Loop (s)</span>
+        <input type="number" id="inp-auto-loop" step="1" min="1"
+          onchange="setSetting('auto_loop_interval', this.value)" />
+      </div>
+      <div class="row">
+        <span class="lbl">Temp Read (s)</span>
+        <input type="number" id="inp-temp-read" step="1" min="1"
+          onchange="setSetting('temp_read_interval', this.value)" />
+      </div>
     </div>
-
-    <img src="/aircon.png" style="width:100%;display:block;margin-top:0.5rem" />
 
     <script>
       "use strict";
@@ -386,8 +403,13 @@
         setText("error-txt", s.error || "");
 
         // Config inputs
-        setInputIfUnfocused("inp-delta", s.delta);
-        setInputIfUnfocused("inp-panel", s.panel_temp || 0);
+        setInputIfUnfocused("inp-panel",       s.panel_temp || 0);
+        setInputIfUnfocused("inp-delta",       s.delta);
+        setInputIfUnfocused("inp-fan-high",    s.fan_high_thresh);
+        setInputIfUnfocused("inp-fan-med",     s.fan_med_thresh);
+        setInputIfUnfocused("inp-fan-change",  s.fan_change_interval);
+        setInputIfUnfocused("inp-auto-loop",   s.auto_loop_interval);
+        setInputIfUnfocused("inp-temp-read",   s.temp_read_interval);
       }
 
       function poll() {
@@ -432,6 +454,20 @@
         if (!isNaN(n)) {
           setAttr(attr, n);
         }
+      }
+
+      function setSetting(key, value) {
+        var n = parseFloat(value);
+        if (isNaN(n)) return;
+        var obj = {};
+        obj[key] = n;
+        fetch("/set/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(obj),
+        })
+          .then(function () { poll(); })
+          .catch(function () {});
       }
 
       poll();

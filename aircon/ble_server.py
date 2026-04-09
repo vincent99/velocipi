@@ -13,7 +13,7 @@ Characteristics (all UTF-8 strings):
   0003  setpoint  rw  float as string, e.g. "72.50"
   0004  circ      rw  "recirc" | "fresh"
   0005  panel     rw  float as string (panel sensor temp, °F)
-  0006  delta     rw  float as string (hysteresis, °F)
+  0006  settings  rw  JSON: delta, fan_high_thresh, fan_med_thresh, fan_change_interval, auto_loop_interval, temp_read_interval
   0007  status    rn  JSON: temps, compressor state, error
 
 Writes are validated server-side; invalid values are silently ignored.
@@ -63,7 +63,7 @@ class BLEServer:
         self._c_setpoint = _rw(config.BLE_UUID_SETPOINT)
         self._c_circ     = _rw(config.BLE_UUID_CIRC)
         self._c_panel    = _rw(config.BLE_UUID_PANEL)
-        self._c_delta    = _rw(config.BLE_UUID_DELTA)
+        self._c_settings = _rw(config.BLE_UUID_SETTINGS)
         self._c_status   = _rn(config.BLE_UUID_STATUS)
 
         aioble.register_services(svc)
@@ -85,7 +85,14 @@ class BLEServer:
         self._c_setpoint.write(_enc_f(s['setpoint']),   send_update=True)
         self._c_circ.write(_enc_str(s['circulation']),  send_update=True)
         self._c_panel.write(_enc_f(s['panel_temp']),    send_update=True)
-        self._c_delta.write(_enc_f(s['delta']),         send_update=True)
+        self._c_settings.write(json.dumps({
+            'delta':               s['delta'],
+            'fan_high_thresh':     s['fan_high_thresh'],
+            'fan_med_thresh':      s['fan_med_thresh'],
+            'fan_change_interval': s['fan_change_interval'],
+            'auto_loop_interval':  s['auto_loop_interval'],
+            'temp_read_interval':  s['temp_read_interval'],
+        }).encode(), send_update=True)
 
         def _f(v):
             return round(float(v), 2) if v is not None else None
@@ -159,8 +166,8 @@ class BLEServer:
         asyncio.create_task(watch('fan',      self._c_fan,      lambda d: ctrl.set_fan(_dec_str(d),         'ble')))
         asyncio.create_task(watch('setpoint', self._c_setpoint, lambda d: ctrl.set_setpoint(_dec_f(d),      'ble')))
         asyncio.create_task(watch('circ',     self._c_circ,     lambda d: ctrl.set_circulation(_dec_str(d), 'ble')))
-        asyncio.create_task(watch('panel',    self._c_panel,    lambda d: ctrl.set_panel_temp(_dec_f(d),    'ble')))
-        asyncio.create_task(watch('delta',    self._c_delta,    lambda d: ctrl.set_delta(_dec_f(d),         'ble')))
+        asyncio.create_task(watch('panel',    self._c_panel,    lambda d: ctrl.set_panel_temp(_dec_f(d), 'ble')))
+        asyncio.create_task(watch('settings', self._c_settings, lambda d: ctrl.set_settings(json.loads(d.decode()), 'ble')))
 
         while True:
             try:

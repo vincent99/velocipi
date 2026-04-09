@@ -30,8 +30,13 @@ class ACController:
         self.mode        = saved.get('mode',        config.DEFAULT_MODE)
         self.fan         = saved.get('fan',          config.DEFAULT_FAN)
         self.setpoint    = float(saved.get('setpoint',    config.DEFAULT_SETPOINT))
-        self.circulation = saved.get('circulation',  config.DEFAULT_CIRCULATION)
-        self.delta       = float(saved.get('delta',       config.DEFAULT_DELTA))
+        self.circulation        = saved.get('circulation',        config.DEFAULT_CIRCULATION)
+        self.delta              = float(saved.get('delta',              config.DEFAULT_DELTA))
+        self.fan_high_thresh     = float(saved.get('fan_high_thresh',     config.DEFAULT_AUTO_FAN_HIGH_THRESH))
+        self.fan_med_thresh      = float(saved.get('fan_med_thresh',      config.DEFAULT_AUTO_FAN_MED_THRESH))
+        self.fan_change_interval = float(saved.get('fan_change_interval', config.DEFAULT_FAN_CHANGE_INTERVAL))
+        self.auto_loop_interval  = float(saved.get('auto_loop_interval',  config.DEFAULT_AUTO_LOOP_INTERVAL))
+        self.temp_read_interval  = float(saved.get('temp_read_interval',  config.DEFAULT_TEMP_READ_INTERVAL))
 
         # panel_temp is never persisted; 0 means "not available".
         self.panel_temp = 0.0
@@ -43,6 +48,8 @@ class ACController:
         self._last_fan_change  = 0      # time.time() of last fan speed change
         self.on_state_change   = None   # optional callback, set by BLEServer
 
+        self._sensors.temp_read_interval = self.temp_read_interval
+
         log.log('system', f'startup: mode={self.mode}, fan={self.fan}, setpoint={self.setpoint}°F, delta=±{self.delta}°F')
         asyncio.create_task(self._apply())
 
@@ -52,15 +59,15 @@ class ACController:
     def current_temp(self):
         """
         Effective current temperature:
-          • panel_temp == 0: just the cabin probe
-          • panel_temp != 0: average of panel and cabin
+          • both available: average of panel and cabin
+          • only one available: whichever is non-zero/non-None
+          • neither available: None
         """
-        cabin = self._sensors.get('cabin')
-        if cabin is None:
-            return None
-        if self.panel_temp:
-            return (self.panel_temp + cabin) / 2.0
-        return cabin
+        cabin = self._sensors.get('cabin') or None
+        panel = self.panel_temp or None  # treat 0 as unavailable
+        if cabin and panel:
+            return (panel + cabin) / 2.0
+        return cabin or panel
 
     @property
     def compressor_on(self):
@@ -136,6 +143,38 @@ class ACController:
         except (ValueError, TypeError):
             return False
 
+    async def set_settings(self, settings, source='system'):
+        """Update tunable settings from a dict. Unknown keys are ignored."""
+        try:
+            changed = []
+            if 'delta' in settings:
+                v = float(settings['delta'])
+                if v >= 0:
+                    self.delta = v
+                    changed.append(f'delta={v}')
+            if 'fan_high_thresh' in settings:
+                self.fan_high_thresh = float(settings['fan_high_thresh'])
+                changed.append(f'fan_high_thresh={self.fan_high_thresh}')
+            if 'fan_med_thresh' in settings:
+                self.fan_med_thresh = float(settings['fan_med_thresh'])
+                changed.append(f'fan_med_thresh={self.fan_med_thresh}')
+            if 'fan_change_interval' in settings:
+                self.fan_change_interval = float(settings['fan_change_interval'])
+                changed.append(f'fan_change_interval={self.fan_change_interval}')
+            if 'auto_loop_interval' in settings:
+                self.auto_loop_interval = float(settings['auto_loop_interval'])
+                changed.append(f'auto_loop_interval={self.auto_loop_interval}')
+            if 'temp_read_interval' in settings:
+                self.temp_read_interval = float(settings['temp_read_interval'])
+                self._sensors.temp_read_interval = self.temp_read_interval
+                changed.append(f'temp_read_interval={self.temp_read_interval}')
+            if changed:
+                log.log(source, 'settings: ' + '  '.join(changed))
+            self._save()
+            return True
+        except (ValueError, TypeError):
+            return False
+
     # ── State snapshot (for web / BLE) ───────────────────────────────────────
 
     def get_state(self):
@@ -153,8 +192,13 @@ class ACController:
             'exhaust_temp': temps.get('exhaust'),
             'baggage_temp': temps.get('baggage'),
             'tail_temp':    temps.get('tail'),
-            'delta':        self.delta,
-            'error':        self._error,
+            'delta':               self.delta,
+            'fan_high_thresh':     self.fan_high_thresh,
+            'fan_med_thresh':      self.fan_med_thresh,
+            'fan_change_interval': self.fan_change_interval,
+            'auto_loop_interval':  self.auto_loop_interval,
+            'temp_read_interval':  self.temp_read_interval,
+            'error':               self._error,
             'pwm_freq':     self._pwm.frequency,
             'pwm_duty':     self._pwm.duty_cycle,
         }
@@ -165,7 +209,7 @@ class ACController:
         while True:
             if self.mode == config.MODE_AUTO:
                 await self._auto_control()
-            await asyncio.sleep(config.AUTO_LOOP_INTERVAL)
+            await asyncio.sleep(self.auto_loop_interval)
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -253,28 +297,33 @@ class ACController:
 
         # ── Fan speed: 3-step selection with rate limiting ────────────────────
         now = time.time()
-        if now - self._last_fan_change >= config.FAN_CHANGE_INTERVAL:
-            diff = abs(current - self.setpoint)
+        diff = abs(current - self.setpoint)
 
-            # Also consider the front-to-back cabin temperature gradient.
-            panel = self.panel_temp
-            cabin = self._sensors.get('cabin') or current
-            gradient = abs(panel - cabin) if panel else 0.0
+        # Also consider the front-to-back cabin temperature gradient.
+        panel = self.panel_temp
+        cabin = self._sensors.get('cabin') or current
+        gradient = abs(panel - cabin) if panel else 0.0
 
-            max_diff = max(diff, gradient)
+        max_diff = max(diff, gradient)
 
-            if max_diff >= config.AUTO_FAN_HIGH_THRESH:
-                target_fan = config.FAN_HIGH
-            elif max_diff >= config.AUTO_FAN_MED_THRESH:
-                target_fan = config.FAN_MEDIUM
-            else:
-                target_fan = config.FAN_LOW
+        if max_diff >= self.fan_high_thresh:
+            target_fan = config.FAN_HIGH
+        elif max_diff >= self.fan_med_thresh:
+            target_fan = config.FAN_MEDIUM
+        else:
+            target_fan = config.FAN_LOW
 
-            if target_fan != self._active_fan_speed:
-                log.log('auto', f'fan {self._active_fan_speed} → {target_fan} (Δ={max_diff:.1f}°F)')
-                self._active_fan_speed = target_fan
-                await self._relays.set_fan(target_fan)
-                self._last_fan_change = now
+        # Rate-limit only speed reductions to prevent hunting.
+        # Speed increases are applied immediately.
+        _order = {config.FAN_LOW: 0, config.FAN_MEDIUM: 1, config.FAN_HIGH: 2}
+        increasing = _order.get(target_fan, 0) > _order.get(self._active_fan_speed, 0)
+        rate_ok = now - self._last_fan_change >= self.fan_change_interval
+
+        if target_fan != self._active_fan_speed and (increasing or rate_ok):
+            log.log('auto', f'fan {self._active_fan_speed} → {target_fan} (Δ={max_diff:.1f}°F)')
+            self._active_fan_speed = target_fan
+            await self._relays.set_fan(target_fan)
+            self._last_fan_change = now
 
         # ── Servo follows circulation preference ──────────────────────────────
         self._relays.set_circulation(self.circulation)

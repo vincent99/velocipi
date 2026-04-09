@@ -85,13 +85,6 @@ async def _handle(reader, writer, ctrl):
         if method == 'GET' and path == '/':
             _response(writer, '200 OK', 'text/html; charset=utf-8', _load_html())
 
-        elif method == 'GET' and path == '/aircon.png':
-            try:
-                with open('/static/aircon.png', 'rb') as f:
-                    _response(writer, '200 OK', 'image/png', f.read())
-            except Exception:
-                _response(writer, '404 Not Found', 'text/plain', b'not found')
-
         elif method == 'GET' and path == '/state':
             data = json.dumps(ctrl.get_state()).encode()
             _response(writer, '200 OK', 'application/json', data)
@@ -99,6 +92,14 @@ async def _handle(reader, writer, ctrl):
         elif method == 'POST' and path.startswith('/set/'):
             attr  = path[5:]
             value = body.decode().strip()
+
+            if attr == 'settings':
+                if await ctrl.set_settings(json.loads(body.decode()), 'web'):
+                    _response(writer, '200 OK', 'text/plain', b'OK')
+                else:
+                    _response(writer, '400 Bad Request', 'text/plain', b'invalid settings')
+                await asyncio.wait_for(writer.drain(), 5)
+                return
 
             setters = {
                 'mode':        ctrl.set_mode,

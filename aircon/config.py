@@ -18,14 +18,14 @@ PIN_BUZZER = 21
 PIN_LED_RGB = 36
 
 # DS18B20 1-wire temperature probes (one per pin)
-PIN_TEMP_CABIN   = 2
-PIN_TEMP_BLOWER  = 3
-PIN_TEMP_EXHAUST = 4
-PIN_TEMP_BAGGAGE = 5
-PIN_TEMP_TAIL    = 6
+PIN_TEMP_CABIN   = 5
+PIN_TEMP_BLOWER  = 14
+PIN_TEMP_EXHAUST = 15
+PIN_TEMP_BAGGAGE = 17
+PIN_TEMP_TAIL    = 42
 
 # Mystery PWM signal from compressor
-PIN_PWM_MONITOR = 7
+PIN_PWM_MONITOR = 2
 
 # ── Mode constants ────────────────────────────────────────────────────────────
 MODE_OFF  = 'off'   # everything off
@@ -51,17 +51,17 @@ DEFAULT_DELTA       = 2.0    # °F hysteresis around setpoint
 
 # ── Auto-mode fan speed thresholds ───────────────────────────────────────────
 # |current - setpoint| or |panel - cabin| >= these values selects that speed.
-AUTO_FAN_HIGH_THRESH = 6.0   # °F — use HIGH fan
-AUTO_FAN_MED_THRESH  = 3.0   # °F — use MEDIUM fan (below this → LOW)
+DEFAULT_AUTO_FAN_HIGH_THRESH = 4.0   # °F — use HIGH fan
+DEFAULT_AUTO_FAN_MED_THRESH  = 2.0   # °F — use MEDIUM fan (below this → LOW)
 
 # Minimum seconds between fan speed changes (prevents hunting)
-FAN_CHANGE_INTERVAL = 30
+DEFAULT_FAN_CHANGE_INTERVAL = 30
 
 # How often auto-mode runs its control loop (seconds)
-AUTO_LOOP_INTERVAL = 5
+DEFAULT_AUTO_LOOP_INTERVAL = 5
 
 # How often temperature probes are read (seconds, after 750 ms conversion)
-TEMP_READ_INTERVAL = 3
+DEFAULT_TEMP_READ_INTERVAL = 3
 
 # ── Persistence ───────────────────────────────────────────────────────────────
 STORAGE_FILE = '/aircon_settings.json'
@@ -107,5 +107,5 @@ BLE_UUID_FAN      = 'aaaaaaaa-1111-cccc-00dd-000000000002'
 BLE_UUID_SETPOINT = 'aaaaaaaa-1111-cccc-00dd-000000000003'
 BLE_UUID_CIRC     = 'aaaaaaaa-1111-cccc-00dd-000000000004'
 BLE_UUID_PANEL    = 'aaaaaaaa-1111-cccc-00dd-000000000005'
-BLE_UUID_DELTA    = 'aaaaaaaa-1111-cccc-00dd-000000000006'
+BLE_UUID_SETTINGS = 'aaaaaaaa-1111-cccc-00dd-000000000006'
 BLE_UUID_STATUS   = 'aaaaaaaa-1111-cccc-00dd-000000000007'
