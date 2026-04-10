@@ -50,7 +50,7 @@ class ACController:
 
         self._sensors.temp_read_interval = self.temp_read_interval
 
-        log.log('system', f'startup: mode={self.mode}, fan={self.fan}, setpoint={self.setpoint}°F, delta=±{self.delta}°F')
+        log.log('system', f'startup: mode={self.mode}, fan={self.fan}, setpoint={self.setpoint}°F, circ={self.circulation}, delta=±{self.delta}°F')
         asyncio.create_task(self._apply())
 
     # ── Public properties ────────────────────────────────────────────────────
