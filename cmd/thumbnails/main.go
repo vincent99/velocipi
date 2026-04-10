@@ -6,7 +6,7 @@
 //
 //	thumbnails [--dir <recordingsDir>] [--height <px>] [--dry-run]
 //
-// Defaults: dir="recordings", height=240.
+// Defaults: dir="data/recordings", height=240.
 package main
 
 import (
@@ -20,7 +20,7 @@ import (
 )
 
 func main() {
-	dir := flag.String("dir", "recordings", "recordings root directory")
+	dir := flag.String("dir", "data/recordings", "recordings root directory")
 	height := flag.Int("height", 240, "thumbnail height in pixels")
 	dryRun := flag.Bool("dry-run", false, "print actions without executing them")
 	flag.Parse()

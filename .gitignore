@@ -38,10 +38,7 @@ dist
 
 /velocipi
 /config.yaml
-/recordings
-/music
-/backup
-/music.sqlite*
+/data/
 *-backups
 aircon/wifi.json
 aircon/name.txt

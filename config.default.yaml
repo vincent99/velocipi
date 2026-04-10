@@ -2,10 +2,10 @@ addr: "0.0.0.0:8080"
 spiDevice: "/dev/spidev0.0"
 
 storage:
-  dvr: "recordings"
-  music: "music"
-  backup: "backup"
-  snaps: "snaps"
+  dvr: "data/recordings"
+  music: "data/music"
+  backup: "data/backup"
+  snaps: "data/snaps"
 
 dvr:
   segmentDuration: 600

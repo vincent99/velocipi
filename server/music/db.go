@@ -196,7 +196,7 @@ func (d *DB) SetState(key string, val any) error {
 // pending schema migrations. It does not check minDbVersion, making it safe
 // to call from the sync CLI regardless of server config.
 func OpenAndMigrate(schemasDir, backupDir string) (*DB, error) {
-	d, err := Open("music.sqlite")
+	d, err := Open("data/music.sqlite")
 	if err != nil {
 		return nil, fmt.Errorf("cannot open db: %w", err)
 	}
