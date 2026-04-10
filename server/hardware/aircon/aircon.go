@@ -260,14 +260,34 @@ func (c *Client) Run(ctx context.Context) {
 
 // connectLoop performs one connect → discover → subscribe → poll cycle.
 func (c *Client) connectLoop(ctx context.Context, adapter *bluetooth.Adapter, addr bluetooth.Address) error {
+	// Pause the shared BLE scan so the adapter is free for GATT operations.
+	// BlueZ can fail service discovery with "Operation already in progress"
+	// when a concurrent scan is running.
+	resumeScan := blescan.Pause()
 	device, err := adapter.Connect(addr, bluetooth.ConnectionParams{})
 	if err != nil {
+		resumeScan()
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer func() { _ = device.Disconnect() }()
 	log.Println("aircon: connected")
 
-	svcs, err := device.DiscoverServices([]bluetooth.UUID{c.svcUUID})
+	// DiscoverServices can time out if BlueZ hasn't finished its async GATT
+	// discovery yet. Retry a few times before giving up.
+	var svcs []bluetooth.DeviceService
+	for attempt := 1; attempt <= 3; attempt++ {
+		svcs, err = device.DiscoverServices([]bluetooth.UUID{c.svcUUID})
+		if err == nil {
+			break
+		}
+		log.Printf("aircon: discover services attempt %d/3: %v", attempt, err)
+		if ctx.Err() != nil {
+			resumeScan()
+			return ctx.Err()
+		}
+		time.Sleep(2 * time.Second)
+	}
+	resumeScan() // scan can resume once service discovery is complete
 	if err != nil {
 		return fmt.Errorf("discover services: %w", err)
 	}
