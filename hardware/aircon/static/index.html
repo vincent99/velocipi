@@ -311,6 +311,14 @@
         />
       </div>
       <div class="row">
+        <span class="lbl">BLE Notify</span>
+        <div class="btn-group">
+          <button id="btn-ble-notify-on"  onclick="setAttr('ble_notify', 'true')">On</button>
+          <button id="btn-ble-notify-off" onclick="setAttr('ble_notify', 'false')">Off</button>
+        </div>
+        <span class="dim" style="font-size:0.75rem">(restart to apply)</span>
+      </div>
+      <div class="row">
         <span class="lbl">Cabin Front (&deg;F)</span>
         <input
           type="number"
@@ -350,6 +358,10 @@
         <span class="lbl">Temp Read (s)</span>
         <input type="number" id="inp-temp-read" step="1" min="1"
           onchange="setSetting('temp_read_interval', this.value)" />
+      </div>
+      <div class="row">
+        <span class="lbl"></span>
+        <button id="btn-restart" onclick="restart()">Restart</button>
       </div>
     </div>
 
@@ -470,6 +482,8 @@
 
         // Config inputs
         setInputIfUnfocused("inp-ble-name",    s.ble_device_name || '');
+        setActive("btn-ble-notify-on",  s.ble_notify === true  || s.ble_notify === "true");
+        setActive("btn-ble-notify-off", s.ble_notify === false || s.ble_notify === "false");
         setInputIfUnfocused("inp-panel",       s.panel_temp || 0);
         setInputIfUnfocused("inp-delta",       s.delta);
         setInputIfUnfocused("inp-fan-high",    s.fan_high_thresh);
@@ -521,6 +535,21 @@
         if (!isNaN(n)) {
           setAttr(attr, n);
         }
+      }
+
+      function restart() {
+        var btn = document.getElementById("btn-restart");
+        btn.disabled = true;
+        btn.textContent = "Restarting…";
+        fetch("/restart", { method: "POST" }).catch(function () {});
+        // Poll until the device comes back up
+        setTimeout(function ping() {
+          fetch("/state").then(function () {
+            btn.disabled = false;
+            btn.textContent = "Restart";
+            poll();
+          }).catch(function () { setTimeout(ping, 1000); });
+        }, 2000);
       }
 
       function setSetting(key, value) {

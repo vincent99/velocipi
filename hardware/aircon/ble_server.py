@@ -64,20 +64,24 @@ def _unwrap_settings(d):
 
 class BLEServer:
 
-    def __init__(self, controller):
-        self._ctrl = controller
+    def __init__(self, controller, led=None):
+        self._ctrl   = controller
+        self._led    = led  # RGBLed instance for BLE connection count updates
+        self._notify = controller.ble_notify
+        log.log('ble', f'notifications {"enabled" if self._notify else "disabled"}')
 
         svc = aioble.Service(bluetooth.UUID(config.BLE_SVC_UUID))
 
         def _rw(uuid):
             return aioble.Characteristic(
                 svc, bluetooth.UUID(uuid),
-                read=True, write=True, write_no_response=True, notify=True, capture=True,
+                read=True, write=True, write_no_response=True,
+                notify=self._notify, capture=True,
             )
         def _rn(uuid):
             return aioble.Characteristic(
                 svc, bluetooth.UUID(uuid),
-                read=True, notify=True,
+                read=True, notify=self._notify,
             )
 
         self._c_mode     = _rw(config.BLE_UUID_MODE)
@@ -91,55 +95,80 @@ class BLEServer:
         self._svc = svc  # registered lazily in run()
         self._connections: set = set()
         self._state_event = asyncio.Event()
+        self._last_status: bytes = b''  # last JSON sent via notify; skip if unchanged
 
     def notify_state_changed(self):
         """Called by the controller after any state change."""
         self._state_event.set()
 
-    # ── Write the current controller state into all GATT values and notify ──────
-    # send_update=True makes aioble call gatts_notify for every active connection
-    # that has subscribed, without needing to track connections manually.
+    # ── Push helpers ─────────────────────────────────────────────────────────
 
-    def _push_state(self):
-        s = self._ctrl.get_state()
-        self._c_mode.write(_enc_str(s['mode']),        send_update=True)
-        self._c_fan.write(_enc_str(s['fan']),           send_update=True)
-        self._c_setpoint.write(_enc_f(s['setpoint']),   send_update=True)
-        self._c_circ.write(_enc_str(s['circulation']),  send_update=True)
-        self._c_panel.write(_enc_f(s['panel_temp']),    send_update=True)
+    @staticmethod
+    def _fmt(v):
+        return round(float(v), 2) if v is not None else None
+
+    def _push_state(self, s=None):
+        """Update all readable characteristic values; notify only status (0007).
+        Writable characteristics are NOT notified — clients read them on demand.
+        Sending notify on every writable char floods the client with 6 extra
+        notifications per cycle that it doesn't need."""
+        if s is None:
+            s = self._ctrl.get_state()
+        self._c_mode.write(_enc_str(s['mode']))
+        self._c_fan.write(_enc_str(s['fan']))
+        self._c_setpoint.write(_enc_f(s['setpoint']))
+        self._c_circ.write(_enc_str(s['circulation']))
+        self._c_panel.write(_enc_f(s['panel_temp']))
         self._c_settings.write(json.dumps({
             k: {'value': s[k], 'default': _SETTINGS_DEFAULTS[k]}
             for k in _SETTINGS_DEFAULTS if k in s
-        }).encode(), send_update=True)
+        }).encode())
+        self._push_status(s)
 
-        def _f(v):
-            return round(float(v), 2) if v is not None else None
-
+    def _push_status(self, s=None):
+        """Notify only the status characteristic (temps + compressor + error)."""
+        if s is None:
+            s = self._ctrl.get_state()
         status = {
-            'curr':    _f(s['current_temp']),
+            'curr':    self._fmt(s['current_temp']),
             'comp':    s['compressor'],
-            'cabin':   _f(s['cabin_temp']),
-            'blower':  _f(s['blower_temp']),
-            'exhaust': _f(s['exhaust_temp']),
-            'baggage': _f(s['baggage_temp']),
-            'tail':    _f(s['tail_temp']),
+            'cabin':   self._fmt(s['cabin_temp']),
+            'blower':  self._fmt(s['blower_temp']),
+            'exhaust': self._fmt(s['exhaust_temp']),
+            'baggage': self._fmt(s['baggage_temp']),
+            'tail':    self._fmt(s['tail_temp']),
             'err':     s['error'],
         }
-        self._c_status.write(json.dumps(status).encode(), send_update=True)
+        if not self._notify:
+            return
+        payload = json.dumps(status).encode()
+        if payload == self._last_status:
+            return
+        self._last_status = payload
+        import time
+        log.log('ble', f'notify status: curr={status["curr"]}  comp={status["comp"]}  err={status["err"]!r}  t={time.ticks_ms()}')
+        self._c_status.write(payload, send_update=True)
 
     # ── Per-connection task: push state on connect, then on changes/heartbeat ──
 
     async def _connection_task(self, connection):
         self._connections.add(connection)
+        self._last_status = b''  # force full push on connect
+        if self._led:
+            self._led.set_ble_count(len(self._connections))
         log.log('ble', f'connected: {connection.device}')
         try:
-            # Send current state immediately on connect.
+            # Full state push on connect so the client has all current values.
             try:
                 self._push_state()
             except Exception as e:
                 log.log('ble', f'push_state error: {e}')
             while connection.is_connected():
-                # Wake immediately on a state change, or after the heartbeat interval.
+                # Wait up to BLE_NOTIFY_INTERVAL for a state-change event.
+                # If events fire faster than the interval (e.g. the auto loop
+                # calling _update_led every few seconds) we drain them all and
+                # push once, then enforce a hard sleep so we never notify faster
+                # than BLE_NOTIFY_INTERVAL regardless of how often the event fires.
                 try:
                     await asyncio.wait_for(
                         self._state_event.wait(),
@@ -149,11 +178,17 @@ class BLEServer:
                     pass
                 self._state_event.clear()
                 try:
-                    self._push_state()
+                    self._push_status()
                 except Exception as e:
-                    log.log('ble', f'push_state error: {e}')
+                    log.log('ble', f'push_status error: {e}')
+                # Hard rate limit: sleep the full interval before the next push.
+                # This ensures notifications never come faster than BLE_NOTIFY_INTERVAL
+                # even if notify_state_changed() is called in a tight loop.
+                await asyncio.sleep(config.BLE_NOTIFY_INTERVAL)
         finally:
             self._connections.discard(connection)
+            if self._led:
+                self._led.set_ble_count(len(self._connections))
             log.log('ble', 'disconnected')
 
     # ── Main BLE task ─────────────────────────────────────────────────────────
@@ -161,18 +196,7 @@ class BLEServer:
     async def run(self):
         ctrl = self._ctrl
 
-        # On soft reboot the CYW43 BT controller is left in a dirty state
-        # (cyw43_deinit is only called on hard reset, not soft reboot).
-        # Explicitly deactivating BLE forces hci_power_control(HCI_POWER_OFF)
-        # which resets the controller cleanly before we try to re-init it.
-        await asyncio.sleep(0)  # yield so control loop keeps running
-        log.log('ble', 'resetting BT controller')
-        try:
-            bluetooth.BLE().active(False)
-        except Exception as e:
-            log.log('ble', f'BT reset warning: {e}')
-        await asyncio.sleep_ms(200)  # let CYW43 settle
-
+        await asyncio.sleep(0)  # yield so control loop keeps running before BLE init
         log.log('ble', 'registering services')
         aioble.register_services(self._svc)
         log.log('ble', 'services registered')

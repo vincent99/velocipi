@@ -133,6 +133,14 @@ async def _handle(reader, writer, ctrl):
                 log.log('web', f'aircon.png: {e}')
                 _response(writer, '404 Not Found', 'text/plain', b'not found')
 
+        elif method == 'POST' and path == '/restart':
+            _response(writer, '200 OK', 'text/plain', b'restarting')
+            await asyncio.wait_for(writer.drain(), 5)
+            log.log('web', 'restart requested')
+            import machine
+            machine.reset()
+            return
+
         elif method == 'GET' and path == '/state':
             data = json.dumps(ctrl.get_state()).encode()
             _response(writer, '200 OK', 'application/json', data)
@@ -157,6 +165,7 @@ async def _handle(reader, writer, ctrl):
                 'panel_temp':  ctrl.set_panel_temp,
                 'delta':       ctrl.set_delta,
                 'ble_name':    ctrl.set_ble_name,
+                'ble_notify':  ctrl.set_ble_notify,
             }
             setter = setters.get(attr)
             if setter and await setter(value, 'web'):

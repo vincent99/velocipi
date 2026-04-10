@@ -37,6 +37,7 @@ class ACController:
         self.fan_change_interval = float(saved.get('fan_change_interval', config.DEFAULT_FAN_CHANGE_INTERVAL))
         self.auto_loop_interval  = float(saved.get('auto_loop_interval',  config.DEFAULT_AUTO_LOOP_INTERVAL))
         self.temp_read_interval  = float(saved.get('temp_read_interval',  config.DEFAULT_TEMP_READ_INTERVAL))
+        self.ble_notify          = bool(saved.get('ble_notify',           config.DEFAULT_BLE_NOTIFY))
 
         # panel_temp is never persisted; 0 means "not available".
         self.panel_temp = 0.0
@@ -143,6 +144,12 @@ class ACController:
         except (ValueError, TypeError):
             return False
 
+    async def set_ble_notify(self, value, source='system'):
+        self.ble_notify = value not in (False, 'false', '0', 0)
+        log.log(source, f'ble_notify → {self.ble_notify}  (takes effect on restart)')
+        self._save()
+        return True
+
     async def set_ble_name(self, name, source='system'):
         name = name.strip()
         if not name:
@@ -216,6 +223,7 @@ class ACController:
             'pwm_freq':            self._pwm.frequency,
             'pwm_duty':            self._pwm.duty_cycle,
             'ble_device_name':     config.BLE_DEVICE_NAME,
+            'ble_notify':          self.ble_notify,
         }
 
     # ── Async control loop ────────────────────────────────────────────────────

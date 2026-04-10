@@ -81,23 +81,22 @@ class RGBLed:
     """
     Single WS2812 pixel on PIN_LED_RGB.
 
-    Color encodes system state:
-      white → fan and compressor off
-      green → fan on, no compressor
-      blue  → fan on, compressor on
-      red   → error (overrides all)
+    Foreground color + blink rate (priority high → low):
+      error                  → red,   0.5 Hz
+      mode/fan off           → white, 0.5 Hz
+      fan on, compressor off → green, 1/2/4 Hz for low/med/high
+      fan on, compressor on  → white, 1/2/4 Hz for low/med/high
 
-    Blink rate encodes fan speed:
-      solid  → fan off (or error)
-      1 Hz   → low
-      2 Hz   → medium
-      4 Hz   → high
+    During the dark half of every blink:
+      blue  if ≥1 BLE client connected
+      off   if no BLE clients
 
-    Call update() to change state; a background task handles blinking.
+    Call update() to change state; call set_ble_count() when BLE connections
+    change; a background task (led.run()) handles blinking.
     asyncio.create_task(led.run()) must be called once the event loop is running.
     """
 
-    # Brightness-limited RGB tuples
+    # Brightness-limited RGB tuples (WS2812 order is GRB)
     _WHITE = (32, 32, 32)
     _GREEN = (64,  0,  0)
     _BLUE  = (0,   0, 64)
@@ -105,43 +104,53 @@ class RGBLed:
     _OFF   = (0,   0,  0)
 
     def __init__(self):
-        self._np    = neopixel.NeoPixel(machine.Pin(config.PIN_LED_RGB), 1)
-        self._color = self._OFF
-        self._hz    = 0   # 0 = solid
+        self._np        = neopixel.NeoPixel(machine.Pin(config.PIN_LED_RGB), 1)
+        self._fg        = self._WHITE
+        self._hz        = 4.0
+        self._ble_count = 0
+        self._booting   = True   # suppress update() until ready() is called
         self._write(*self._OFF)
 
     def _write(self, r, g, b):
         self._np[0] = (r, g, b)
         self._np.write()
 
+    def ready(self):
+        """Call once startup is complete to enable normal state-driven LED logic."""
+        self._booting = False
+
+    def set_ble_count(self, count: int):
+        """Update the number of connected BLE clients."""
+        self._ble_count = count
+
     def update(self, fan_speed, compressor_on: bool, error: bool):
         """Update desired LED state; the run() loop applies it immediately."""
+        if self._booting:
+            return
         if error:
-            self._color = self._RED
-            self._hz    = 0
+            self._fg = self._RED
+            self._hz = 0.5
         elif fan_speed is None:
-            self._color = self._WHITE
-            self._hz    = 0
+            self._fg = self._WHITE
+            self._hz = 0.5
+        elif compressor_on:
+            self._fg = self._WHITE
+            self._hz = {config.FAN_LOW: 1, config.FAN_MEDIUM: 2, config.FAN_HIGH: 4}.get(fan_speed, 1)
         else:
-            self._color = self._BLUE if compressor_on else self._GREEN
-            self._hz    = {
-                config.FAN_LOW:    1,
-                config.FAN_MEDIUM: 2,
-                config.FAN_HIGH:   4,
-            }.get(fan_speed, 0)
+            self._fg = self._GREEN
+            self._hz = {config.FAN_LOW: 1, config.FAN_MEDIUM: 2, config.FAN_HIGH: 4}.get(fan_speed, 1)
 
     async def run(self):
         """Blink loop — run as a long-lived asyncio task."""
         lit = True
         while True:
-            hz = self._hz
-            if hz == 0:
-                self._write(*self._color)
-                await asyncio.sleep_ms(50)
+            half_ms = int(500 / self._hz)
+            if lit:
+                self._write(*self._fg)
             else:
-                self._write(*(self._color if lit else self._OFF))
-                lit = not lit
-                await asyncio.sleep_ms(500 // hz)
+                self._write(*(self._BLUE if self._ble_count > 0 else self._OFF))
+            lit = not lit
+            await asyncio.sleep_ms(half_ms)
 
 
 class Buzzer:

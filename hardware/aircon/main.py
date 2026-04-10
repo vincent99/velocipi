@@ -43,12 +43,18 @@ async def watchdog_task():
     The WDT will fire if any synchronous call blocks the event loop for > 8 s
     (e.g. a hung BLE stack init), triggering a hard reset which runs cyw43_deinit
     and clears the dirty CYW43 BT state that causes the hang on soft reboot."""
-    await asyncio.sleep(2)  # let the first loop iteration of each task run
+    # Must arm before BLE can block (~1 s into startup), but give other tasks
+    # one event-loop cycle first.  Once armed, WDT fires 8 s after the last
+    # feed, which causes a hard reset — clearing the dirty CYW43 BT state
+    # that makes register_services hang on soft reboot.
+    await asyncio.sleep_ms(100)
     log.log('watchdog', 'arming')
     wdt = machine.WDT(timeout=8000)
+    wdt.feed()
+    log.log('watchdog', 'armed')
     while True:
-        wdt.feed()
         await asyncio.sleep(4)
+        wdt.feed()
 
 
 async def monitor_task():
@@ -159,7 +165,7 @@ async def main():
 
     async def ble_task():
         log.log('system', 'init: BLE')
-        ble = BLEServer(ctrl)
+        ble = BLEServer(ctrl, led)
         ctrl.on_state_change = ble.notify_state_changed
         log.log('system', 'init: BLE done')
         await ble.run()
@@ -172,6 +178,7 @@ async def main():
     asyncio.create_task(guarded('wifi',     wifi_task()))
     asyncio.create_task(guarded('web',      web.run()))
 
+    led.ready()
     log.log('system', 'all tasks scheduled')
 
     # Keep main alive so the event loop continues running.

@@ -49,6 +49,7 @@ DEFAULT_FAN         = FAN_LOW
 DEFAULT_SETPOINT    = 72.0   # °F
 DEFAULT_CIRCULATION = CIRC_RECIRC
 DEFAULT_DELTA       = 2.0    # °F hysteresis around setpoint
+DEFAULT_BLE_NOTIFY  = True   # send GATT notifications to connected clients
 
 # ── Auto-mode fan speed thresholds ───────────────────────────────────────────
 # |current - setpoint| or |panel - cabin| >= these values selects that speed.
