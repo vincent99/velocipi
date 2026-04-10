@@ -129,6 +129,10 @@ type Client struct {
 
 	debounceMu    sync.Mutex
 	debounceTimer *time.Timer
+
+	// Reassembly buffers for multi-packet BLE notifications (protected by mu).
+	settingsBuf []byte
+	statusBuf   []byte
 }
 
 // OnSample registers a callback invoked (from a goroutine) whenever a new
@@ -368,15 +372,24 @@ func (c *Client) connectLoop(ctx context.Context, adapter *bluetooth.Adapter, ad
 
 // readInitial reads the current value of all characteristics and updates state.
 func (c *Client) readInitial(charMap map[string]*bluetooth.DeviceCharacteristic) {
+	// Clear any stale reassembly buffers from a previous connection.
+	c.mu.Lock()
+	c.settingsBuf = nil
+	c.statusBuf = nil
+	c.mu.Unlock()
+
 	readStr := func(uuid string) string {
 		ch, ok := charMap[uuid]
 		if !ok {
 			return ""
 		}
-		buf := make([]byte, 256)
+		buf := make([]byte, 1024)
 		n, err := ch.Read(buf)
 		if err != nil {
 			return ""
+		}
+		if n > len(buf) {
+			n = len(buf)
 		}
 		return strings.TrimRight(string(buf[:n]), "\x00")
 	}
@@ -464,16 +477,65 @@ func (c *Client) subscribeAll(charMap map[string]*bluetooth.DeviceCharacteristic
 	})
 	subscribe(uuidSettings, func(buf []byte) {
 		c.mu.Lock()
-		c.applySettingsJSON(buf)
-		c.mu.Unlock()
-		c.notifyChange()
+		c.settingsBuf = append(c.settingsBuf, buf...)
+		if jsonComplete(c.settingsBuf) {
+			data := c.settingsBuf
+			c.settingsBuf = nil
+			c.applySettingsJSON(data)
+			c.mu.Unlock()
+			c.notifyChange()
+		} else {
+			c.mu.Unlock()
+		}
 	})
 	subscribe(uuidStatus, func(buf []byte) {
 		c.mu.Lock()
-		c.applyStatusJSON(buf)
-		c.mu.Unlock()
-		c.notifyChange()
+		c.statusBuf = append(c.statusBuf, buf...)
+		if jsonComplete(c.statusBuf) {
+			data := c.statusBuf
+			c.statusBuf = nil
+			c.applyStatusJSON(data)
+			c.mu.Unlock()
+			c.notifyChange()
+		} else {
+			c.mu.Unlock()
+		}
 	})
+}
+
+// jsonComplete returns true when data contains a syntactically complete JSON
+// object (balanced braces, not inside a string). Used to detect when BLE
+// notification reassembly is done.
+func jsonComplete(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	depth := 0
+	inStr := false
+	escape := false
+	for _, b := range data {
+		if escape {
+			escape = false
+			continue
+		}
+		if inStr {
+			if b == '\\' {
+				escape = true
+			} else if b == '"' {
+				inStr = false
+			}
+			continue
+		}
+		switch b {
+		case '"':
+			inStr = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			depth--
+		}
+	}
+	return depth == 0
 }
 
 // applySettingsJSON unmarshals the settings characteristic JSON and updates state.
