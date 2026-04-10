@@ -85,6 +85,54 @@ async def _handle(reader, writer, ctrl):
         if method == 'GET' and path == '/':
             _response(writer, '200 OK', 'text/html; charset=utf-8', _load_html())
 
+        elif method == 'GET' and path == '/repl':
+            try:
+                import os
+                size = os.stat('/static/webrepl.html')[6]
+                writer.write(
+                    f'HTTP/1.1 200 OK\r\n'
+                    f'Content-Type: text/html; charset=utf-8\r\n'
+                    f'Content-Length: {size}\r\n'
+                    'Cache-Control: public, max-age=31536000, immutable\r\n'
+                    'Connection: close\r\n'
+                    'Access-Control-Allow-Origin: *\r\n'
+                    '\r\n'
+                )
+                with open('/static/webrepl.html', 'rb') as f:
+                    while True:
+                        chunk = f.read(2048)
+                        if not chunk:
+                            break
+                        writer.write(chunk)
+                        await asyncio.wait_for(writer.drain(), 5)
+            except Exception as e:
+                log.log('web', f'repl: {e}')
+                _response(writer, '404 Not Found', 'text/plain', b'not found')
+
+        elif method == 'GET' and path == '/aircon.png':
+            try:
+                import os
+                size = os.stat('/static/aircon.png')[6]
+                writer.write(
+                    f'HTTP/1.1 200 OK\r\n'
+                    f'Content-Type: image/png\r\n'
+                    f'Content-Length: {size}\r\n'
+                    'Cache-Control: public, max-age=31536000, immutable\r\n'
+                    'Connection: close\r\n'
+                    'Access-Control-Allow-Origin: *\r\n'
+                    '\r\n'
+                )
+                with open('/static/aircon.png', 'rb') as f:
+                    while True:
+                        chunk = f.read(2048)
+                        if not chunk:
+                            break
+                        writer.write(chunk)
+                        await asyncio.wait_for(writer.drain(), 5)
+            except Exception as e:
+                log.log('web', f'aircon.png: {e}')
+                _response(writer, '404 Not Found', 'text/plain', b'not found')
+
         elif method == 'GET' and path == '/state':
             data = json.dumps(ctrl.get_state()).encode()
             _response(writer, '200 OK', 'application/json', data)
@@ -108,6 +156,7 @@ async def _handle(reader, writer, ctrl):
                 'circulation': ctrl.set_circulation,
                 'panel_temp':  ctrl.set_panel_temp,
                 'delta':       ctrl.set_delta,
+                'ble_name':    ctrl.set_ble_name,
             }
             setter = setters.get(attr)
             if setter and await setter(value, 'web'):

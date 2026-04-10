@@ -39,6 +39,28 @@ def _dec_str(b: bytes) -> str:
 def _dec_f(b: bytes) -> float:
     return float(b.decode().strip('\x00'))
 
+# Compile-time defaults for the 0006 settings characteristic.
+_SETTINGS_DEFAULTS = {
+    'delta':               config.DEFAULT_DELTA,
+    'fan_high_thresh':     config.DEFAULT_AUTO_FAN_HIGH_THRESH,
+    'fan_med_thresh':      config.DEFAULT_AUTO_FAN_MED_THRESH,
+    'fan_change_interval': config.DEFAULT_FAN_CHANGE_INTERVAL,
+    'auto_loop_interval':  config.DEFAULT_AUTO_LOOP_INTERVAL,
+    'temp_read_interval':  config.DEFAULT_TEMP_READ_INTERVAL,
+}
+
+def _unwrap_settings(d):
+    """Accept flat {key: value} or wrapped {key: {value: v, default: d}} — return flat."""
+    out = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            vv = v.get('value')
+            if vv is not None:
+                out[k] = vv
+        else:
+            out[k] = v
+    return out
+
 
 class BLEServer:
 
@@ -66,7 +88,7 @@ class BLEServer:
         self._c_settings = _rw(config.BLE_UUID_SETTINGS)
         self._c_status   = _rn(config.BLE_UUID_STATUS)
 
-        aioble.register_services(svc)
+        self._svc = svc  # registered lazily in run()
         self._connections: set = set()
         self._state_event = asyncio.Event()
 
@@ -86,12 +108,8 @@ class BLEServer:
         self._c_circ.write(_enc_str(s['circulation']),  send_update=True)
         self._c_panel.write(_enc_f(s['panel_temp']),    send_update=True)
         self._c_settings.write(json.dumps({
-            'delta':               s['delta'],
-            'fan_high_thresh':     s['fan_high_thresh'],
-            'fan_med_thresh':      s['fan_med_thresh'],
-            'fan_change_interval': s['fan_change_interval'],
-            'auto_loop_interval':  s['auto_loop_interval'],
-            'temp_read_interval':  s['temp_read_interval'],
+            k: {'value': s[k], 'default': _SETTINGS_DEFAULTS[k]}
+            for k in _SETTINGS_DEFAULTS if k in s
         }).encode(), send_update=True)
 
         def _f(v):
@@ -143,6 +161,22 @@ class BLEServer:
     async def run(self):
         ctrl = self._ctrl
 
+        # On soft reboot the CYW43 BT controller is left in a dirty state
+        # (cyw43_deinit is only called on hard reset, not soft reboot).
+        # Explicitly deactivating BLE forces hci_power_control(HCI_POWER_OFF)
+        # which resets the controller cleanly before we try to re-init it.
+        await asyncio.sleep(0)  # yield so control loop keeps running
+        log.log('ble', 'resetting BT controller')
+        try:
+            bluetooth.BLE().active(False)
+        except Exception as e:
+            log.log('ble', f'BT reset warning: {e}')
+        await asyncio.sleep_ms(200)  # let CYW43 settle
+
+        log.log('ble', 'registering services')
+        aioble.register_services(self._svc)
+        log.log('ble', 'services registered')
+
         # Pre-populate readable values before the first connection.
         try:
             self._push_state()
@@ -167,7 +201,7 @@ class BLEServer:
         asyncio.create_task(watch('setpoint', self._c_setpoint, lambda d: ctrl.set_setpoint(_dec_f(d),      'ble')))
         asyncio.create_task(watch('circ',     self._c_circ,     lambda d: ctrl.set_circulation(_dec_str(d), 'ble')))
         asyncio.create_task(watch('panel',    self._c_panel,    lambda d: ctrl.set_panel_temp(_dec_f(d), 'ble')))
-        asyncio.create_task(watch('settings', self._c_settings, lambda d: ctrl.set_settings(json.loads(d.decode()), 'ble')))
+        asyncio.create_task(watch('settings', self._c_settings, lambda d: ctrl.set_settings(_unwrap_settings(json.loads(d.decode())), 'ble')))
 
         while True:
             try:

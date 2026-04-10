@@ -20,6 +20,10 @@ const defaults = ref<FullConfig | null>(null);
 const saving = ref(false);
 const saved = ref(false);
 const error = ref('');
+
+// AirCon BLE settings — loaded from /aircon/state, not from the YAML config.
+const acSettings = ref<Record<string, { value: number; default: number }> | null>(null);
+const acEdits = ref<Record<string, number>>({});
 const activeSection = ref('filesystem');
 
 interface AudioDevice {
@@ -46,6 +50,15 @@ onMounted(async () => {
   } catch (e: unknown) {
     error.value = 'Failed to load config: ' + String(e);
   }
+  try {
+    const acRes = await fetch('/aircon/state');
+    if (acRes.ok) {
+      const acData = await acRes.json();
+      acSettings.value = acData.state?.settings ?? null;
+    }
+  } catch {
+    // aircon may not be configured — silently ignore
+  }
 });
 
 async function save() {
@@ -63,6 +76,16 @@ async function save() {
     });
     if (!r.ok) {
       throw new Error(await r.text());
+    }
+    if (Object.keys(acEdits.value).length > 0 && acSettings.value) {
+      const r2 = await fetch('/aircon/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ field: 'settings', value: JSON.stringify(acEdits.value) }),
+      });
+      if (r2.ok) {
+        acEdits.value = {};
+      }
     }
     saved.value = true;
     setTimeout(() => {
@@ -97,6 +120,34 @@ function reset(path: string) {
 }
 
 provide(settingsKey, { isModified, reset, getPath, setPath });
+
+// ── AirCon BLE settings helpers ───────────────────────────────────────────────
+
+const acSettingsFields = [
+  { key: 'delta',               label: 'Auto delta (°F)',         min: 0.5, step: 0.5 },
+  { key: 'fan_high_thresh',     label: 'Fan high threshold (°F)', min: 0.5, step: 0.5 },
+  { key: 'fan_med_thresh',      label: 'Fan med threshold (°F)',  min: 0.5, step: 0.5 },
+  { key: 'fan_change_interval', label: 'Fan change interval (s)', min: 1,   step: 1   },
+  { key: 'auto_loop_interval',  label: 'Auto loop interval (s)',  min: 1,   step: 1   },
+  { key: 'temp_read_interval',  label: 'Temp read interval (s)',  min: 1,   step: 1   },
+];
+
+function acValue(key: string): number {
+  return key in acEdits.value ? acEdits.value[key] : (acSettings.value?.[key]?.value ?? 0);
+}
+function acIsModified(key: string): boolean {
+  const def = acSettings.value?.[key]?.default;
+  return def !== undefined && acValue(key) !== def;
+}
+function acReset(key: string) {
+  const def = acSettings.value?.[key]?.default;
+  if (def !== undefined) {
+    acEdits.value = { ...acEdits.value, [key]: def };
+  }
+}
+function acSet(key: string, v: number) {
+  acEdits.value = { ...acEdits.value, [key]: v };
+}
 
 // AcoustID score is stored as 0.0–1.0 but presented as 0–100 percent.
 const acoustidScorePct = computed({
@@ -571,6 +622,42 @@ const sections = [
                 "
               />
             </SettingsGroup>
+          </SettingsGroup>
+          <SettingsGroup title="Air Conditioner">
+            <SettingsField
+              label="BLE device name"
+              path="airCon.deviceName"
+              type="text"
+            />
+            <template v-if="acSettings">
+              <div
+                v-for="f in acSettingsFields"
+                :key="f.key"
+                class="sf-row"
+                :class="{ modified: acIsModified(f.key) }"
+              >
+                <button
+                  v-if="acIsModified(f.key)"
+                  type="button"
+                  class="sf-reset"
+                  title="Reset to default"
+                  @click="acReset(f.key)"
+                >
+                  <i class="fi-sr-rotate-left" />
+                </button>
+                <span v-else class="sf-reset-placeholder" />
+                <label class="sf-label">{{ f.label }}</label>
+                <input
+                  class="sf-input"
+                  type="number"
+                  :min="f.min"
+                  :step="f.step"
+                  :value="acValue(f.key)"
+                  @change="acSet(f.key, Number(($event.target as HTMLInputElement).value))"
+                />
+              </div>
+            </template>
+            <p v-else class="hint">Not connected — runtime settings unavailable.</p>
           </SettingsGroup>
         </section>
 

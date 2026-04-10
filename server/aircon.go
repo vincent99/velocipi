@@ -119,13 +119,13 @@ func airconSetHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = ac.SetPanelTemp(f)
-	case "delta":
-		f, parseErr := strconv.ParseFloat(body.Value, 64)
-		if parseErr != nil {
-			http.Error(w, "invalid float value", http.StatusBadRequest)
+	case "settings":
+		var s map[string]float64
+		if parseErr := json.Unmarshal([]byte(body.Value), &s); parseErr != nil {
+			http.Error(w, "invalid settings JSON: "+parseErr.Error(), http.StatusBadRequest)
 			return
 		}
-		err = ac.SetDelta(f)
+		err = ac.SetSettings(s)
 	default:
 		http.Error(w, "unknown field: "+body.Field, http.StatusBadRequest)
 		return

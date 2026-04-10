@@ -143,6 +143,20 @@ class ACController:
         except (ValueError, TypeError):
             return False
 
+    async def set_ble_name(self, name, source='system'):
+        name = name.strip()
+        if not name:
+            return False
+        try:
+            with open('/name.txt', 'w') as f:
+                f.write(name)
+            config.BLE_DEVICE_NAME = name
+            log.log(source, f'ble_name → {name}')
+            return True
+        except Exception as e:
+            self._error = 'BLE name save failed: ' + str(e)
+            return False
+
     async def set_settings(self, settings, source='system'):
         """Update tunable settings from a dict. Unknown keys are ignored."""
         try:
@@ -199,8 +213,9 @@ class ACController:
             'auto_loop_interval':  self.auto_loop_interval,
             'temp_read_interval':  self.temp_read_interval,
             'error':               self._error,
-            'pwm_freq':     self._pwm.frequency,
-            'pwm_duty':     self._pwm.duty_cycle,
+            'pwm_freq':            self._pwm.frequency,
+            'pwm_duty':            self._pwm.duty_cycle,
+            'ble_device_name':     config.BLE_DEVICE_NAME,
         }
 
     # ── Async control loop ────────────────────────────────────────────────────

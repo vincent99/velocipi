@@ -5,8 +5,9 @@ PIN_RELAY_FAN_LOW    = 26  # Relay 1 — blower fan low speed
 PIN_RELAY_FAN_MED    = 27  # Relay 2 — blower fan medium
 PIN_RELAY_FAN_HIGH   = 28  # Relay 3 — blower fan high
 PIN_RELAY_COMPRESSOR = 29  # Relay 4 — compressor on
-PIN_RELAY_FRESH_AIR  = 30  # Relay 5 — circulation: off=recirc, on=fresh air
-PIN_RELAY_6          = 31  # Relay 6 — unused
+PIN_RELAY_CIRC_A     = 30  # Relay 5 — circulation pole A
+PIN_RELAY_CIRC_B     = 31  # Relay 6 — circulation pole B
+# Both OFF = recirc, both ON = fresh air (H-bridge via two single-pole relays)
 
 # Relay logic level (set False for active-low relay modules)
 RELAY_ACTIVE_HIGH = True

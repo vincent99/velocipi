@@ -82,13 +82,18 @@
         font-size: 0.85rem;
         transition: background 0.1s;
       }
-      button:hover {
+      button:hover:not(:disabled) {
         background: #383838;
       }
       button.active {
         background: #1565c0;
         border-color: #42a5f5;
         color: #fff;
+      }
+      button:disabled,
+      input:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
       }
 
       input[type="number"] {
@@ -173,7 +178,7 @@
           <button id="btn-auto" onclick="setAttr('mode', 'auto')">Auto</button>
         </div>
       </div>
-      <div class="row hidden" id="row-fan">
+      <div class="row">
         <span class="lbl">Fan</span>
         <div class="btn-group">
           <button id="btn-low" onclick="setAttr('fan', 'low')">Low</button>
@@ -188,7 +193,7 @@
           <button id="btn-fresh" onclick="setAttr('circulation', 'fresh')">Fresh Air</button>
         </div>
       </div>
-      <div class="row hidden" id="row-setpoint">
+      <div class="row">
         <span class="lbl">Setpoint (&deg;F)</span>
         <input
           type="number"
@@ -256,6 +261,15 @@
     <div class="card">
       <h2>CONFIG</h2>
       <div class="row">
+        <span class="lbl">BLE Name</span>
+        <input
+          type="text"
+          id="inp-ble-name"
+          style="width:150px"
+          onchange="setAttr('ble_name', this.value)"
+        />
+      </div>
+      <div class="row">
         <span class="lbl">Cabin Front (&deg;F)</span>
         <input
           type="number"
@@ -297,6 +311,8 @@
           onchange="setSetting('temp_read_interval', this.value)" />
       </div>
     </div>
+
+    <img src="/aircon.png" style="width:100%;display:block;margin-top:0.5rem" />
 
     <script>
       "use strict";
@@ -346,6 +362,13 @@
         }
       }
 
+      function setDisabled(id, disabled) {
+        var el = document.getElementById(id);
+        if (el) {
+          el.disabled = disabled;
+        }
+      }
+
       function setInputIfUnfocused(id, value) {
         var el = document.getElementById(id);
         if (el && document.activeElement !== el) {
@@ -361,19 +384,23 @@
           setActive("btn-" + m, s.mode === m);
         });
 
-        // Recirculate buttons
+        // Recirculate buttons — disabled in off mode
+        var circEnabled = s.mode !== "off";
         setActive("btn-recirc", s.circulation === "recirc");
         setActive("btn-fresh", s.circulation === "fresh");
+        setDisabled("btn-recirc", !circEnabled);
+        setDisabled("btn-fresh", !circEnabled);
 
-        // Fan control (fan or cool mode)
-        show("row-fan", s.mode === "fan" || s.mode === "cool");
+        // Fan speed — only user-adjustable in fan and cool modes
+        var fanEnabled = s.mode === "fan" || s.mode === "cool";
         ["low", "medium", "high"].forEach(function (f) {
           setActive("btn-" + f, s.fan === f);
+          setDisabled("btn-" + f, !fanEnabled);
         });
 
-        // Setpoint (auto only)
-        show("row-setpoint", s.mode === "auto");
+        // Setpoint — only in auto mode
         setInputIfUnfocused("inp-setpoint", s.setpoint);
+        setDisabled("inp-setpoint", s.mode !== "auto");
 
         // Fan state display
         setText("fan-state", s.fan || "off");
@@ -403,6 +430,7 @@
         setText("error-txt", s.error || "");
 
         // Config inputs
+        setInputIfUnfocused("inp-ble-name",    s.ble_device_name || '');
         setInputIfUnfocused("inp-panel",       s.panel_temp || 0);
         setInputIfUnfocused("inp-delta",       s.delta);
         setInputIfUnfocused("inp-fan-high",    s.fan_high_thresh);

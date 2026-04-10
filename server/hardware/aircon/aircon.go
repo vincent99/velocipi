@@ -29,9 +29,15 @@ const (
 	uuidSetpoint = "aaaaaaaa-1111-cccc-00dd-000000000003" // rw float string °F
 	uuidCirc     = "aaaaaaaa-1111-cccc-00dd-000000000004" // rw string: "recirc"|"fresh"
 	uuidPanel    = "aaaaaaaa-1111-cccc-00dd-000000000005" // rw float string °F (panel sensor temp)
-	uuidDelta    = "aaaaaaaa-1111-cccc-00dd-000000000006" // rw float string °F (hysteresis)
+	uuidSettings = "aaaaaaaa-1111-cccc-00dd-000000000006" // rw JSON settings object
 	uuidStatus   = "aaaaaaaa-1111-cccc-00dd-000000000007" // rn JSON status snapshot
 )
+
+// SettingValue holds a runtime value and its compile-time default.
+type SettingValue struct {
+	Value   float64 `json:"value"`
+	Default float64 `json:"default"`
+}
 
 // statusPayload is the JSON structure sent by the status characteristic.
 type statusPayload struct {
@@ -64,8 +70,9 @@ type State struct {
 	Fan         string   `json:"fan"`
 	Setpoint    float64  `json:"setpoint"`
 	Circulation string   `json:"circulation"`
-	PanelTemp   float64  `json:"panelTemp"`
-	Delta       float64  `json:"delta"`
+	PanelTemp   float64                 `json:"panelTemp"`
+	Delta       float64                 `json:"delta"`    // convenience alias for Settings["delta"].Value
+	Settings    map[string]SettingValue `json:"settings"` // all 6 tunable settings with defaults
 	// Read-only status fields (from the status JSON characteristic)
 	CurrentTemp  *float64 `json:"currentTemp"`
 	Compressor   *bool    `json:"compressor"`
@@ -95,7 +102,7 @@ type charSet struct {
 	setpoint bluetooth.DeviceCharacteristic
 	circ     bluetooth.DeviceCharacteristic
 	panel    bluetooth.DeviceCharacteristic
-	delta    bluetooth.DeviceCharacteristic
+	settings bluetooth.DeviceCharacteristic
 }
 
 // Client is a BLE GATT client for the AirCon controller.
@@ -262,8 +269,8 @@ func (c *Client) connectLoop(ctx context.Context, adapter *bluetooth.Adapter, ad
 	if ch := charMap[uuidPanel]; ch != nil {
 		cs.panel = *ch
 	}
-	if ch := charMap[uuidDelta]; ch != nil {
-		cs.delta = *ch
+	if ch := charMap[uuidSettings]; ch != nil {
+		cs.settings = *ch
 	}
 
 	c.readInitial(charMap)
@@ -338,10 +345,8 @@ func (c *Client) readInitial(charMap map[string]*bluetooth.DeviceCharacteristic)
 			c.state.PanelTemp = f
 		}
 	}
-	if v := readStr(uuidDelta); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			c.state.Delta = f
-		}
+	if v := readStr(uuidSettings); v != "" {
+		c.applySettingsJSON([]byte(v))
 	}
 	if v := readStr(uuidStatus); v != "" {
 		c.applyStatusJSON([]byte(v))
@@ -400,14 +405,11 @@ func (c *Client) subscribeAll(charMap map[string]*bluetooth.DeviceCharacteristic
 			c.notifyChange()
 		}
 	})
-	subscribe(uuidDelta, func(buf []byte) {
-		v := strings.TrimRight(string(buf), "\x00")
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			c.mu.Lock()
-			c.state.Delta = f
-			c.mu.Unlock()
-			c.notifyChange()
-		}
+	subscribe(uuidSettings, func(buf []byte) {
+		c.mu.Lock()
+		c.applySettingsJSON(buf)
+		c.mu.Unlock()
+		c.notifyChange()
 	})
 	subscribe(uuidStatus, func(buf []byte) {
 		c.mu.Lock()
@@ -416,6 +418,35 @@ func (c *Client) subscribeAll(charMap map[string]*bluetooth.DeviceCharacteristic
 		c.appendHistory()
 		c.notifyChange()
 	})
+}
+
+// applySettingsJSON unmarshals the settings characteristic JSON and updates state.
+// Accepts both {key: float} and {key: {value: float, default: float}} formats.
+// Must be called with c.mu held for write.
+func (c *Client) applySettingsJSON(data []byte) {
+	data = []byte(strings.TrimRight(string(data), "\x00"))
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		log.Printf("aircon: settings JSON parse error: %v (data: %q)", err, data)
+		return
+	}
+	settings := make(map[string]SettingValue, len(raw))
+	for k, v := range raw {
+		var sv SettingValue
+		var f float64
+		if err := json.Unmarshal(v, &f); err == nil {
+			sv = SettingValue{Value: f, Default: f}
+		} else if err := json.Unmarshal(v, &sv); err == nil {
+			// already {value, default}
+		} else {
+			continue
+		}
+		settings[k] = sv
+	}
+	c.state.Settings = settings
+	if d, ok := settings["delta"]; ok {
+		c.state.Delta = d.Value
+	}
 }
 
 // applyStatusJSON unmarshals the status characteristic JSON and updates state.
@@ -506,9 +537,14 @@ func (c *Client) SetPanelTemp(temp float64) error {
 	return c.writeStr(func(cs *charSet) bluetooth.DeviceCharacteristic { return cs.panel }, fmt.Sprintf("%.2f", temp))
 }
 
-// SetDelta writes the hysteresis delta (°F).
-func (c *Client) SetDelta(delta float64) error {
-	return c.writeStr(func(cs *charSet) bluetooth.DeviceCharacteristic { return cs.delta }, fmt.Sprintf("%.2f", delta))
+// SetSettings writes a partial or full settings update to characteristic 0006.
+// Only the keys present in the map are sent; the Pico ignores unknown keys.
+func (c *Client) SetSettings(settings map[string]float64) error {
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("aircon: marshal settings: %w", err)
+	}
+	return c.writeStr(func(cs *charSet) bluetooth.DeviceCharacteristic { return cs.settings }, string(data))
 }
 
 func (c *Client) writeStr(sel func(*charSet) bluetooth.DeviceCharacteristic, value string) error {

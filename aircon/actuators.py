@@ -21,7 +21,8 @@ class Relays:
         self._fan_med   = machine.Pin(config.PIN_RELAY_FAN_MED,    machine.Pin.OUT)
         self._fan_high  = machine.Pin(config.PIN_RELAY_FAN_HIGH,   machine.Pin.OUT)
         self._comp      = machine.Pin(config.PIN_RELAY_COMPRESSOR, machine.Pin.OUT)
-        self._fresh_air = machine.Pin(config.PIN_RELAY_FRESH_AIR,  machine.Pin.OUT)
+        self._circ_a    = machine.Pin(config.PIN_RELAY_CIRC_A,     machine.Pin.OUT)
+        self._circ_b    = machine.Pin(config.PIN_RELAY_CIRC_B,     machine.Pin.OUT)
         self.all_off()
 
     async def set_fan(self, speed):
@@ -66,11 +67,13 @@ class Relays:
         self._comp.value(_relay_level(on))
 
     def set_circulation(self, circulation):
-        """off=recirc, on=fresh air."""
-        self._fresh_air.value(_relay_level(circulation == config.CIRC_FRESH))
+        """Both relays OFF = recirc, both ON = fresh air."""
+        level = _relay_level(circulation == config.CIRC_FRESH)
+        self._circ_a.value(level)
+        self._circ_b.value(level)
 
     def all_off(self):
-        for p in (self._fan_low, self._fan_med, self._fan_high, self._comp, self._fresh_air):
+        for p in (self._fan_low, self._fan_med, self._fan_high, self._comp, self._circ_a, self._circ_b):
             p.value(_relay_level(False))
 
 
