@@ -22,12 +22,6 @@
         max-width: 480px;
       }
 
-      h1 {
-        color: #4fc3f7;
-        font-size: 1.1rem;
-        letter-spacing: 0.1em;
-        margin-bottom: 1rem;
-      }
       h2 {
         color: #90caf9;
         font-size: 0.85rem;
@@ -67,28 +61,42 @@
 
       .btn-group {
         display: flex;
-        gap: 0.4rem;
-        flex-wrap: wrap;
       }
 
-      button {
+      .btn-group button {
         background: #2a2a2a;
         border: 1px solid #444;
         color: #aaa;
-        padding: 0.35rem 0.7rem;
-        border-radius: 4px;
+        padding: 0.35rem 0.6rem;
         cursor: pointer;
         font-family: monospace;
-        font-size: 0.85rem;
+        font-size: 0.8rem;
         transition: background 0.1s;
+        border-radius: 0;
+        margin-left: -1px;
       }
-      button:hover:not(:disabled) {
+      .btn-group button:first-child {
+        border-radius: 4px 0 0 4px;
+        margin-left: 0;
+      }
+      .btn-group button:last-child {
+        border-radius: 0 4px 4px 0;
+      }
+      #btn-group-mode button {
+        padding-left: 0.45rem;
+        padding-right: 0.45rem;
+      }
+      .btn-group button:hover:not(:disabled) {
         background: #383838;
+        position: relative;
+        z-index: 1;
       }
-      button.active {
+      .btn-group button.active {
         background: #1565c0;
         border-color: #42a5f5;
         color: #fff;
+        position: relative;
+        z-index: 1;
       }
       button:disabled,
       input:disabled {
@@ -142,36 +150,70 @@
         color: #555;
       }
 
+      input[type="text"] {
+        background: #2a2a2a;
+        border: 1px solid #444;
+        color: #fff;
+        padding: 0.3rem 0.45rem;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.85rem;
+      }
+      input[type="text"]:focus {
+        outline: 1px solid #42a5f5;
+      }
+
+      .hero {
+        position: relative;
+        margin-bottom: 0.65rem;
+      }
+      .hero img {
+        width: 100%;
+        display: block;
+      }
+      .hero-status {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.6rem;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+
       #refresh-dot {
         display: inline-block;
         width: 7px;
         height: 7px;
         border-radius: 50%;
         background: #555;
-        margin-left: 0.5rem;
-        vertical-align: middle;
+        flex-shrink: 0;
       }
       #refresh-dot.blink {
         background: #4caf50;
       }
 
       #last-update {
-        color: #555;
+        color: #999;
         font-size: 0.75rem;
-        margin-left: 0.4rem;
-        vertical-align: middle;
+        text-shadow: 0 1px 3px #000, 0 0 6px #000;
       }
     </style>
   </head>
   <body>
-    <h1>AIRCON <span id="refresh-dot"></span><span id="last-update"></span></h1>
+    <div class="hero">
+      <img src="/aircon.png" />
+      <div class="hero-status">
+        <span id="refresh-dot"></span>
+        <span id="last-update"></span>
+      </div>
+    </div>
 
     <!-- Control -->
     <div class="card">
       <h2>CONTROL</h2>
       <div class="row">
         <span class="lbl">Mode</span>
-        <div class="btn-group">
+        <div class="btn-group" id="btn-group-mode">
           <button id="btn-off" onclick="setAttr('mode', 'off')">Off</button>
           <button id="btn-fan" onclick="setAttr('mode', 'fan')">Fan</button>
           <button id="btn-cool" onclick="setAttr('mode', 'cool')">Cool</button>
@@ -265,7 +307,6 @@
         <input
           type="text"
           id="inp-ble-name"
-          style="width:150px"
           onchange="setAttr('ble_name', this.value)"
         />
       </div>
@@ -311,8 +352,6 @@
           onchange="setSetting('temp_read_interval', this.value)" />
       </div>
     </div>
-
-    <img src="/aircon.png" style="width:100%;display:block;margin-top:0.5rem" />
 
     <script>
       "use strict";
