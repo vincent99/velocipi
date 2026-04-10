@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,15 +63,16 @@ type TempSample struct {
 	BaggageTemp *float64  `json:"baggageTemp,omitempty"`
 	TailTemp    *float64  `json:"tailTemp,omitempty"`
 	PanelTemp   *float64  `json:"panelTemp,omitempty"`
+	OAT         *float64  `json:"oat,omitempty"` // outside air temp °F from G3X
 }
 
 // State is the complete current aircon controller state.
 type State struct {
-	Connected   bool     `json:"connected"`
-	Mode        string   `json:"mode"`
-	Fan         string   `json:"fan"`
-	Setpoint    float64  `json:"setpoint"`
-	Circulation string   `json:"circulation"`
+	Connected   bool                    `json:"connected"`
+	Mode        string                  `json:"mode"`
+	Fan         string                  `json:"fan"`
+	Setpoint    float64                 `json:"setpoint"`
+	Circulation string                  `json:"circulation"`
 	PanelTemp   float64                 `json:"panelTemp"`
 	Delta       float64                 `json:"delta"`    // convenience alias for Settings["delta"].Value
 	Settings    map[string]SettingValue `json:"settings"` // all 6 tunable settings with defaults
@@ -78,11 +80,11 @@ type State struct {
 	CurrentTemp *float64 `json:"currentTemp"`
 	Compressor  *string  `json:"compressor"` // "on" | "off" | null
 	CabinTemp   *float64 `json:"cabinTemp"`
-	BlowerTemp   *float64 `json:"blowerTemp"`
-	ExhaustTemp  *float64 `json:"exhaustTemp"`
-	BaggageTemp  *float64 `json:"baggageTemp"`
-	TailTemp     *float64 `json:"tailTemp"`
-	Error        string   `json:"error"`
+	BlowerTemp  *float64 `json:"blowerTemp"`
+	ExhaustTemp *float64 `json:"exhaustTemp"`
+	BaggageTemp *float64 `json:"baggageTemp"`
+	TailTemp    *float64 `json:"tailTemp"`
+	Error       string   `json:"error"`
 }
 
 // Config holds the BLE client configuration.
@@ -94,6 +96,9 @@ type Config struct {
 	ServiceUUID string
 	// HistoryMinutes is how long to keep temperature history in memory.
 	HistoryMinutes int
+	// SampleIntervalSecs is how often a temperature sample is recorded.
+	// Defaults to 10 seconds if zero.
+	SampleIntervalSecs int
 }
 
 // charSet holds writable characteristic handles for an active connection.
@@ -112,11 +117,34 @@ type Client struct {
 	svcUUID    bluetooth.UUID
 	histDur    time.Duration
 
-	mu       sync.RWMutex
-	state    State
-	history  []TempSample
-	chars    *charSet // non-nil only while connected
-	onChange func(State)
+	mu             sync.RWMutex
+	state          State
+	history        []TempSample
+	chars          *charSet // non-nil only while connected
+	onChange       func(State)
+	onSample       func(TempSample)
+	oatProvider    func() *float64 // optional; returns current OAT in °F
+	lastSentState  State
+	sampleInterval time.Duration
+
+	debounceMu    sync.Mutex
+	debounceTimer *time.Timer
+}
+
+// OnSample registers a callback invoked (from a goroutine) whenever a new
+// temperature sample is appended to history.
+func (c *Client) OnSample(fn func(TempSample)) {
+	c.mu.Lock()
+	c.onSample = fn
+	c.mu.Unlock()
+}
+
+// SetOATProvider registers a function that returns the current outside air
+// temperature in °F. If set, each history sample will include OAT.
+func (c *Client) SetOATProvider(fn func() *float64) {
+	c.mu.Lock()
+	c.oatProvider = fn
+	c.mu.Unlock()
 }
 
 // New creates a new AirCon BLE client from the given configuration.
@@ -129,10 +157,15 @@ func New(cfg Config) (*Client, error) {
 	if histDur <= 0 {
 		histDur = 30 * time.Minute
 	}
+	sampleInterval := time.Duration(cfg.SampleIntervalSecs) * time.Second
+	if sampleInterval <= 0 {
+		sampleInterval = 10 * time.Second
+	}
 	return &Client{
-		deviceName: cfg.DeviceName,
-		svcUUID:    svcUUID,
-		histDur:    histDur,
+		deviceName:     cfg.DeviceName,
+		svcUUID:        svcUUID,
+		histDur:        histDur,
+		sampleInterval: sampleInterval,
 	}, nil
 }
 
@@ -284,19 +317,23 @@ func (c *Client) connectLoop(ctx context.Context, adapter *bluetooth.Adapter, ad
 	s := c.state
 	c.mu.Unlock()
 
-	c.appendHistory()
 	if fn != nil {
 		go fn(s)
 	}
 
-	// Poll to detect disconnect: read mode characteristic every 10s.
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+	// pollTicker detects disconnects; sampleTicker records history at a fixed rate.
+	pollTicker := time.NewTicker(10 * time.Second)
+	sampleTicker := time.NewTicker(c.sampleInterval)
+	defer pollTicker.Stop()
+	defer sampleTicker.Stop()
+	c.appendHistory() // record one sample immediately on connect
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-sampleTicker.C:
+			c.appendHistory()
+		case <-pollTicker.C:
 			ch := charMap[uuidMode]
 			if ch == nil {
 				continue
@@ -402,7 +439,6 @@ func (c *Client) subscribeAll(charMap map[string]*bluetooth.DeviceCharacteristic
 			c.mu.Lock()
 			c.state.PanelTemp = f
 			c.mu.Unlock()
-			c.appendHistory()
 			c.notifyChange()
 		}
 	})
@@ -416,7 +452,6 @@ func (c *Client) subscribeAll(charMap map[string]*bluetooth.DeviceCharacteristic
 		c.mu.Lock()
 		c.applyStatusJSON(buf)
 		c.mu.Unlock()
-		c.appendHistory()
 		c.notifyChange()
 	})
 }
@@ -473,25 +508,47 @@ func (c *Client) applyStatusJSON(data []byte) {
 	}
 }
 
-// notifyChange fires the onChange callback with the current state.
+// notifyChange schedules the onChange callback to fire after a short debounce
+// window. Rapid-fire BLE notifications (one per characteristic) are coalesced
+// into a single broadcast.
 func (c *Client) notifyChange() {
 	c.mu.RLock()
 	fn := c.onChange
-	s := c.state
 	c.mu.RUnlock()
-	if fn != nil {
-		go fn(s)
+	if fn == nil {
+		return
 	}
+	c.debounceMu.Lock()
+	if c.debounceTimer != nil {
+		c.debounceTimer.Stop()
+	}
+	c.debounceTimer = time.AfterFunc(300*time.Millisecond, func() {
+		c.mu.Lock()
+		fn2 := c.onChange
+		s := c.state
+		changed := !reflect.DeepEqual(s, c.lastSentState)
+		if changed {
+			c.lastSentState = s
+		}
+		c.mu.Unlock()
+		if fn2 != nil && changed {
+			fn2(s)
+		}
+	})
+	c.debounceMu.Unlock()
 }
 
-// appendHistory appends the current temperature readings to history and trims
-// entries older than histDur.
+// appendHistory appends the current temperature readings to history, trims
+// entries older than histDur, and fires onSample with the new sample.
 func (c *Client) appendHistory() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	panel := c.state.PanelTemp
-	s := TempSample{
+	var oat *float64
+	if c.oatProvider != nil {
+		oat = c.oatProvider()
+	}
+	sample := TempSample{
 		Time:        time.Now(),
 		CurrentTemp: c.state.CurrentTemp,
 		CabinTemp:   c.state.CabinTemp,
@@ -500,8 +557,9 @@ func (c *Client) appendHistory() {
 		BaggageTemp: c.state.BaggageTemp,
 		TailTemp:    c.state.TailTemp,
 		PanelTemp:   &panel,
+		OAT:         oat,
 	}
-	c.history = append(c.history, s)
+	c.history = append(c.history, sample)
 
 	cutoff := time.Now().Add(-c.histDur)
 	i := 0
@@ -510,6 +568,13 @@ func (c *Client) appendHistory() {
 	}
 	if i > 0 {
 		c.history = c.history[i:]
+	}
+
+	fn := c.onSample
+	c.mu.Unlock()
+
+	if fn != nil {
+		go fn(sample)
 	}
 }
 

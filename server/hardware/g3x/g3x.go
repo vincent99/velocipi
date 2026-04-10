@@ -47,6 +47,9 @@ var initialState = State{
 	OAT:      40,
 }
 
+// CelsiusToFahrenheit converts a temperature from °C to °F.
+func CelsiusToFahrenheit(c float64) float64 { return c*9/5 + 32 }
+
 // New creates a G3X module initialised with the mock starting state.
 func New() *G3X {
 	return &G3X{state: initialState}

@@ -151,6 +151,9 @@ function init() {
       case 'airConHistory':
         airConHistory.value = msg.history;
         break;
+      case 'airConSample':
+        airConHistory.value = [...airConHistory.value, msg.sample];
+        break;
     }
   });
 

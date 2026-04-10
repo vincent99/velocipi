@@ -192,6 +192,7 @@ export interface AirConTempSample {
   baggageTemp?: number;
   tailTemp?: number;
   panelTemp?: number;
+  oat?: number; // outside air temp °F from G3X
 }
 
 export interface AirConStateMsg {
@@ -202,6 +203,11 @@ export interface AirConStateMsg {
 export interface AirConHistoryMsg {
   type: 'airConHistory';
   history: AirConTempSample[];
+}
+
+export interface AirConSampleMsg {
+  type: 'airConSample';
+  sample: AirConTempSample;
 }
 
 export type InboundWsMsg =
@@ -222,7 +228,8 @@ export type InboundWsMsg =
   | MusicStateMsg
   | MusicQueueMsg
   | AirConStateMsg
-  | AirConHistoryMsg;
+  | AirConHistoryMsg
+  | AirConSampleMsg;
 
 // Outbound messages (client → server, sent on /ws)
 

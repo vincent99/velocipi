@@ -80,14 +80,20 @@ type SiyiAttitudeMsg struct {
 
 // AirConStateMsg broadcasts the current aircon state to all WS clients.
 type AirConStateMsg struct {
-	Type  string        `json:"type"` // always "airConState"
-	State aircon.State  `json:"state"`
+	Type  string       `json:"type"` // always "airConState"
+	State aircon.State `json:"state"`
 }
 
 // AirConHistoryMsg sends the temperature history to a newly-connected client.
 type AirConHistoryMsg struct {
-	Type    string               `json:"type"` // always "airConHistory"
-	History []aircon.TempSample  `json:"history"`
+	Type    string              `json:"type"` // always "airConHistory"
+	History []aircon.TempSample `json:"history"`
+}
+
+// AirConSampleMsg broadcasts a single new temperature sample to all clients.
+type AirConSampleMsg struct {
+	Type   string            `json:"type"` // always "airConSample"
+	Sample aircon.TempSample `json:"sample"`
 }
 
 // Inbound message types from websocket clients.

@@ -45,9 +45,10 @@ func AirCon() *aircon.Client {
 			return
 		}
 		c, err := aircon.New(aircon.Config{
-			DeviceName:     cfg.AirCon.DeviceName,
-			ServiceUUID:    cfg.AirCon.ServiceUUID,
-			HistoryMinutes: cfg.AirCon.HistoryMinutes,
+			DeviceName:         cfg.AirCon.DeviceName,
+			ServiceUUID:        cfg.AirCon.ServiceUUID,
+			HistoryMinutes:     cfg.AirCon.HistoryMinutes,
+			SampleIntervalSecs: cfg.AirCon.SampleIntervalSecs,
 		})
 		if err != nil {
 			log.Println("hardware: aircon init error:", err)

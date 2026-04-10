@@ -2,6 +2,7 @@
 import { defineComponent, computed, h } from 'vue';
 import type { PanelMeta } from '@/types/config';
 import { useDeviceState } from '@/composables/useDeviceState';
+import RedX from '@/components/RedX.vue';
 
 const modeIcon: Record<string, string> = {
   off: 'fi-sr-power-off',
@@ -21,6 +22,7 @@ const AirConHeader = defineComponent({
   name: 'AirConHeader',
   setup() {
     const { airConState } = useDeviceState();
+    const connected = computed(() => airConState.value?.connected ?? false);
     const modeIconClass = computed(
       () => modeIcon[airConState.value?.mode ?? ''] ?? 'fi-sr-power-off'
     );
@@ -48,6 +50,7 @@ const AirConHeader = defineComponent({
         h('div', { class: 'ac-cell' }, [
           h('span', { class: 'ac-val' }, currTemp.value),
         ]),
+        !connected.value ? h(RedX, { strokeWidth: 3 }) : null,
       ]);
   },
 });
@@ -64,8 +67,11 @@ export const headerComponent = AirConHeader;
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { useDeviceState } from '@/composables/useDeviceState';
+import LineGraph from '@/components/remote/LineGraph.vue';
+import RedX from '@/components/RedX.vue';
+import type { GraphSeries } from '@/components/remote/LineGraph.vue';
 
-const { airConState, g3xState } = useDeviceState();
+const { airConState, g3xState, airConHistory } = useDeviceState();
 
 const busy = ref(false);
 const lastError = ref('');
@@ -146,14 +152,88 @@ const oatLabel = computed(() => {
   const oat = g3xState.value?.oatCelsius;
   return oat != null ? ((oat * 9) / 5 + 32).toFixed(0) + '°F' : '—';
 });
+
+// ── Temperature history graph ─────────────────────────────────────────────
+// Colors from the Okabe-Ito colorblind-safe palette; patterns further
+// distinguish lines for monochromacy. "Current" is bold white — most important.
+
+interface SensorDef {
+  key: keyof (typeof airConHistory.value)[0];
+  name: string;
+  color: string;
+  strokeWidth?: number;
+  strokeDasharray?: string;
+}
+
+const sensorDefs: SensorDef[] = [
+  // Bold solid white — the primary control temperature
+  {
+    key: 'currentTemp',
+    name: 'Current',
+    color: '#ffffff',
+    strokeWidth: 2.5,
+  },
+  // Vivid sky blue, solid
+  { key: 'cabinTemp', name: 'Cabin', color: '#34C6FF' },
+  // Vivid green, long dash
+  {
+    key: 'blowerTemp',
+    name: 'Blower',
+    color: '#00E5A0',
+    strokeDasharray: '8,4',
+  },
+  // Vivid amber, short dash
+  {
+    key: 'exhaustTemp',
+    name: 'Exhaust',
+    color: '#FFB800',
+    strokeDasharray: '4,3',
+  },
+  // Hot pink, dot-dash
+  {
+    key: 'panelTemp',
+    name: 'Panel',
+    color: '#FF5FBD',
+    strokeDasharray: '6,3,2,3',
+  },
+  // Vivid orange-red, dots
+  {
+    key: 'baggageTemp',
+    name: 'Baggage',
+    color: '#FF5500',
+    strokeDasharray: '2,4',
+  },
+  // Vivid blue, long dash-dot
+  {
+    key: 'tailTemp',
+    name: 'Tail',
+    color: '#2196FF',
+    strokeDasharray: '10,3,2,3',
+  },
+  // Light gray, long dash — external source, visually secondary
+  { key: 'oat', name: 'OAT', color: '#cccccc', strokeDasharray: '12,4' },
+];
+
+const graphSeries = computed<GraphSeries[]>(() => {
+  const hist = airConHistory.value;
+  return sensorDefs
+    .map((def) => ({
+      name: def.name,
+      color: def.color,
+      strokeWidth: def.strokeWidth,
+      strokeDasharray: def.strokeDasharray,
+      data: hist.map((s) => ({
+        time: new Date(s.time),
+        value: (s[def.key] as number | undefined) ?? null,
+      })),
+    }))
+    .filter((s) => s.data.some((d) => d.value !== null && d.value !== 0));
+});
 </script>
 
 <template>
   <div class="aircon-page">
-    <div v-if="!connected" class="ac-disconnected">
-      <i class="fi-sr-snowflake" />
-      <span>Air conditioner not connected</span>
-    </div>
+    <RedX v-if="!connected" message="Air conditioner not connected" />
 
     <template v-else>
       <!-- Status banner -->
@@ -281,6 +361,17 @@ const oatLabel = computed(() => {
         <h2>Error</h2>
         <div class="ac-error-val">{{ state.error }}</div>
       </div>
+
+      <!-- Temperature history graph -->
+      <div v-if="graphSeries.length" class="ac-section">
+        <h2>Temperature History</h2>
+        <LineGraph
+          :series="graphSeries"
+          :height="200"
+          :y-min="60"
+          :y-max="120"
+        />
+      </div>
     </template>
   </div>
 </template>
@@ -297,18 +388,6 @@ const oatLabel = computed(() => {
   gap: 0.75rem;
 }
 
-.ac-disconnected {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  color: #888;
-  font-size: 1rem;
-  padding: 2rem 0;
-
-  i {
-    font-size: 1.5rem;
-  }
-}
 
 .ac-error {
   background: rgba(239, 68, 68, 0.2);
@@ -505,6 +584,7 @@ const oatLabel = computed(() => {
 <style lang="scss">
 /* Global styles for the AirCon header component in the nav bar */
 .ac-hdr {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;

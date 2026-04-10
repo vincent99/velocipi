@@ -19,8 +19,9 @@ const props = withDefaults(
     options: SelectOption[];
     modelValue: string;
     disabled?: boolean;
+    wrap?: boolean;
   }>(),
-  { colSpan: 1, rowSpan: 1, disabled: false }
+  { colSpan: 1, rowSpan: 1, disabled: false, wrap: true }
 );
 
 const emit = defineEmits<{
@@ -77,9 +78,13 @@ function onInner(dir: 'left' | 'right') {
     return;
   }
   if (dir === 'left') {
-    pendingIndex.value = (pendingIndex.value - 1 + len) % len;
+    pendingIndex.value = props.wrap
+      ? (pendingIndex.value - 1 + len) % len
+      : Math.max(pendingIndex.value - 1, 0);
   } else {
-    pendingIndex.value = (pendingIndex.value + 1) % len;
+    pendingIndex.value = props.wrap
+      ? (pendingIndex.value + 1) % len
+      : Math.min(pendingIndex.value + 1, len - 1);
   }
 }
 

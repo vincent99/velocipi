@@ -182,6 +182,8 @@ type AirConConfig struct {
 	ServiceUUID string `yaml:"serviceUUID" json:"serviceUUID"`
 	// HistoryMinutes is how many minutes of temperature data to keep in memory.
 	HistoryMinutes int `yaml:"historyMinutes" json:"historyMinutes"`
+	// SampleIntervalSecs is how often a temperature sample is recorded. Defaults to 10.
+	SampleIntervalSecs int `yaml:"sampleIntervalSecs" json:"sampleIntervalSecs"`
 }
 
 // Config holds all runtime configuration.
