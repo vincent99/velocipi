@@ -362,6 +362,7 @@
       <div class="row">
         <span class="lbl"></span>
         <button id="btn-restart" onclick="restart()">Restart</button>
+        <a id="btn-repl" href="#" onclick="openRepl(); return false;"><button>REPL</button></a>
       </div>
     </div>
 
@@ -535,6 +536,11 @@
         if (!isNaN(n)) {
           setAttr(attr, n);
         }
+      }
+
+      function openRepl() {
+        var wsUrl = 'ws://' + window.location.hostname + ':8266';
+        window.open('/repl?webrepl_url=' + encodeURIComponent(wsUrl), '_blank');
       }
 
       function restart() {

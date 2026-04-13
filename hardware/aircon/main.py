@@ -9,6 +9,7 @@ Boot sequence:
   5. WiFi connects in the background; web server becomes reachable once it's up
      and will reconnect automatically if the link drops
      Note: NTP is not used — the RTC starts at 2021-01-01 on each boot
+     WebREPL is started from boot.py (password: purplemonkeydishwasher, port 8266)
 """
 
 import asyncio
@@ -30,14 +31,22 @@ async def watchdog_task():
     """Arm the watchdog after other tasks have started.
     Timeout is the hardware max (8388 ms); feed every 7 s giving ~1.3 s of
     headroom.  The WDT only fires if the event loop is completely stuck for
-    >8 s — not just slow."""
+    >8 s — not just slow.
+    If /nowatch exists on the filesystem, the watchdog is skipped entirely."""
     await asyncio.sleep_ms(100)
+    try:
+        import os
+        os.stat('/nowatch')
+        log.log('watchdog', 'disabled — /nowatch present')
+        return
+    except OSError:
+        pass
     log.log('watchdog', 'arming')
     wdt = machine.WDT(timeout=8388)
     wdt.feed()
     log.log('watchdog', 'armed')
     while True:
-        await asyncio.sleep(7)
+        await asyncio.sleep(1)
         wdt.feed()
 
 
@@ -49,16 +58,6 @@ async def monitor_task():
         gc.collect()
         after = gc.mem_free()
         log.log('monitor', f'mem_free={after}  reclaimed={after-before}  alloc={gc.mem_alloc()}  web_active={web_server._active}')
-
-
-def _start_webrepl():
-    """Start WebREPL if a password file exists at /webrepl_cfg.py. Does not raise."""
-    try:
-        import webrepl
-        webrepl.start()
-        log.log('webrepl', 'started')
-    except Exception as e:
-        log.log('webrepl', f'start failed: {e}')
 
 
 def _start_ap(ctrl):
@@ -86,15 +85,10 @@ async def wifi_task(ctrl):
     wlan.active(True)
     wlan.config(pm=0xa11140)  # CYW43_NO_POWERSAVE_MODE — keep radio always-on
     already_connected = False
-    webrepl_started = False
     while True:
         if wlan.isconnected():
             if not already_connected:
                 log.log('wifi', f'connected — http://{wlan.ifconfig()[0]}/')
-
-                if not webrepl_started:
-                    _start_webrepl()
-                    webrepl_started = True
                 already_connected = True
             await asyncio.sleep(10)
             continue
@@ -117,10 +111,6 @@ async def wifi_task(ctrl):
             if wlan.isconnected():
                 already_connected = True
                 log.log('wifi', f'connected — http://{wlan.ifconfig()[0]}/')
-
-                if not webrepl_started:
-                    _start_webrepl()
-                    webrepl_started = True
             else:
                 wlan.disconnect()
                 log.log('wifi', 'connection failed, retrying in 30s')

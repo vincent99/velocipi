@@ -72,30 +72,42 @@ class BLEServer:
 
         svc = aioble.Service(bluetooth.UUID(config.BLE_SVC_UUID))
 
-        def _rw(uuid):
-            return aioble.Characteristic(
+        # Characteristic Presentation Format descriptor (0x2904) — UTF-8 string.
+        # Format=0x19, Exponent=0x00, Unit=0x2700 (unitless LE), Namespace=0x01, Description=0x0000
+        _CPF_UTF8 = b'\x19\x00\x00\x27\x01\x00\x00'
+
+        def _rw(uuid, label):
+            c = aioble.Characteristic(
                 svc, bluetooth.UUID(uuid),
                 read=True, write=True, write_no_response=True,
                 notify=self._notify, capture=True,
             )
-        def _rn(uuid):
-            return aioble.Characteristic(
+            aioble.Descriptor(c, bluetooth.UUID(0x2904), read=True, initial=_CPF_UTF8)
+            aioble.Descriptor(c, bluetooth.UUID(0x2901), read=True, initial=label.encode())
+            return c
+
+        def _rn(uuid, label):
+            c = aioble.Characteristic(
                 svc, bluetooth.UUID(uuid),
                 read=True, notify=self._notify,
             )
+            aioble.Descriptor(c, bluetooth.UUID(0x2904), read=True, initial=_CPF_UTF8)
+            aioble.Descriptor(c, bluetooth.UUID(0x2901), read=True, initial=label.encode())
+            return c
 
-        self._c_mode     = _rw(config.BLE_UUID_MODE)
-        self._c_fan      = _rw(config.BLE_UUID_FAN)
-        self._c_setpoint = _rw(config.BLE_UUID_SETPOINT)
-        self._c_circ     = _rw(config.BLE_UUID_CIRC)
-        self._c_panel    = _rw(config.BLE_UUID_PANEL)
-        self._c_settings = _rw(config.BLE_UUID_SETTINGS)
-        self._c_status   = _rn(config.BLE_UUID_STATUS)
+        self._c_mode     = _rw(config.BLE_UUID_MODE,     'Mode (off/fan/cool/auto)')
+        self._c_fan      = _rw(config.BLE_UUID_FAN,      'Fan Speed (low/medium/high)')
+        self._c_setpoint = _rw(config.BLE_UUID_SETPOINT, 'Setpoint (°F)')
+        self._c_circ     = _rw(config.BLE_UUID_CIRC,     'Circulation (recirc/fresh')
+        self._c_panel    = _rw(config.BLE_UUID_PANEL,    'Panel Temp (°F)')
+        self._c_settings = _rw(config.BLE_UUID_SETTINGS, 'Settings (JSON)')
+        self._c_status   = _rn(config.BLE_UUID_STATUS,   'Status (JSON)')
 
         self._svc = svc  # registered lazily in run()
         self._connections: set = set()
         self._state_event = asyncio.Event()
-        self._last_status: bytes = b''  # last JSON sent via notify; skip if unchanged
+        self._last_status: bytes = b''   # dedup for status characteristic
+        self._last_char: dict = {}       # dedup for writable characteristics
 
     def notify_state_changed(self):
         """Called by the controller after any state change."""
@@ -108,18 +120,24 @@ class BLEServer:
         return round(float(v), 2) if v is not None else None
 
     def _push_state(self, s=None):
-        """Update all readable characteristic values; notify only status (0007).
-        Writable characteristics are NOT notified — clients read them on demand.
-        Sending notify on every writable char floods the client with 6 extra
-        notifications per cycle that it doesn't need."""
+        """Update all characteristic values; notify only on changes."""
         if s is None:
             s = self._ctrl.get_state()
-        self._c_mode.write(_enc_str(s['mode']))
-        self._c_fan.write(_enc_str(s['fan']))
-        self._c_setpoint.write(_enc_f(s['setpoint']))
-        self._c_circ.write(_enc_str(s['circulation']))
-        self._c_panel.write(_enc_f(s['panel_temp']))
-        self._c_settings.write(json.dumps({
+
+        def _write(name, char, value: bytes):
+            if self._last_char.get(name) != value:
+                self._last_char[name] = value
+                try:
+                    char.write(value, send_update=self._notify)
+                except OSError:
+                    char.write(value)  # no subscribers — write without notify
+
+        _write('mode',     self._c_mode,     _enc_str(s['mode']))
+        _write('fan',      self._c_fan,      _enc_str(s['fan']))
+        _write('setpoint', self._c_setpoint, _enc_f(s['setpoint']))
+        _write('circ',     self._c_circ,     _enc_str(s['circulation']))
+        _write('panel',    self._c_panel,    _enc_f(s['panel_temp']))
+        _write('settings', self._c_settings, json.dumps({
             k: {'value': s[k], 'default': _SETTINGS_DEFAULTS[k]}
             for k in _SETTINGS_DEFAULTS if k in s
         }).encode())
@@ -147,7 +165,10 @@ class BLEServer:
         self._last_status = payload
         import time
         t0 = time.ticks_ms()
-        self._c_status.write(payload, send_update=True)
+        try:
+            self._c_status.write(payload, send_update=True)
+        except OSError:
+            self._c_status.write(payload)
         t1 = time.ticks_ms()
         log.log('ble', f'notify status: curr={status["curr"]}  comp={status["comp"]}  err={status["err"]!r}  write_ms={time.ticks_diff(t1, t0)}')
 
@@ -156,6 +177,7 @@ class BLEServer:
     async def _connection_task(self, connection):
         self._connections.add(connection)
         self._last_status = b''  # force full push on connect
+        self._last_char = {}
         if self._led:
             self._led.set_ble_count(len(self._connections))
         log.log('ble', f'connected: {connection.device}')
@@ -180,9 +202,9 @@ class BLEServer:
                     pass
                 self._state_event.clear()
                 try:
-                    self._push_status()
+                    self._push_state()
                 except Exception as e:
-                    log.log('ble', f'push_status error: {e}')
+                    log.log('ble', f'push_state error: {e}')
                 # Hard rate limit: sleep the full interval before the next push.
                 # This ensures notifications never come faster than BLE_NOTIFY_INTERVAL
                 # even if notify_state_changed() is called in a tight loop.

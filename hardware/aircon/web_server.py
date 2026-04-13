@@ -93,7 +93,6 @@ async def _handle(reader, writer, ctrl):
                     f'HTTP/1.1 200 OK\r\n'
                     f'Content-Type: text/html; charset=utf-8\r\n'
                     f'Content-Length: {size}\r\n'
-                    'Cache-Control: public, max-age=31536000, immutable\r\n'
                     'Connection: close\r\n'
                     'Access-Control-Allow-Origin: *\r\n'
                     '\r\n'
@@ -172,6 +171,36 @@ async def _handle(reader, writer, ctrl):
                 _response(writer, '200 OK', 'text/plain', b'OK')
             else:
                 _response(writer, '400 Bad Request', 'text/plain', b'invalid attribute or value')
+
+        elif method == 'GET' and ('.' in path):
+            ext = path.rsplit('.', 1)[-1].lower()
+            mime = {'js': 'application/javascript', 'css': 'text/css'}.get(ext)
+            if mime:
+                try:
+                    import os
+                    fpath = path if path.startswith('/') else '/' + path
+                    size = os.stat(fpath)[6]
+                    writer.write(
+                        f'HTTP/1.1 200 OK\r\n'
+                        f'Content-Type: {mime}\r\n'
+                        f'Content-Length: {size}\r\n'
+                        'Cache-Control: public, max-age=31536000, immutable\r\n'
+                        'Connection: close\r\n'
+                        'Access-Control-Allow-Origin: *\r\n'
+                        '\r\n'
+                    )
+                    with open(fpath, 'rb') as f:
+                        while True:
+                            chunk = f.read(2048)
+                            if not chunk:
+                                break
+                            writer.write(chunk)
+                            await asyncio.wait_for(writer.drain(), 5)
+                except Exception as e:
+                    log.log('web', f'static {path}: {e}')
+                    _response(writer, '404 Not Found', 'text/plain', b'not found')
+            else:
+                _response(writer, '404 Not Found', 'text/plain', b'not found')
 
         else:
             _response(writer, '404 Not Found', 'text/plain', b'not found')
