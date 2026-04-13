@@ -8,13 +8,13 @@ Boot sequence:
   4. Beep twice to indicate ready
   5. WiFi connects in the background; web server becomes reachable once it's up
      and will reconnect automatically if the link drops
+     Note: NTP is not used — the RTC starts at 2021-01-01 on each boot
 """
 
 import asyncio
 import gc
 import machine
 import network
-import ntptime
 import config
 import log
 import web_server
@@ -26,34 +26,18 @@ from ble_server import BLEServer
 from web_server import WebServer
 
 
-def _sync_ntp():
-    """Synchronise RTC from NTP; logs success or failure. Does not raise."""
-    try:
-        ntptime.settime()
-        import time
-        t = time.localtime()
-        log.log('ntp', f'time set — {t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d} UTC')
-    except Exception as e:
-        log.log('ntp', f'sync failed: {e}')
-
-
 async def watchdog_task():
-    """Arm the watchdog quickly so it can recover a hung BLE or WiFi init.
-    The timeout is set to 8 s (hardware max); we feed every 4 s.
-    The WDT will fire if any synchronous call blocks the event loop for > 8 s
-    (e.g. a hung BLE stack init), triggering a hard reset which runs cyw43_deinit
-    and clears the dirty CYW43 BT state that causes the hang on soft reboot."""
-    # Must arm before BLE can block (~1 s into startup), but give other tasks
-    # one event-loop cycle first.  Once armed, WDT fires 8 s after the last
-    # feed, which causes a hard reset — clearing the dirty CYW43 BT state
-    # that makes register_services hang on soft reboot.
+    """Arm the watchdog after other tasks have started.
+    Timeout is the hardware max (8388 ms); feed every 7 s giving ~1.3 s of
+    headroom.  The WDT only fires if the event loop is completely stuck for
+    >8 s — not just slow."""
     await asyncio.sleep_ms(100)
     log.log('watchdog', 'arming')
-    wdt = machine.WDT(timeout=8000)
+    wdt = machine.WDT(timeout=8388)
     wdt.feed()
     log.log('watchdog', 'armed')
     while True:
-        await asyncio.sleep(4)
+        await asyncio.sleep(7)
         wdt.feed()
 
 
@@ -77,8 +61,27 @@ def _start_webrepl():
         log.log('webrepl', f'start failed: {e}')
 
 
-async def wifi_task():
-    """Background task: connect to WiFi and reconnect whenever the link drops."""
+def _start_ap(ctrl):
+    """Configure and start WiFi AP mode if /wifi_ap.json is present."""
+    ap_cfg = config.WIFI_AP_CONFIG
+    if not ap_cfg:
+        return
+    try:
+        ssid     = ap_cfg.get('ssid', '').strip() or ctrl.ble_device_name
+        password = ap_cfg.get('password', '')
+        security = ap_cfg.get('security', 3)
+        ap = network.WLAN(network.AP_IF)
+        ap.active(True)
+        ap.config(ssid=ssid, password=password, security=security)
+        log.log('wifi', f'AP started — ssid={ssid}  ip={ap.ifconfig()[0]}')
+    except Exception as e:
+        log.log('wifi', f'AP start error: {e}')
+
+
+async def wifi_task(ctrl):
+    """Background task: start AP if configured, then connect as client and reconnect on drop."""
+    _start_ap(ctrl)
+
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     wlan.config(pm=0xa11140)  # CYW43_NO_POWERSAVE_MODE — keep radio always-on
@@ -88,7 +91,7 @@ async def wifi_task():
         if wlan.isconnected():
             if not already_connected:
                 log.log('wifi', f'connected — http://{wlan.ifconfig()[0]}/')
-                _sync_ntp()
+
                 if not webrepl_started:
                     _start_webrepl()
                     webrepl_started = True
@@ -112,14 +115,18 @@ async def wifi_task():
                 await asyncio.sleep(1)
 
             if wlan.isconnected():
+                already_connected = True
                 log.log('wifi', f'connected — http://{wlan.ifconfig()[0]}/')
-                _sync_ntp()
+
+                if not webrepl_started:
+                    _start_webrepl()
+                    webrepl_started = True
             else:
                 wlan.disconnect()
                 log.log('wifi', 'connection failed, retrying in 30s')
                 await asyncio.sleep(30)
         else:
-            log.log('wifi', 'no SSID configured')
+            log.log('wifi', 'no client SSID configured')
             await asyncio.sleep(60)
 
 
@@ -175,7 +182,7 @@ async def main():
     asyncio.create_task(guarded('watchdog', watchdog_task()))
     asyncio.create_task(guarded('monitor',  monitor_task()))
     asyncio.create_task(guarded('ble',      ble_task()))
-    asyncio.create_task(guarded('wifi',     wifi_task()))
+    asyncio.create_task(guarded('wifi',     wifi_task(ctrl)))
     asyncio.create_task(guarded('web',      web.run()))
 
     led.ready()

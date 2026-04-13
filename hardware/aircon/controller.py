@@ -38,6 +38,8 @@ class ACController:
         self.auto_loop_interval  = float(saved.get('auto_loop_interval',  config.DEFAULT_AUTO_LOOP_INTERVAL))
         self.temp_read_interval  = float(saved.get('temp_read_interval',  config.DEFAULT_TEMP_READ_INTERVAL))
         self.ble_notify          = bool(saved.get('ble_notify',           config.DEFAULT_BLE_NOTIFY))
+        self.ble_device_name     = saved.get('ble_device_name',          config.BLE_DEVICE_NAME)
+        config.BLE_DEVICE_NAME   = self.ble_device_name  # keep module-level var in sync
 
         # panel_temp is never persisted; 0 means "not available".
         self.panel_temp = 0.0
@@ -154,15 +156,11 @@ class ACController:
         name = name.strip()
         if not name:
             return False
-        try:
-            with open('/name.txt', 'w') as f:
-                f.write(name)
-            config.BLE_DEVICE_NAME = name
-            log.log(source, f'ble_name → {name}')
-            return True
-        except Exception as e:
-            self._error = 'BLE name save failed: ' + str(e)
-            return False
+        self.ble_device_name   = name
+        config.BLE_DEVICE_NAME = name
+        log.log(source, f'ble_name → {name}  (takes effect on restart)')
+        self._save()
+        return True
 
     async def set_settings(self, settings, source='system'):
         """Update tunable settings from a dict. Unknown keys are ignored."""
@@ -222,7 +220,7 @@ class ACController:
             'error':               self._error,
             'pwm_freq':            self._pwm.frequency,
             'pwm_duty':            self._pwm.duty_cycle,
-            'ble_device_name':     config.BLE_DEVICE_NAME,
+            'ble_device_name':     self.ble_device_name,
             'ble_notify':          self.ble_notify,
         }
 

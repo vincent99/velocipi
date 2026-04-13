@@ -2,11 +2,11 @@
 Minimal async HTTP server.
 
 Routes:
-  GET  /           → serves static/index.html
+  GET  /           → serves /index.html
   GET  /state      → JSON snapshot of controller state
   POST /set/<attr> → set a writable attribute; body is plain text value
 
-The HTML file is read from /static/index.html on the Pico filesystem.
+The HTML file is read from /index.html on the Pico filesystem.
 """
 
 import asyncio
@@ -17,7 +17,7 @@ import log
 
 _active = 0  # currently open handler coroutines
 
-_HTML_PATH = '/static/index.html'
+_HTML_PATH = '/index.html'
 _HTML_CACHE = None  # loaded and encoded once on first request
 
 
@@ -31,7 +31,7 @@ def _load_html():
             _HTML_CACHE = (
                 b'<!DOCTYPE html><html><body>'
                 b'<h1>UI not found</h1>'
-                b'<p>Copy static/index.html to /static/index.html on the Pico.</p>'
+                b'<p>Copy static/index.html to /index.html on the Pico.</p>'
                 b'</body></html>'
             )
     return _HTML_CACHE
@@ -88,7 +88,7 @@ async def _handle(reader, writer, ctrl):
         elif method == 'GET' and path == '/repl':
             try:
                 import os
-                size = os.stat('/static/webrepl.html')[6]
+                size = os.stat('/webrepl.html')[6]
                 writer.write(
                     f'HTTP/1.1 200 OK\r\n'
                     f'Content-Type: text/html; charset=utf-8\r\n'
@@ -98,7 +98,7 @@ async def _handle(reader, writer, ctrl):
                     'Access-Control-Allow-Origin: *\r\n'
                     '\r\n'
                 )
-                with open('/static/webrepl.html', 'rb') as f:
+                with open('/webrepl.html', 'rb') as f:
                     while True:
                         chunk = f.read(2048)
                         if not chunk:
@@ -112,7 +112,7 @@ async def _handle(reader, writer, ctrl):
         elif method == 'GET' and path == '/aircon.png':
             try:
                 import os
-                size = os.stat('/static/aircon.png')[6]
+                size = os.stat('/aircon.png')[6]
                 writer.write(
                     f'HTTP/1.1 200 OK\r\n'
                     f'Content-Type: image/png\r\n'
@@ -122,7 +122,7 @@ async def _handle(reader, writer, ctrl):
                     'Access-Control-Allow-Origin: *\r\n'
                     '\r\n'
                 )
-                with open('/static/aircon.png', 'rb') as f:
+                with open('/aircon.png', 'rb') as f:
                     while True:
                         chunk = f.read(2048)
                         if not chunk:

@@ -66,38 +66,45 @@ DEFAULT_AUTO_LOOP_INTERVAL = 5
 DEFAULT_TEMP_READ_INTERVAL = 3
 
 # ── Persistence ───────────────────────────────────────────────────────────────
-STORAGE_FILE = '/aircon_settings.json'
+STORAGE_FILE = '/settings.json'
 
-# ── WiFi ─────────────────────────────────────────────────────────────────────
-# Credentials are read from /wifi.json on the Pico filesystem so they are
-# never stored in source control.  File format: {"ssid": "...", "password": "..."}
-def _load_wifi():
+# ── WiFi client ──────────────────────────────────────────────────────────────
+# Credentials are read from /wifi_client.json on the Pico filesystem so they
+# are never stored in source control.  Format: {"ssid": "...", "password": "..."}
+def _load_wifi_client():
     import json as _json
     try:
-        with open('/wifi.json') as _f:
+        with open('/wifi_client.json') as _f:
             _d = _json.load(_f)
-        return _d['ssid'], _d['password']
+        return _d.get('ssid', ''), _d.get('password', '')
     except Exception:
         return '', ''
 
-WIFI_SSID, WIFI_PASSWORD = _load_wifi()
+WIFI_SSID, WIFI_PASSWORD = _load_wifi_client()
+
+# ── WiFi AP ───────────────────────────────────────────────────────────────────
+# Optional access-point config from /wifi_ap.json.
+# Format: {"ssid": "...", "password": "...", "security": 3}
+# If ssid is absent/empty the BLE device name is used as the SSID.
+# If the file is absent, AP mode is not started.
+def _load_wifi_ap():
+    import json as _json
+    try:
+        with open('/wifi_ap.json') as _f:
+            _d = _json.load(_f)
+        return _d
+    except Exception:
+        return None
+
+WIFI_AP_CONFIG = _load_wifi_ap()
 
 # ── Web server ────────────────────────────────────────────────────────────────
 WEB_PORT = 80
 
 # ── BLE ───────────────────────────────────────────────────────────────────────
-# Device name is read from /name.txt (one line, no trailing newline needed).
-# If the file is absent the default 'AirCon' is used.  Add /name.txt to the
-# Pico filesystem via mpremote/Thonny; it is listed in .gitignore.
-def _load_device_name():
-    try:
-        with open('/name.txt') as _f:
-            _name = _f.read().strip()
-        return _name if _name else 'AirCon'
-    except Exception:
-        return 'AirCon'
-
-BLE_DEVICE_NAME   = _load_device_name()
+# BLE_DEVICE_NAME is loaded from storage (STORAGE_FILE) at runtime by the
+# controller; this default is used when no saved value exists.
+BLE_DEVICE_NAME     = 'AirCon'  # updated at runtime by ACController
 BLE_NOTIFY_INTERVAL = 2  # seconds between GATT notifications
 
 # ── BLE UUIDs (128-bit custom service) ───────────────────────────────────────

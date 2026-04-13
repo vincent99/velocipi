@@ -146,8 +146,10 @@ class BLEServer:
             return
         self._last_status = payload
         import time
-        log.log('ble', f'notify status: curr={status["curr"]}  comp={status["comp"]}  err={status["err"]!r}  t={time.ticks_ms()}')
+        t0 = time.ticks_ms()
         self._c_status.write(payload, send_update=True)
+        t1 = time.ticks_ms()
+        log.log('ble', f'notify status: curr={status["curr"]}  comp={status["comp"]}  err={status["err"]!r}  write_ms={time.ticks_diff(t1, t0)}')
 
     # ── Per-connection task: push state on connect, then on changes/heartbeat ──
 
@@ -229,11 +231,13 @@ class BLEServer:
 
         while True:
             try:
+                log.log('ble', 'advertising')
                 connection = await aioble.advertise(
                     500_000,  # advertising interval µs
                     name=config.BLE_DEVICE_NAME,
                     services=[bluetooth.UUID(config.BLE_SVC_UUID)],
                 )
+                log.log('ble', 'advertise returned')
                 asyncio.create_task(self._connection_task(connection))
             except Exception as e:
                 log.log('ble', f'advertise error: {e}')
