@@ -64,28 +64,54 @@ def _start_ap(ctrl):
     """Configure and start WiFi AP mode if /wifi_ap.json is present."""
     ap_cfg = config.WIFI_AP_CONFIG
     if not ap_cfg:
+        log.log('ap', 'no /wifi_ap.json — skipping')
         return
     try:
         ssid     = ap_cfg.get('ssid', '').strip() or ctrl.ble_device_name
         password = ap_cfg.get('password', '')
-        security = ap_cfg.get('security', 3)
+        # CYW43_AUTH_WPA2_AES_PSK = 0x00400004
+        security = ap_cfg.get('security', 0x00400004)
+        log.log('ap', f'activating — ssid={ssid}  security={security}  password={"(set)" if password else "(none)"}')
         ap = network.WLAN(network.AP_IF)
-        ap.active(True)
+        ap.active(False)
         ap.config(ssid=ssid, password=password, security=security)
-        log.log('wifi', f'AP started — ssid={ssid}  ip={ap.ifconfig()[0]}')
+        ap.active(True)
+        # No gateway/DNS — tells DHCP clients there is no internet route,
+        # so iOS/Android won't try to tunnel internet traffic through the Pico
+        # or show persistent "no internet" / "keep trying WiFi" prompts.
+        ap.ifconfig(('192.168.4.1', '255.255.255.0', '0.0.0.0', '0.0.0.0'))
+        log.log('ap', f'active={ap.active()}')
+        cfg = ap.ifconfig()
+        log.log('ap', f'ready — ssid={ssid}  ip={cfg[0]}  mask={cfg[1]}  gw={cfg[2]}')
+        log.log('ap', f'status={ap.status()}')
     except Exception as e:
-        log.log('wifi', f'AP start error: {e}')
+        import sys, io
+        buf = io.StringIO()
+        sys.print_exception(e, buf)
+        log.log('ap', f'start error: {buf.getvalue()}')
 
 
 async def wifi_task(ctrl):
     """Background task: start AP if configured, then connect as client and reconnect on drop."""
     _start_ap(ctrl)
 
+    ap = network.WLAN(network.AP_IF) if config.WIFI_AP_CONFIG else None
+    last_ap_status = None
+
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     wlan.config(pm=0xa11140)  # CYW43_NO_POWERSAVE_MODE — keep radio always-on
     already_connected = False
     while True:
+        if ap:
+            try:
+                st = ap.status()
+                cfg = ap.ifconfig()
+                if st != last_ap_status:
+                    log.log('ap', f'status={st}  ip={cfg[0]}  active={ap.active()}')
+                    last_ap_status = st
+            except Exception as e:
+                log.log('ap', f'poll error: {e}')
         if wlan.isconnected():
             if not already_connected:
                 log.log('wifi', f'connected — http://{wlan.ifconfig()[0]}/')

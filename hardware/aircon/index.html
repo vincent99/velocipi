@@ -237,13 +237,16 @@
       </div>
       <div class="row">
         <span class="lbl">Setpoint (&deg;F)</span>
+        <span id="lbl-setpoint" style="min-width:2.5rem; text-align:right; margin-right:0.5rem;"></span>
         <input
-          type="number"
+          type="range"
           id="inp-setpoint"
-          step="0.5"
-          min="50"
-          max="99"
+          step="1"
+          min="60"
+          max="80"
+          oninput="document.getElementById('lbl-setpoint').textContent = this.value + '°'"
           onchange="setNum('setpoint', this.value)"
+          style="flex:1;"
         />
       </div>
     </div>
@@ -451,7 +454,10 @@
         });
 
         // Setpoint — only in auto mode
-        setInputIfUnfocused("inp-setpoint", s.setpoint);
+        setInputIfUnfocused("inp-setpoint", Math.round(s.setpoint));
+        if (document.activeElement !== document.getElementById('inp-setpoint')) {
+          document.getElementById('lbl-setpoint').textContent = Math.round(s.setpoint) + '°';
+        }
         setDisabled("inp-setpoint", s.mode !== "auto");
 
         // Fan state display
