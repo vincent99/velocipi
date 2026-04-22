@@ -22,7 +22,10 @@ const saved = ref(false);
 const error = ref('');
 
 // AirCon BLE settings — loaded from /aircon/state, not from the YAML config.
-const acSettings = ref<Record<string, { value: number; default: number }> | null>(null);
+const acSettings = ref<Record<
+  string,
+  { value: number; default: number }
+> | null>(null);
 const acEdits = ref<Record<string, number>>({});
 const activeSection = ref('filesystem');
 
@@ -81,7 +84,10 @@ async function save() {
       const r2 = await fetch('/aircon/set', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ field: 'settings', value: JSON.stringify(acEdits.value) }),
+        body: JSON.stringify({
+          field: 'settings',
+          value: JSON.stringify(acEdits.value),
+        }),
       });
       if (r2.ok) {
         acEdits.value = {};
@@ -124,16 +130,43 @@ provide(settingsKey, { isModified, reset, getPath, setPath });
 // ── AirCon BLE settings helpers ───────────────────────────────────────────────
 
 const acSettingsFields = [
-  { key: 'delta',               label: 'Auto delta (°F)',         min: 0.5, step: 0.5 },
-  { key: 'fan_high_thresh',     label: 'Fan high threshold (°F)', min: 0.5, step: 0.5 },
-  { key: 'fan_med_thresh',      label: 'Fan med threshold (°F)',  min: 0.5, step: 0.5 },
-  { key: 'fan_change_interval', label: 'Fan change interval (s)', min: 1,   step: 1   },
-  { key: 'auto_loop_interval',  label: 'Auto loop interval (s)',  min: 1,   step: 1   },
-  { key: 'temp_read_interval',  label: 'Temp read interval (s)',  min: 1,   step: 1   },
+  { key: 'delta', label: 'Auto delta (°F)', min: 0.5, step: 0.5 },
+  {
+    key: 'fan_high_thresh',
+    label: 'Fan high threshold (°F)',
+    min: 0.5,
+    step: 0.5,
+  },
+  {
+    key: 'fan_med_thresh',
+    label: 'Fan med threshold (°F)',
+    min: 0.5,
+    step: 0.5,
+  },
+  {
+    key: 'fan_change_interval',
+    label: 'Fan change interval (s)',
+    min: 1,
+    step: 1,
+  },
+  {
+    key: 'auto_loop_interval',
+    label: 'Auto loop interval (s)',
+    min: 1,
+    step: 1,
+  },
+  {
+    key: 'temp_read_interval',
+    label: 'Temp read interval (s)',
+    min: 1,
+    step: 1,
+  },
 ];
 
 function acValue(key: string): number {
-  return key in acEdits.value ? acEdits.value[key] : (acSettings.value?.[key]?.value ?? 0);
+  return key in acEdits.value
+    ? acEdits.value[key]
+    : (acSettings.value?.[key]?.value ?? 0);
 }
 function acIsModified(key: string): boolean {
   const def = acSettings.value?.[key]?.default;
@@ -653,11 +686,18 @@ const sections = [
                   :min="f.min"
                   :step="f.step"
                   :value="acValue(f.key)"
-                  @change="acSet(f.key, Number(($event.target as HTMLInputElement).value))"
+                  @change="
+                    acSet(
+                      f.key,
+                      Number(($event.target as HTMLInputElement).value)
+                    )
+                  "
                 />
               </div>
             </template>
-            <p v-else class="hint">Not connected — runtime settings unavailable.</p>
+            <p v-else class="hint">
+              Not connected — runtime settings unavailable.
+            </p>
           </SettingsGroup>
         </section>
 

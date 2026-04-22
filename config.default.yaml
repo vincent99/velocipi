@@ -77,7 +77,7 @@ music:
   volume: 100
 
 ui:
-  tail: "N711ME"
+  tail: "N12345"
   headerColor: "#3b82f6"
   adminHeaderColor: "#dc2626"
   panel:

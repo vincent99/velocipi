@@ -388,7 +388,6 @@ const graphSeries = computed<GraphSeries[]>(() => {
   gap: 0.75rem;
 }
 
-
 .ac-error {
   background: rgba(239, 68, 68, 0.2);
   border: 1px solid rgba(239, 68, 68, 0.5);

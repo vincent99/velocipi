@@ -94,7 +94,7 @@ func (h *Hub) dispatchKey(typ input.KeyType, jsKey string) {
 	if err := chromedp.Run(bctx, chromedp.ActionFunc(func(ctx context.Context) error {
 		return p.Do(ctx)
 	})); err != nil {
-		log.Println("hub: key dispatch error:", err)
+		log.Println("input: key dispatch error:", err)
 		return
 	}
 }
@@ -132,7 +132,7 @@ func (h *Hub) sendKeyEvent(jsKey string) {
 		return
 	}
 	if err := chromedp.Run(bctx, chromedp.KeyEvent(jsKey)); err != nil {
-		log.Println("hub: key event error:", err)
+		log.Println("input: key event error:", err)
 	}
 }
 
@@ -243,7 +243,7 @@ func (h *Hub) handleChange(ch expander.Change, config *cfg.Config, inner, outer,
 func (h *Hub) runInputLoop(ctx context.Context) {
 	e := hardware.Expander()
 	if e == nil {
-		log.Println("hub: expander unavailable, skipping input loop")
+		log.Println("input: expander unavailable, skipping input loop")
 		return
 	}
 

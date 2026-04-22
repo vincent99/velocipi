@@ -1,3 +1,5 @@
+//go:build linux
+
 // SSD1327-based 4-bit grayscale OLED display over SPI.
 // Ported from oled.ts; tested against a 256×64 panel.
 //
@@ -16,7 +18,6 @@ import (
 	"time"
 
 	"github.com/warthog618/go-gpiocdev"
-	"periph.io/x/conn/v3/physic"
 	"periph.io/x/conn/v3/spi"
 	"periph.io/x/conn/v3/spi/spireg"
 	"periph.io/x/host/v3"
@@ -61,24 +62,6 @@ const (
 	// columnOffset is the hardware column offset for this panel.
 	columnOffset = 0x1c
 )
-
-// Config holds the hardware configuration for an OLED display.
-type Config struct {
-	// SPIPort is the spidev path, e.g. "/dev/spidev0.0".
-	SPIPort string
-	// SPISpeed is the SPI clock frequency.
-	SPISpeed physic.Frequency
-	// GPIOChip is the gpiochip device, e.g. "gpiochip0".
-	GPIOChip string
-	// StatusPin is the BCM GPIO line number for the status/auxiliary pin.
-	// SSD1327: data/command select output (low=command, high=data).
-	// Noritake GE256X64B: SBUSY input (high=busy, low=ready).
-	StatusPin int
-	// ResetPin is the BCM GPIO line number for the reset pin.
-	ResetPin int
-	// Flip reverses the frame buffer before writing (180° rotation).
-	Flip bool
-}
 
 // SSD1327 drives a 4-bit grayscale SSD1327 display over SPI.
 type SSD1327 struct {

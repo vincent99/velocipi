@@ -1,3 +1,5 @@
+//go:build linux
+
 // Noritake Itron GE256X64B-7032B OLED display driver over SPI.
 //
 // Wiring (CN2 serial connector, SPI mode selected via jumper J2+J3=SHORT+SHORT):

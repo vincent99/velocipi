@@ -1,3 +1,5 @@
+//go:build linux
+
 // Sparkfun VEML6030 ambient light sensor
 // https://www.sparkfun.com/sparkfun-ambient-light-sensor-veml6030-qwiic.html
 // https://cdn.sparkfun.com/assets/d/7/4/2/9/veml6030_datasheet.pdf
@@ -440,7 +442,8 @@ func (v *LightSensor) GetAmbientLux() (lux float64, err error) {
 		return 1000, err
 	}
 
-	return v.bitsToLuxCompensated(bits)
+	lux, err = v.bitsToLuxCompensated(bits)
+	return math.Round(lux*100) / 100, err
 }
 
 func (v *LightSensor) GetWhiteLux() (lux float64, err error) {
@@ -449,7 +452,8 @@ func (v *LightSensor) GetWhiteLux() (lux float64, err error) {
 		return 1000, err
 	}
 
-	return v.bitsToLuxCompensated(bits)
+	lux, err = v.bitsToLuxCompensated(bits)
+	return math.Round(lux*100) / 100, err
 }
 
 // ----------------

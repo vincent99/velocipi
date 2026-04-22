@@ -19,7 +19,7 @@ func (h *Hub) sendReading(c *client) {
 	}
 	r, err := s.Read()
 	if err != nil {
-		log.Println("hub: airsensor read error:", err)
+		log.Println("sensor: airsensor read error:", err)
 		return
 	}
 	data, err := json.Marshal(AirReadingMsg{Type: "airReading", Reading: *r})
@@ -37,7 +37,7 @@ func (h *Hub) sendReading(c *client) {
 func (h *Hub) runAirSensorLoop(ctx context.Context) {
 	s := hardware.AirSensor()
 	if s == nil {
-		log.Println("hub: airsensor unavailable, skipping poll loop")
+		log.Println("sensor: airsensor unavailable, skipping poll loop")
 		return
 	}
 
@@ -53,7 +53,7 @@ func (h *Hub) runAirSensorLoop(ctx context.Context) {
 		case <-ticker.C:
 			r, err := s.Read()
 			if err != nil {
-				log.Println("hub: airsensor read error:", err)
+				log.Println("sensor: airsensor read error:", err)
 				continue
 			}
 			if last != nil && *r == *last {
@@ -77,7 +77,7 @@ func (h *Hub) sendLux(c *client) {
 	}
 	lux, err := s.GetAmbientLux()
 	if err != nil {
-		log.Println("hub: lightsensor read error:", err)
+		log.Println("sensor: lightsensor read error:", err)
 		return
 	}
 	data, err := json.Marshal(LuxReadingMsg{Type: "luxReading", Lux: lux})
@@ -95,7 +95,7 @@ func (h *Hub) sendLux(c *client) {
 func (h *Hub) runLightSensorLoop(ctx context.Context) {
 	s := hardware.LightSensor()
 	if s == nil {
-		log.Println("hub: lightsensor unavailable, skipping poll loop")
+		log.Println("sensor: lightsensor unavailable, skipping poll loop")
 		return
 	}
 
@@ -112,7 +112,7 @@ func (h *Hub) runLightSensorLoop(ctx context.Context) {
 		case <-ticker.C:
 			lux, err := s.GetAmbientLux()
 			if err != nil {
-				log.Println("hub: lightsensor read error:", err)
+				log.Println("sensor: lightsensor read error:", err)
 				continue
 			}
 			if last >= 0 && math.Abs(lux-last) < threshold {
@@ -150,7 +150,7 @@ func (h *Hub) sendTpms(c *client) {
 func (h *Hub) runTpmsLoop(ctx context.Context) {
 	t := hardware.TPMS()
 	if t == nil {
-		log.Println("hub: tpms unavailable, skipping loop")
+		log.Println("sensor: tpms unavailable, skipping loop")
 		return
 	}
 

@@ -9,26 +9,43 @@ export const remoteMeta: PanelMeta = {
 </script>
 
 <script setup lang="ts">
+import { computed, isRef, toRaw } from 'vue';
 import { useWebSocket } from '@/composables/useWebSocket';
 import { useDeviceState } from '@/composables/useDeviceState';
-import AirSensor from '@/components/remote/AirSensor.vue';
-import TpmsPanel from '@/components/remote/TpmsPanel.vue';
-import LedStatus from '@/components/remote/LedStatus.vue';
 import KeyRelay from '@/components/shared/KeyRelay.vue';
+import StateValue from './StateValue.vue';
 
 const { send } = useWebSocket();
-const { lastPing, airReading, lux, ledState, tires } = useDeviceState();
+const state = useDeviceState();
+
+const stateEntries = computed(() =>
+  Object.entries(state)
+    .filter(([key]) => key !== 'lastPing')
+    .map(([key, val]) => ({
+      key,
+      value: isRef(val)
+        ? toRaw(val.value)
+        : Object.fromEntries(toRaw(val) as Map<unknown, unknown>),
+    }))
+);
 </script>
 
 <template>
   <div class="admin">
     <div class="toolbar">
-      <span class="ping">{{ lastPing ?? 'Waiting for ping...' }}</span>
+      <span class="ping">{{
+        state.lastPing.value ?? 'Waiting for ping...'
+      }}</span>
       <button @click="send({ type: 'reload' })">Reload</button>
     </div>
-    <AirSensor :reading="airReading" :lux="lux" />
-    <LedStatus :state="ledState" />
-    <TpmsPanel :tires="tires" />
+    <section
+      v-for="{ key, value } in stateEntries"
+      :key="key"
+      class="state-section"
+    >
+      <h3>{{ key }}</h3>
+      <StateValue :value="value" />
+    </section>
     <KeyRelay />
   </div>
 </template>
@@ -37,11 +54,31 @@ const { lastPing, airReading, lux, ledState, tires } = useDeviceState();
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: space-between;
   margin-bottom: 0.75rem;
 }
 .ping {
   font-size: 0.9rem;
   color: #aaa;
+  font-family: monospace;
+}
+.admin {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+.state-section {
+  margin-bottom: 1.25rem;
+}
+h3 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6a9;
+  margin: 0 0 0.3rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #2a2a2a;
 }
 </style>

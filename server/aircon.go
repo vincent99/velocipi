@@ -42,7 +42,7 @@ func (h *Hub) sendAirConState(c *client) {
 func (h *Hub) runAirConLoop(ctx context.Context) {
 	ac := hardware.AirCon()
 	if ac == nil {
-		log.Println("hub: aircon not configured, skipping")
+		log.Println("aircon: not configured, skipping")
 		return
 	}
 

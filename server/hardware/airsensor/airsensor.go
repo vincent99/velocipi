@@ -1,3 +1,5 @@
+//go:build linux
+
 // Sparkfun BME280 temperature/pressure/humidity sensor
 // https://www.sparkfun.com/sparkfun-atmospheric-sensor-breakout-bme280-qwiic.html
 // https://cdn.sparkfun.com/assets/e/7/3/b/1/BME280_Datasheet.pdf
@@ -107,17 +109,6 @@ type Config struct {
 	TempCorrectionC    float32
 	PressureOversample OversampleConfig
 	HumidityOversample OversampleConfig
-}
-
-type Reading struct {
-	TempC          float32 `json:"tempC"`
-	TempF          float32 `json:"tempF"`
-	PressureInches float32 `json:"pressureInches"`
-	PressureMeters float32 `json:"pressureMeters"`
-	PressureFeet   float32 `json:"pressureFeet"`
-	Humidity       float32 `json:"humidity"`
-	DewpointC      float32 `json:"dewpointC"`
-	DewpointF      float32 `json:"dewpointF"`
 }
 
 func NewAirSensor() (*AirSensor, error) {
@@ -343,13 +334,13 @@ func (v *AirSensor) Read() (r *Reading, err error) {
 	// fmt.Printf("Dewpoint: %f C / %f F\n", dewpointCelsius, dewpointFahrenheit)
 
 	return &Reading{
-		TempC:          celsius,
-		TempF:          fahrenheit,
-		PressureInches: inches,
-		PressureMeters: meters,
-		PressureFeet:   feet,
-		Humidity:       float32(humidity),
-		DewpointC:      dewpointCelsius,
-		DewpointF:      dewpointFahrenheit,
+		TempC:          round2(celsius),
+		TempF:          round2(fahrenheit),
+		PressureInches: round2(inches),
+		PressureMeters: round2(meters),
+		PressureFeet:   round2(feet),
+		Humidity:       round2(float32(humidity)),
+		DewpointC:      round2(dewpointCelsius),
+		DewpointF:      round2(dewpointFahrenheit),
 	}, nil
 }

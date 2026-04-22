@@ -95,7 +95,7 @@ function init() {
 
     switch (msg.type) {
       case 'ping':
-        lastPing.value = 'Last ping: ' + msg.time;
+        lastPing.value = msg.time;
         break;
       case 'airReading':
         if (msg.reading) {
