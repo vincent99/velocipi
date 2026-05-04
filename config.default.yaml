@@ -65,6 +65,12 @@ tires:
   left:
   right:
 
+g3x:
+  device: "/dev/ttyAMA0"
+
+thermal:
+  device: "/dev/ttyAMA4"
+
 music:
   acoustidKey: ""
   acoustidMinScore: 0.8

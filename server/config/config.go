@@ -174,6 +174,13 @@ type OLEDConfig struct {
 	Flip      bool   `yaml:"flip"      json:"flip"`
 }
 
+// ThermalConfig holds settings for the thermal camera serial interface.
+type ThermalConfig struct {
+	// Device is the path to the serial device (e.g. "/dev/ttyUSB0").
+	// If empty, the thermal camera subsystem is disabled.
+	Device string `yaml:"device" json:"device"`
+}
+
 // AirConConfig holds BLE client settings for the aircon controller.
 type AirConConfig struct {
 	// DeviceName is the BLE local name advertised by the AirCon controller
@@ -205,6 +212,7 @@ type Config struct {
 	Tires       TireAddresses  `yaml:"tires"       json:"tires"`
 	UI          UIConfig       `yaml:"ui"          json:"ui"`
 	AirCon      AirConConfig   `yaml:"airCon"      json:"airCon"`
+	Thermal     ThermalConfig  `yaml:"thermal"     json:"thermal"`
 
 	// Parsed values — not serialized, populated by Load()
 	AppURL                 string           `yaml:"-" json:"-"` // http://localhost:<VELOCIPI_PORT>/panel/

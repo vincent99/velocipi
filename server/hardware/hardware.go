@@ -1,8 +1,10 @@
 package hardware
 
 import (
+	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/vincent99/velocipi/server/config"
 	"github.com/vincent99/velocipi/server/hardware/aircon"
@@ -11,6 +13,7 @@ import (
 	"github.com/vincent99/velocipi/server/hardware/g3x"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/lightsensor"
+	"github.com/vincent99/velocipi/server/hardware/thermalcam"
 	"github.com/vincent99/velocipi/server/hardware/tpms"
 )
 
@@ -35,6 +38,9 @@ var (
 
 	g3xOnce sync.Once
 	g3xUnit *g3x.G3X
+
+	thermalOnce sync.Once
+	thermalUnit *thermalcam.ThermalCam
 )
 
 // AirCon returns the singleton AirCon BLE client, or nil if not configured.
@@ -118,6 +124,33 @@ func G3X() *g3x.G3X {
 		g3xUnit = g3x.New()
 	})
 	return g3xUnit
+}
+
+// ThermalCam returns the singleton thermal camera serial interface, or nil if not configured.
+func ThermalCam() *thermalcam.ThermalCam {
+	thermalOnce.Do(func() {
+		cfg := config.Load().Config
+		if cfg.Thermal.Device == "" {
+			return
+		}
+		c, err := thermalcam.New(cfg.Thermal.Device)
+		if err != nil {
+			log.Println("hardware: thermalcam init error:", err)
+			return
+		}
+		thermalUnit = c
+		go func() {
+			state, errs := c.ReadState(30 * time.Second)
+			for _, err := range errs {
+				log.Println("thermalcam:", err)
+			}
+			if state != nil {
+				b, _ := json.Marshal(state)
+				log.Printf("thermalcam: %s", b)
+			}
+		}()
+	})
+	return thermalUnit
 }
 
 // LED returns the singleton LED controller for the expander's LED pin.
