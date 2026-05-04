@@ -73,23 +73,25 @@ const gridStyle = computed(() => ({
   overflow: hidden;
   border: 1px solid var(--panel-control-border, #444444);
   border-radius: 2px;
+  outline: 1px solid transparent;
+  outline-offset: -1px;
   background: var(--panel-control-bg, #000000);
   color: var(--panel-control-text, #ffffff);
-  font-size: 11px;
   box-sizing: border-box;
   transition:
-    border-color 0.05s,
+    outline-color 0.05s,
     background 0.05s,
     color 0.05s;
 
   &.selected {
-    border: 2px solid var(--panel-selected-border, #888888);
+    outline-color: var(--panel-selected-border, #888888);
     background: var(--panel-selected-bg, #444444);
     color: var(--panel-selected-text, #ffffff);
   }
 
   &.active {
-    border: 2px solid var(--panel-active-border, #888888);
+    outline-color: var(--panel-active-border, #888888);
+    outline-width: 2px;
     background: var(--panel-active-bg, #ffffff);
     color: var(--panel-active-text, #000000);
   }

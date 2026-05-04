@@ -466,7 +466,7 @@ func main() {
 	}()
 
 	// Init the headless browser (process starts but no page loaded yet).
-	browserCtx, cancelBrowser := initBrowser(ctx)
+	browserCtx, cancelBrowser := initBrowser(ctx, cfg)
 	defer cancelBrowser()
 
 	hub.mu.Lock()

@@ -69,13 +69,12 @@ const cssVars = computed(() => {
 
 <style scoped lang="scss">
 .panel-grid {
-  position: absolute;
-  inset: 0;
   display: grid;
-  // 16 columns × 4 rows filling the 256×64px panel
-  grid-template-columns: repeat(16, 1fr);
-  grid-template-rows: repeat(4, 1fr);
+  // 12 columns × 4 rows: 20×15px cells, 1px gap → 251×63px
+  grid-template-columns: repeat(12, 20px);
+  grid-template-rows: repeat(4, 15px);
   gap: 1px;
+  flex-shrink: 0;
   background: var(--panel-control-bg, #000000);
 }
 </style>

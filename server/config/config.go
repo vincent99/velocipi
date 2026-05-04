@@ -102,6 +102,7 @@ type UIConfig struct {
 	Tail             string        `yaml:"tail"             json:"tail"`
 	HeaderColor      string        `yaml:"headerColor"      json:"headerColor"`
 	AdminHeaderColor string        `yaml:"adminHeaderColor" json:"adminHeaderColor"`
+	Antialiasing     bool          `yaml:"antialiasing"     json:"antialiasing"`
 	Panel            PanelConfig   `yaml:"panel"            json:"panel"`
 	NavMenu          NavMenuConfig `yaml:"navMenu"          json:"navMenu"`
 	KeyMap           KeyMapConfig  `yaml:"keyMap"           json:"keyMap"`

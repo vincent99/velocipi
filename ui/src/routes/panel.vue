@@ -29,6 +29,7 @@ onUnmounted(() => {
 <template>
   <div
     class="panel-root"
+    :class="{ antialiasing: config?.antialiasing }"
     :style="{
       width: panelWidth + 'px',
       height: panelHeight + 'px',
@@ -44,15 +45,16 @@ onUnmounted(() => {
 <style lang="scss">
 // Global reset for the OLED panel page — must not be scoped
 @font-face {
-  font-family: 'Terminus';
-  src: url('/fonts/TerminusTTF-4.49.3.ttf') format('truetype');
+  font-family: 'panel';
+  src: url('/fonts/Roboto-Regular.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
 }
+
 @font-face {
-  font-family: 'Terminus';
-  src: url('/fonts/TerminusTTF-Bold-4.49.3.ttf') format('truetype');
-  font-weight: bold;
+  font-family: 'panel-mono';
+  src: url('/fonts/Roboto-Regular.ttf') format('truetype');
+  font-weight: normal;
   font-style: normal;
 }
 
@@ -72,16 +74,23 @@ body {
 
 <style scoped lang="scss">
 .panel-root {
-  -webkit-font-smoothing: none;
-  -moz-osx-font-smoothing: grayscale;
-  font-smooth: never;
   background: #111;
   color: white;
   overflow: hidden;
-  font-family: 'Terminus', monospace;
+  font-family: sans-serif, monospace;
+  font-size: 12px;
   position: relative;
-}
-h1 {
-  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:not(.antialiasing) {
+    font-synthesis: none;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: grayscale;
+    font-smooth: never;
+    image-rendering: pixelated;
+  }
 }
 </style>

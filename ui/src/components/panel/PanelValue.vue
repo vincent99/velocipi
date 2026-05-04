@@ -13,6 +13,8 @@ const props = withDefaults(
     labelAlign?: 'left' | 'center' | 'right';
     valueAlign?: 'left' | 'center' | 'right';
     minLabelWidth?: number;
+    ellipsis?: boolean;
+    mono?: boolean;
   }>(),
   {
     colSpan: 1,
@@ -23,6 +25,8 @@ const props = withDefaults(
     labelAlign: undefined,
     valueAlign: undefined,
     minLabelWidth: undefined,
+    ellipsis: true,
+    mono: false,
   }
 );
 
@@ -43,7 +47,14 @@ const gridStyle = computed(() => ({
 
 <template>
   <div :style="gridStyle" :class="['panel-value', { tall }]">
-    <div v-if="tall" :class="['pv-value', `align-${effectiveValueAlign}`]">
+    <div
+      v-if="tall"
+      :class="[
+        'pv-value',
+        `align-${effectiveValueAlign}`,
+        { 'pv-value--clip': ellipsis, 'pv-value--mono': mono },
+      ]"
+    >
       <slot>{{ modelValue }}</slot>
     </div>
     <div
@@ -54,7 +65,14 @@ const gridStyle = computed(() => ({
       <i v-if="icon" :class="`fi-sr-${icon}`" class="pv-icon" />
       <span v-if="label" class="pv-label-text">{{ label }}</span>
     </div>
-    <div v-if="!tall" :class="['pv-value', `align-${effectiveValueAlign}`]">
+    <div
+      v-if="!tall"
+      :class="[
+        'pv-value',
+        `align-${effectiveValueAlign}`,
+        { 'pv-value--clip': ellipsis, 'pv-value--mono': mono },
+      ]"
+    >
       <slot>{{ modelValue }}</slot>
     </div>
   </div>
@@ -70,7 +88,6 @@ const gridStyle = computed(() => ({
   border: 1px solid var(--panel-control-bg, #000000);
   background: var(--panel-control-bg, #000000);
   color: var(--panel-control-text, #ffffff);
-  font-size: 11px;
   gap: 2px;
 
   // 1-row: horizontal layout — label left, value right
@@ -112,10 +129,17 @@ const gridStyle = computed(() => ({
 }
 
 .pv-value {
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1;
+
+  &--clip {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &--mono {
+    font-family: 'panel-mono', monospace;
+  }
 }
 
 .pv-label-text {
@@ -123,12 +147,10 @@ const gridStyle = computed(() => ({
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1;
-  font-size: 9px;
   opacity: 0.7;
 }
 
 .pv-icon {
-  font-size: 9px;
   flex-shrink: 0;
   line-height: 1;
   opacity: 0.7;

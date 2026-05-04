@@ -161,9 +161,10 @@ onMounted(() => {
 }
 
 .select-icon {
-  font-size: 12px;
   flex-shrink: 0;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .select-name {

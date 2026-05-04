@@ -41,6 +41,7 @@ export interface Config {
   tail: string;
   headerColor: string;
   adminHeaderColor: string;
+  antialiasing: boolean;
   panel: PanelConfig;
   navMenu: NavMenuConfig;
   keyMap: KeyMapConfig;

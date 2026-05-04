@@ -12,6 +12,7 @@ import (
 
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+	"github.com/vincent99/velocipi/server/config"
 )
 
 // findChromeHeadlessShell returns the path to the chrome-headless-shell binary.
@@ -42,7 +43,7 @@ func findChromeHeadlessShell() (string, error) {
 // initBrowser starts the headless Chromium instance.
 // The app page is not loaded here — the caller must call navigateTo()
 // once the HTTP server is ready.
-func initBrowser(ctx context.Context) (context.Context, context.CancelFunc) {
+func initBrowser(ctx context.Context, cfg *config.Config) (context.Context, context.CancelFunc) {
 	execPath, err := findChromeHeadlessShell()
 	if err != nil {
 		log.Println("browser:", err)
@@ -50,16 +51,26 @@ func initBrowser(ctx context.Context) (context.Context, context.CancelFunc) {
 	}
 	log.Println("browser: using", execPath)
 
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx,
+	opts := []chromedp.ExecAllocatorOption{
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("password-store", "basic"),
-		chromedp.WindowSize(256, 64),
+		chromedp.Flag("force-device-scale-factor", "1"),
+		chromedp.WindowSize(cfg.UI.Panel.Width, cfg.UI.Panel.Height),
 		chromedp.ExecPath(execPath),
-	)
+	}
+	if !cfg.UI.Antialiasing {
+		opts = append(opts,
+			chromedp.Flag("font-render-hinting", "none"),
+			chromedp.Flag("disable-font-subpixel-positioning", true),
+			chromedp.Flag("disable-lcd-text", true),
+		)
+	}
+
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
 
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
 

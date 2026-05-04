@@ -133,6 +133,20 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func screenHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Upgrade") != "websocket" {
+		hub.lastFrameMu.RLock()
+		buf := hub.lastFrame
+		hub.lastFrameMu.RUnlock()
+		if buf == nil {
+			http.Error(w, "no frame yet", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write(buf)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("screen websocket upgrade error:", err)

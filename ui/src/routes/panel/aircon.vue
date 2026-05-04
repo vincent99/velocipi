@@ -116,7 +116,7 @@ const sparkData = computed(() =>
 
 <template>
   <PanelGrid>
-    <RedX v-if="!connected" :stroke-width="3" message="BT" />
+    <RedX v-if="!connected" :stroke-width="3" message="BLE" />
 
     <!-- Col 1–4, Row 1: Setpoint selector -->
     <PanelSelect

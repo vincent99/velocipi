@@ -24,7 +24,7 @@ const { localCamera, destTimezone } = useDeviceState();
 const { cameras } = useCameraList();
 const { config } = useConfig();
 const { now } = useTime();
-const timeLabelWidth = 26;
+const timeLabelWidth = 10;
 
 const cameraOptions = computed<SelectOption[]>(() =>
   cameras.value.map((name) => ({
@@ -87,8 +87,8 @@ const utcTime = computed(() => formatUtcClock(now.value));
     <PanelSelect
       :col="1"
       :row="1"
-      :col-span="4"
-      :row-span="4"
+      :col-span="3"
+      :row-span="2"
       :options="cameraOptions"
       :model-value="localCamera"
       @update:model-value="setLocalCamera"
@@ -97,79 +97,57 @@ const utcTime = computed(() => formatUtcClock(now.value));
     <!-- Brightness: columns 5-8, rows 1-2 (2-row tall) -->
     <PanelSelect
       v-model="brightnessVal"
-      :col="5"
-      :row="1"
-      :col-span="4"
+      :col="1"
+      :row="3"
+      :col-span="3"
       :row-span="2"
       :options="brightnessOptions"
     />
 
-    <!-- Mode: columns 5-8, rows 3-4 (2-row tall) -->
-    <PanelSelect
-      v-model="modeVal"
-      :col="5"
-      :row="3"
-      :col-span="4"
-      :row-span="2"
-      :options="modeOptions"
-    />
-
-    <!-- Volume: columns 9-11, rows 1 (1-row) -->
-    <PanelSelect
-      v-model="volumeVal"
-      :col="9"
-      :row="1"
-      :col-span="3"
-      :row-span="1"
-      :options="volumeOptions"
-    />
-
-    <!-- Mode dummy 3-row: columns 9-11, rows 2-4 -->
-    <PanelSelect
-      v-model="modeVal"
-      :col="9"
-      :row="2"
-      :col-span="3"
-      :row-span="3"
-      :options="modeOptions"
-    />
-
     <!-- Clocks: columns 12-16 (5 wide), one row each -->
     <PanelValue
-      :col="12"
+      :col="10"
       :row="1"
-      :col-span="5"
-      label="Local"
+      :col-span="3"
+      label="L"
       :model-value="localTime"
       value-align="left"
       :min-label-width="timeLabelWidth"
+      :ellipsis="false"
+      mono
     />
     <PanelValue
-      :col="12"
+      :col="10"
       :row="2"
-      :col-span="5"
-      label="Home"
+      :col-span="3"
+      label="H"
       :model-value="homeTime"
       value-align="left"
       :min-label-width="timeLabelWidth"
+      :ellipsis="false"
+      mono
     />
     <PanelValue
-      :col="12"
+      :col="10"
       :row="3"
-      :col-span="5"
-      label="Dest"
+      :col-span="3"
+      label="D"
       :model-value="destTime"
       value-align="left"
       :min-label-width="timeLabelWidth"
+      :ellipsis="false"
+      mono
     />
     <PanelValue
-      :col="12"
+      :col="10"
       :row="4"
-      :col-span="5"
-      label="UTC"
+      :col-span="3"
+      label="U"
       :model-value="utcTime"
       value-align="left"
       :min-label-width="timeLabelWidth"
+      :ellipsis="false"
+      mono
     />
   </PanelGrid>
 </template>

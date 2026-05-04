@@ -36,7 +36,7 @@ function updateScale() {
     parent.clientWidth -
     parseFloat(style.paddingLeft) -
     parseFloat(style.paddingRight);
-  scale.value = available / naturalWidth;
+  scale.value = Math.max(1, Math.floor(available / naturalWidth));
 }
 
 onMounted(() => {

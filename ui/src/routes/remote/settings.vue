@@ -332,6 +332,11 @@ const sections = [
           <h2>UI</h2>
           <SettingsGroup title="Theme">
             <SettingsField
+              label="Antialiasing"
+              path="ui.antialiasing"
+              type="checkbox"
+            />
+            <SettingsField
               label="Tail number"
               path="ui.tail"
               placeholder="N711ME"
