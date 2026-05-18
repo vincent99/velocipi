@@ -469,15 +469,17 @@ func main() {
 	browserCtx, cancelBrowser := initBrowser(ctx, cfg)
 	defer cancelBrowser()
 
-	hub.mu.Lock()
-	hub.browserCtx = browserCtx
-	hub.mu.Unlock()
+	if browserCtx != nil {
+		hub.mu.Lock()
+		hub.browserCtx = browserCtx
+		hub.mu.Unlock()
 
-	// Navigate to the app now that the HTTP server is listening.
-	if err := navigateTo(browserCtx, cfg.AppURL); err != nil {
-		log.Println("browser: initial navigate error:", err)
-	} else {
-		log.Println("browser: app loaded")
+		// Navigate to the app now that the HTTP server is listening.
+		if err := navigateTo(browserCtx, cfg.AppURL); err != nil {
+			log.Println("browser: initial navigate error:", err)
+		} else {
+			log.Println("browser: app loaded")
+		}
 	}
 
 	// Start background loops.

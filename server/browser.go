@@ -19,25 +19,29 @@ import (
 // It first checks PATH, then searches the local ./chrome-headless-shell directory
 // recursively for a file with the same base name.
 func findChromeHeadlessShell() (string, error) {
-	const bin = "chrome-headless-shell"
-	if p, err := exec.LookPath(bin); err == nil {
-		return p, nil
+	candidates := []string{"chrome-headless-shell", "chromium-headless-shell"}
+	for _, bin := range candidates {
+		if p, err := exec.LookPath(bin); err == nil {
+			return p, nil
+		}
 	}
-	var found string
-	_ = filepath.WalkDir("chrome-headless-shell", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	for _, bin := range candidates {
+		var found string
+		_ = filepath.WalkDir("chrome-headless-shell", func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			if filepath.Base(path) == bin {
+				found = path
+				return fs.SkipAll
+			}
 			return nil
+		})
+		if found != "" {
+			return found, nil
 		}
-		if filepath.Base(path) == bin {
-			found = path
-			return fs.SkipAll
-		}
-		return nil
-	})
-	if found != "" {
-		return found, nil
 	}
-	return "", fmt.Errorf("%s not found in PATH or ./chrome-headless-shell/", bin)
+	return "", fmt.Errorf("chrome-headless-shell / chromium-headless-shell not found in PATH or ./chrome-headless-shell/")
 }
 
 // initBrowser starts the headless Chromium instance.
@@ -47,7 +51,7 @@ func initBrowser(ctx context.Context, cfg *config.Config) (context.Context, cont
 	execPath, err := findChromeHeadlessShell()
 	if err != nil {
 		log.Println("browser:", err)
-		return ctx, func() {}
+		return nil, func() {}
 	}
 	log.Println("browser: using", execPath)
 

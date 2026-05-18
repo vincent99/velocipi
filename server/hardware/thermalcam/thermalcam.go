@@ -11,6 +11,7 @@ package thermalcam
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"sync"
 	"time"
@@ -29,13 +30,19 @@ const (
 
 // ThermalCam communicates with a HM-TM5X-XRG/C thermal camera over UART.
 type ThermalCam struct {
-	mu sync.Mutex
-	f  *os.File
+	mu      sync.Mutex
+	f       *os.File
+	Verbose bool // log every sent/received byte when true
 }
 
 // New opens the serial device and configures it for 115200 8N1.
 func New(device string) (*ThermalCam, error) {
-	f, err := serial.Open(device, 115200)
+	return NewBaud(device, 115200)
+}
+
+// NewBaud opens the serial device at the given baud rate with 8N1 framing.
+func NewBaud(device string, baud int) (*ThermalCam, error) {
+	f, err := serial.Open(device, baud)
 	if err != nil {
 		return nil, fmt.Errorf("thermalcam: %w", err)
 	}
@@ -57,6 +64,11 @@ func checksum(classAddr, subclassAddr, flag byte, data []byte) byte {
 	return byte(sum)
 }
 
+// PacketBytes builds and returns the raw bytes for a packet. Exported for testing.
+func PacketBytes(classAddr, subclassAddr, flag byte, data []byte) []byte {
+	return buildPacket(classAddr, subclassAddr, flag, data)
+}
+
 func buildPacket(classAddr, subclassAddr, flag byte, data []byte) []byte {
 	n := len(data)
 	size := byte(n + 4)
@@ -68,15 +80,53 @@ func buildPacket(classAddr, subclassAddr, flag byte, data []byte) []byte {
 	return pkt
 }
 
+// RawExchange sends pkt and reads back up to maxBytes bytes within dur, returning
+// whatever arrived (including a partial read) alongside any error. Useful for
+// diagnosing protocol issues without the normal framing parser getting in the way.
+func (t *ThermalCam) RawExchange(pkt []byte, maxBytes int, dur time.Duration) ([]byte, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.Verbose {
+		log.Printf("thermalcam tx: %X", pkt)
+	}
+	if _, err := t.f.Write(pkt); err != nil {
+		return nil, err
+	}
+
+	deadline := time.Now().Add(dur)
+	var buf []byte
+	for len(buf) < maxBytes {
+		if time.Now().After(deadline) {
+			break
+		}
+		b, err := t.readByte()
+		if err != nil {
+			return buf, err
+		}
+		buf = append(buf, b)
+	}
+	return buf, nil
+}
+
 // readByte reads one byte, returning an error on timeout (0-byte read with VTIME).
 func (t *ThermalCam) readByte() (byte, error) {
 	var b [1]byte
 	n, err := t.f.Read(b[:])
 	if err != nil {
+		if t.Verbose {
+			log.Printf("thermalcam rx: read error: %v", err)
+		}
 		return 0, err
 	}
 	if n == 0 {
+		if t.Verbose {
+			log.Printf("thermalcam rx: timeout (0-byte read)")
+		}
 		return 0, fmt.Errorf("thermalcam: read timeout")
+	}
+	if t.Verbose {
+		log.Printf("thermalcam rx: 0x%02X", b[0])
 	}
 	return b[0], nil
 }
@@ -145,7 +195,11 @@ func (t *ThermalCam) write(classAddr, subclassAddr byte, data []byte) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if _, err := t.f.Write(buildPacket(classAddr, subclassAddr, flagWrite, data)); err != nil {
+	pkt := buildPacket(classAddr, subclassAddr, flagWrite, data)
+	if t.Verbose {
+		log.Printf("thermalcam tx: %X", pkt)
+	}
+	if _, err := t.f.Write(pkt); err != nil {
 		return err
 	}
 	_, _, flag, resp, err := t.recv()
@@ -166,7 +220,11 @@ func (t *ThermalCam) read(classAddr, subclassAddr byte) ([]byte, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if _, err := t.f.Write(buildPacket(classAddr, subclassAddr, flagRead, []byte{0x00})); err != nil {
+	pkt := buildPacket(classAddr, subclassAddr, flagRead, []byte{0x00})
+	if t.Verbose {
+		log.Printf("thermalcam tx: %X", pkt)
+	}
+	if _, err := t.f.Write(pkt); err != nil {
 		return nil, err
 	}
 	_, _, flag, data, err := t.recv()
@@ -270,7 +328,11 @@ func (t *ThermalCam) Ready() (bool, error) {
 	defer t.mu.Unlock()
 
 	// Init state uses flag=0x00 (write) even though it's a query; response class differs.
-	if _, err := t.f.Write(buildPacket(0x7C, 0x14, flagWrite, []byte{0x00})); err != nil {
+	pkt := buildPacket(0x7C, 0x14, flagWrite, []byte{0x00})
+	if t.Verbose {
+		log.Printf("thermalcam tx: %X", pkt)
+	}
+	if _, err := t.f.Write(pkt); err != nil {
 		return false, err
 	}
 	_, _, flag, data, err := t.recv()
