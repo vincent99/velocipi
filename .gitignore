@@ -42,6 +42,6 @@ dist
 *-backups
 aircon/wifi.json
 aircon/name.txt
+*.zip
 .history
-gerbers.zip
 /chrome-headless-shell
