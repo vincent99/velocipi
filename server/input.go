@@ -216,20 +216,28 @@ func (h *Hub) handleChange(ch expander.Change, config *cfg.Config, inner, outer,
 		h.dispatchLogical(input.KeyUp, "enter")
 	}
 
+	// quadSample builds a 2-bit value from two arbitrary bit positions:
+	// bit 0 = A, bit 1 = B — matching the ordering the quadTable expects.
+	quadSample := func(val uint16, bitA, bitB uint) uint8 {
+		a := uint8((val >> bitA) & 1)
+		b := uint8((val >> bitB) & 1)
+		return (b << 1) | a
+	}
+
 	// Rotary encoders: update returns -1 (left), 0 (none), or 1 (right).
-	if d := outer.update(uint8(v>>bits.KnobOuter) & 0x3); d == -1 {
+	if d := outer.update(quadSample(v, bits.KnobOuterA, bits.KnobOuterB)); d == -1 {
 		h.sendLogical("outer-left")
 	} else if d == 1 {
 		h.sendLogical("outer-right")
 	}
 
-	if d := inner.update(uint8(v>>bits.KnobInner) & 0x3); d == -1 {
+	if d := inner.update(quadSample(v, bits.KnobInnerA, bits.KnobInnerB)); d == -1 {
 		h.sendLogical("inner-left")
 	} else if d == 1 {
 		h.sendLogical("inner-right")
 	}
 
-	if d := joyKnob.update(uint8(v>>bits.JoyKnob) & 0x3); d == -1 {
+	if d := joyKnob.update(quadSample(v, bits.JoyKnobA, bits.JoyKnobB)); d == -1 {
 		h.sendLogical("joy-left")
 	} else if d == 1 {
 		h.sendLogical("joy-right")

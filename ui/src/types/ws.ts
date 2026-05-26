@@ -60,10 +60,17 @@ export interface TpmsMsg {
 
 export type LEDMode = 'off' | 'on' | 'blink';
 
-export interface LEDStateMsg {
-  type: 'ledState';
+export interface LEDChannel {
   mode: LEDMode;
   rate?: number;
+}
+
+export interface LEDStateMsg {
+  type: 'ledState';
+  r: LEDChannel;
+  w: LEDChannel;
+  b: LEDChannel;
+  y: LEDChannel;
 }
 
 export type LogicalKey =
@@ -245,6 +252,7 @@ export interface KeyMsg {
 
 export interface LEDControlMsg {
   type: 'led';
+  channel: 'r' | 'w' | 'b' | 'y';
   state: LEDMode;
   rate?: number;
 }

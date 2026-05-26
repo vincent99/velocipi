@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/aircon"
 	"github.com/vincent99/velocipi/server/hardware/airsensor"
 	"github.com/vincent99/velocipi/server/hardware/led"
@@ -30,10 +31,19 @@ type TpmsMsg struct {
 	Tire *tpms.Tire `json:"tire"`
 }
 
-type LEDStateMsg struct {
-	Type string `json:"type"`           // always "ledState"
+// LEDChannel carries the state of one LED channel.
+type LEDChannel struct {
 	Mode string `json:"mode"`           // "off", "on", "blink"
-	Rate int    `json:"rate,omitempty"` // blink rate in ms, only set when mode == "blink"
+	Rate int    `json:"rate,omitempty"` // blink rate in ms, only when mode == "blink"
+}
+
+// LEDStateMsg carries the state of all four LED channels.
+type LEDStateMsg struct {
+	Type string     `json:"type"` // always "ledState"
+	R    LEDChannel `json:"r"`
+	W    LEDChannel `json:"w"`
+	B    LEDChannel `json:"b"`
+	Y    LEDChannel `json:"y"`
 }
 
 type KeyEchoMsg struct {
@@ -118,19 +128,30 @@ type inboundKeyMsg struct {
 }
 
 type inboundLEDMsg struct {
-	State string `json:"state"`          // "off", "on", "blink"
-	Rate  int    `json:"rate,omitempty"` // blink rate in ms, default 500
+	Channel string `json:"channel"`        // "r", "w", "b", "y"
+	State   string `json:"state"`          // "off", "on", "blink"
+	Rate    int    `json:"rate,omitempty"` // blink rate in ms, default 500
 }
 
 type inboundNavigateMsg struct {
 	Path string `json:"path"` // URL path to navigate to, e.g. "/panel/test"
 }
 
-// ledStateMsg builds a LEDStateMsg from a led.State.
-func ledStateMsg(s led.State) LEDStateMsg {
-	msg := LEDStateMsg{Type: "ledState", Mode: s.Mode}
-	if s.Mode == "blink" {
-		msg.Rate = int(s.Rate.Milliseconds())
+// currentLEDStateMsg reads all four LED controllers and returns a full snapshot.
+func currentLEDStateMsg() LEDStateMsg {
+	ch := func(l *led.Controller) LEDChannel {
+		s := l.CurrentState()
+		c := LEDChannel{Mode: s.Mode}
+		if s.Mode == "blink" {
+			c.Rate = int(s.Rate.Milliseconds())
+		}
+		return c
 	}
-	return msg
+	return LEDStateMsg{
+		Type: "ledState",
+		R:    ch(hardware.LEDRed()),
+		W:    ch(hardware.LEDWhite()),
+		B:    ch(hardware.LEDBlue()),
+		Y:    ch(hardware.LEDYellow()),
+	}
 }

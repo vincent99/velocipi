@@ -1,6 +1,5 @@
-// Sparkfun SX1509 16-bit I2C GPIO expander
-// https://www.sparkfun.com/sparkfun-16-output-i-o-expander-breakout-sx1509.html
-
+// Microchip MCP23017 16-bit I2C GPIO expander
+// https://ww1.microchip.com/downloads/en/devicedoc/20001952c.pdf
 package expander
 
 import (
@@ -11,7 +10,7 @@ import (
 )
 
 const (
-	DEFAULT_ADDRESS = 0x3E
+	DEFAULT_ADDRESS = 0x27
 
 	DIRECTION_CONF    = 0x00 // 0 = output, 1 = input
 	POLARITY_CONF     = 0x02
@@ -60,6 +59,8 @@ func New() (*Expander, error) {
 
 // Init configures the expander. inputs is a bitmask where 1 = input pin, 0 = output pin.
 func (e *Expander) Init(inputs uint16) error {
+	// log.Printf("expander: init  inputs(dir)=%016b  outputs=%016b", inputs, ^inputs)
+
 	if err := e.SetDirection(inputs); err != nil {
 		return err
 	}
@@ -76,6 +77,7 @@ func (e *Expander) Init(inputs uint16) error {
 	if err != nil {
 		return err
 	}
+	// log.Printf("expander: initial input state=%016b", val)
 	e.previous = val
 
 	go e.poll()
@@ -112,6 +114,7 @@ func (e *Expander) poll() {
 				continue
 			}
 			e.previous = value
+			// log.Printf("expander: input change  prev=%016b  now=%016b  diff=%016b", previous, value, previous^value)
 
 			select {
 			case e.updates <- Change{Value: value, Previous: previous}:
@@ -124,6 +127,7 @@ func (e *Expander) poll() {
 // --- Configuration ---
 
 func (e *Expander) SetDirection(pins uint16) error {
+	// log.Printf("expander: SetDirection  %016b", pins)
 	return e.iface.WriteRegisterU16LE(DIRECTION_CONF, pins)
 }
 
@@ -132,6 +136,7 @@ func (e *Expander) GetDirection() (uint16, error) {
 }
 
 func (e *Expander) SetPolarity(pins uint16) error {
+	// log.Printf("expander: SetPolarity   %016b", pins)
 	return e.iface.WriteRegisterU16LE(POLARITY_CONF, pins)
 }
 
@@ -140,6 +145,7 @@ func (e *Expander) GetPolarity() (uint16, error) {
 }
 
 func (e *Expander) SetPullUp(pins uint16) error {
+	// log.Printf("expander: SetPullUp     %016b", pins)
 	return e.iface.WriteRegisterU16LE(PULL_UP_CONF, pins)
 }
 
@@ -148,6 +154,7 @@ func (e *Expander) GetPullUp() (uint16, error) {
 }
 
 func (e *Expander) SetInterrupts(enabled, mode, value uint16) error {
+	// log.Printf("expander: SetInterrupts enabled=%016b mode=%016b compare=%016b", enabled, mode, value)
 	if err := e.iface.WriteRegisterU16LE(INTERRUPT_ENABLE, enabled); err != nil {
 		return err
 	}
@@ -184,5 +191,6 @@ func (e *Expander) Write(value, mask uint16) error {
 		}
 		value = (cur &^ mask) | (value & mask)
 	}
+	// log.Printf("expander: Write         value=%016b  mask=%016b", value, mask)
 	return e.iface.WriteRegisterU16LE(OUTPUT_VALUE, value)
 }

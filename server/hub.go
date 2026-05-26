@@ -47,10 +47,12 @@ func newHub(browserCtx context.Context, cfg *config.Config, o oled.Display) *Hub
 		cfg:           cfg,
 		oled:          o,
 	}
-	// Broadcast LED state to all clients whenever it changes.
-	hardware.LED().OnChange(func(s led.State) {
-		h.broadcastAll(ledStateMsg(s))
-	})
+	// Broadcast full LED state to all clients whenever any channel changes.
+	onLEDChange := func(_ led.State) { h.broadcastAll(currentLEDStateMsg()) }
+	hardware.LEDRed().OnChange(onLEDChange)
+	hardware.LEDWhite().OnChange(onLEDChange)
+	hardware.LEDBlue().OnChange(onLEDChange)
+	hardware.LEDYellow().OnChange(onLEDChange)
 	return h
 }
 
@@ -177,8 +179,7 @@ func (h *Hub) sendCameraStatuses(c *client) {
 
 // sendLEDState sends the current LED state to a single client.
 func (h *Hub) sendLEDState(c *client) {
-	l := hardware.LED()
-	data, err := json.Marshal(ledStateMsg(l.CurrentState()))
+	data, err := json.Marshal(currentLEDStateMsg())
 	if err != nil {
 		return
 	}
@@ -322,13 +323,28 @@ func (h *Hub) runG3XLoop(ctx context.Context) {
 	}
 }
 
-// handleLEDMsg controls the expander LED from a websocket message.
-func (h *Hub) handleLEDMsg(state string, rateMs int) {
+// handleLEDMsg controls one LED channel from a websocket message.
+func (h *Hub) handleLEDMsg(channel, state string, rateMs int) {
+	log.Printf("led: channel=%q state=%q rate=%d", channel, state, rateMs)
 	e := hardware.Expander()
 	if e == nil {
+		log.Println("led: expander not available")
 		return
 	}
-	l := hardware.LED()
+	var l *led.Controller
+	switch channel {
+	case "r":
+		l = hardware.LEDRed()
+	case "w":
+		l = hardware.LEDWhite()
+	case "b":
+		l = hardware.LEDBlue()
+	case "y":
+		l = hardware.LEDYellow()
+	default:
+		log.Printf("led: unknown channel %q", channel)
+		return
+	}
 	switch state {
 	case "on":
 		l.On(e)

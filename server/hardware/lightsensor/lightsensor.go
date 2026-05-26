@@ -1,8 +1,11 @@
 //go:build linux
 
-// Sparkfun VEML6030 ambient light sensor
-// https://www.sparkfun.com/sparkfun-ambient-light-sensor-veml6030-qwiic.html
-// https://cdn.sparkfun.com/assets/d/7/4/2/9/veml6030_datasheet.pdf
+// VEML6030 / VEML7700 ambient light sensor (Vishay).
+// VEML7700 address is fixed at 0x10
+// VEML6030 can be 0x10 (ADDR=GND) or 0x48 (ADDR=VDD, as on the Sparkfun breakout).
+//
+// VEML6030: https://www.vishay.com/docs/84366/veml6030.pdf
+// VEML7700: https://www.vishay.com/docs/84286/veml7700.pdf
 
 package lightsensor
 
@@ -15,7 +18,7 @@ import (
 )
 
 const (
-	DEFAULT_ADDRESS = 0x48
+	DEFAULT_ADDRESS = 0x10 // VEML7700, and VEML6030 with ADDR=GND
 
 	// 16-bit registers
 	SETTING_REG            = 0x00

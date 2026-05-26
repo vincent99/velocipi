@@ -108,14 +108,17 @@ func NewSSD1327(cfg Config, width, height int) (*SSD1327, error) {
 		return nil, err
 	}
 
-	rstLine, err := gpiocdev.RequestLine(chip, cfg.ResetPin,
-		gpiocdev.AsOutput(1),
-		gpiocdev.WithPullUp,
-	)
-	if err != nil {
-		dcLine.Close()
-		port.Close()
-		return nil, err
+	var rstLine *gpiocdev.Line
+	if cfg.ResetPin != 0 {
+		rstLine, err = gpiocdev.RequestLine(chip, cfg.ResetPin,
+			gpiocdev.AsOutput(1),
+			gpiocdev.WithPullUp,
+		)
+		if err != nil {
+			dcLine.Close()
+			port.Close()
+			return nil, err
+		}
 	}
 
 	o := &SSD1327{
@@ -142,7 +145,9 @@ func (o *SSD1327) Close() {
 	o.writeCmd(displaySleepOn)
 	o.spiPort.Close()
 	o.dcLine.Close()
-	o.rstLine.Close()
+	if o.rstLine != nil {
+		o.rstLine.Close()
+	}
 }
 
 // Init resets the display and sends the full initialisation sequence.
@@ -200,16 +205,19 @@ func (o *SSD1327) SetBrightness(b byte) {
 	o.writeCmd(setContrastCurrent, b)
 }
 
-// Reset pulses the reset pin low for 200 ms then releases it.
+// Reset pulses the reset pin low for 200 ms then releases it (skipped if no
+// ResetPin was configured), then clears the frame buffer.
 func (o *SSD1327) Reset() error {
-	if err := o.rstLine.SetValue(0); err != nil {
-		return err
+	if o.rstLine != nil {
+		if err := o.rstLine.SetValue(0); err != nil {
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+		if err := o.rstLine.SetValue(1); err != nil {
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
-	time.Sleep(200 * time.Millisecond)
-	if err := o.rstLine.SetValue(1); err != nil {
-		return err
-	}
-	time.Sleep(200 * time.Millisecond)
 
 	black := image.NewRGBA(image.Rect(0, 0, o.width, o.height))
 	draw.Draw(black, black.Bounds(), &image.Uniform{color.RGBA{0, 0, 0, 255}}, image.Point{}, draw.Src)

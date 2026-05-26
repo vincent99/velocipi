@@ -137,15 +137,21 @@ type TireAddresses struct {
 
 type ExpanderBits struct {
 	KnobCenter uint `yaml:"knobCenter" json:"knobCenter"`
-	KnobInner  uint `yaml:"knobInner"  json:"knobInner"` // and bit+1
-	KnobOuter  uint `yaml:"knobOuter"  json:"knobOuter"` // and bit+1
-	LED        uint `yaml:"led"        json:"led"`
+	KnobInnerA uint `yaml:"knobInnerA" json:"knobInnerA"` // quadrature A
+	KnobInnerB uint `yaml:"knobInnerB" json:"knobInnerB"` // quadrature B
+	KnobOuterA uint `yaml:"knobOuterA" json:"knobOuterA"` // quadrature A
+	KnobOuterB uint `yaml:"knobOuterB" json:"knobOuterB"` // quadrature B
+	LEDR       uint `yaml:"ledR"       json:"ledR"`
+	LEDW       uint `yaml:"ledW"       json:"ledW"`
+	LEDB       uint `yaml:"ledB"       json:"ledB"`
+	LEDY       uint `yaml:"ledY"       json:"ledY"`
 	JoyCenter  uint `yaml:"joyCenter"  json:"joyCenter"`
 	JoyDown    uint `yaml:"joyDown"    json:"joyDown"`
 	JoyUp      uint `yaml:"joyUp"      json:"joyUp"`
 	JoyRight   uint `yaml:"joyRight"   json:"joyRight"`
 	JoyLeft    uint `yaml:"joyLeft"    json:"joyLeft"`
-	JoyKnob    uint `yaml:"joyKnob"    json:"joyKnob"` // and bit+1
+	JoyKnobA   uint `yaml:"joyKnobA"   json:"joyKnobA"` // quadrature A
+	JoyKnobB   uint `yaml:"joyKnobB"   json:"joyKnobB"` // quadrature B
 }
 
 type ExpanderConfig struct {
@@ -200,6 +206,7 @@ type Config struct {
 	I2CDevice    string `yaml:"i2cDevice"    json:"i2cDevice"`
 	SPIDevice    string `yaml:"spiDevice"    json:"spiDevice"`
 	PingInterval string `yaml:"pingInterval" json:"pingInterval"`
+	ResetPin     int    `yaml:"resetPin"     json:"resetPin"`     // shared hardware reset GPIO pin; 0 = disabled
 
 	Storage     StorageConfig  `yaml:"storage"     json:"storage"`
 	AirSensor   SensorConfig   `yaml:"airSensor"   json:"airSensor"`

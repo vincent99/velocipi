@@ -221,15 +221,21 @@ const keyMapFields = [
 
 const expanderBitFields = [
   { key: 'expander.bits.knobCenter', label: 'Knob center' },
-  { key: 'expander.bits.knobInner', label: 'Knob inner (A)' },
-  { key: 'expander.bits.knobOuter', label: 'Knob outer (A)' },
-  { key: 'expander.bits.led', label: 'LED' },
+  { key: 'expander.bits.knobInnerA', label: 'Knob inner A' },
+  { key: 'expander.bits.knobInnerB', label: 'Knob inner B' },
+  { key: 'expander.bits.knobOuterA', label: 'Knob outer A' },
+  { key: 'expander.bits.knobOuterB', label: 'Knob outer B' },
+  { key: 'expander.bits.ledR', label: 'LED Red' },
+  { key: 'expander.bits.ledW', label: 'LED White' },
+  { key: 'expander.bits.ledB', label: 'LED Blue' },
+  { key: 'expander.bits.ledY', label: 'LED Yellow' },
   { key: 'expander.bits.joyCenter', label: 'Joy center' },
   { key: 'expander.bits.joyDown', label: 'Joy down' },
   { key: 'expander.bits.joyUp', label: 'Joy up' },
   { key: 'expander.bits.joyRight', label: 'Joy right' },
   { key: 'expander.bits.joyLeft', label: 'Joy left' },
-  { key: 'expander.bits.joyKnob', label: 'Joy knob (A)' },
+  { key: 'expander.bits.joyKnobA', label: 'Joy knob A' },
+  { key: 'expander.bits.joyKnobB', label: 'Joy knob B' },
 ];
 
 const sections = [

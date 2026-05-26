@@ -78,15 +78,18 @@ func NewGE256X64B(cfg Config, width, height int) (*Noritake, error) {
 		return nil, err
 	}
 
-	// /RESET is an output; start high (not in reset).
-	rstLine, err := gpiocdev.RequestLine(chip, cfg.ResetPin,
-		gpiocdev.AsOutput(1),
-		gpiocdev.WithPullUp,
-	)
-	if err != nil {
-		sbusyLine.Close()
-		port.Close()
-		return nil, err
+	// /RESET is an output; start high (not in reset). Optional: skipped if ResetPin == 0.
+	var rstLine *gpiocdev.Line
+	if cfg.ResetPin != 0 {
+		rstLine, err = gpiocdev.RequestLine(chip, cfg.ResetPin,
+			gpiocdev.AsOutput(1),
+			gpiocdev.WithPullUp,
+		)
+		if err != nil {
+			sbusyLine.Close()
+			port.Close()
+			return nil, err
+		}
 	}
 
 	// column-major frame buffer: width columns × (height/8) bands
@@ -115,7 +118,9 @@ func (n *Noritake) Close() {
 	n.write([]byte{0x1f, 0x28, 0x61, 0x40, 0x00})
 	n.spiPort.Close()
 	n.sbusyLine.Close()
-	n.rstLine.Close()
+	if n.rstLine != nil {
+		n.rstLine.Close()
+	}
 }
 
 // Init resets the display and sends the initialise command.
@@ -146,13 +151,16 @@ func (n *Noritake) SetBrightness(b byte) {
 }
 
 // Reset pulses /RESET low for 5 ms then waits for the display to boot.
+// The pin toggle is skipped if no ResetPin was configured.
 func (n *Noritake) Reset() error {
-	if err := n.rstLine.SetValue(0); err != nil {
-		return err
-	}
-	time.Sleep(5 * time.Millisecond)
-	if err := n.rstLine.SetValue(1); err != nil {
-		return err
+	if n.rstLine != nil {
+		if err := n.rstLine.SetValue(0); err != nil {
+			return err
+		}
+		time.Sleep(5 * time.Millisecond)
+		if err := n.rstLine.SetValue(1); err != nil {
+			return err
+		}
 	}
 	// The display needs time to complete its internal reset sequence.
 	time.Sleep(100 * time.Millisecond)

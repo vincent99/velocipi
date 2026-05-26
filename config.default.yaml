@@ -24,31 +24,38 @@ airSensor:
   interval: "1s"
 
 expander:
-  address: 0x20
+  address: 0x27
   interval: "2ms"
   bits:
-    joyCenter: 8
-    joyDown: 9
-    joyKnob: 13
-    joyLeft: 12
-    joyRight: 11
+    knobInnerA: 0
+    knobOuterA: 1
+    knobInnerB: 2
+    knobOuterB: 3
+    knobCenter: 4
+    ledR: 5
+    ledW: 6
+    ledB: 7
+    ledY: 8
+    joyCenter: 9
     joyUp: 10
-    knobCenter: 0
-    knobInner: 1
-    knobOuter: 3
-    led: 6
+    joyLeft: 11
+    joyDown: 12
+    joyRight: 13
+    joyKnobA: 14
+    joyKnobB: 15
 
 lightSensor:
-  address: 0x48
+  address: 0x10
   interval: "1s"
 
 oled:
   driver: "ssd1327"
-  statusPin: 5
-  flip: true
+  statusPin: 4
+  flip: false
   gpioChip: "gpiochip0"
-  resetPin: 6
   spiSpeed: "2.40MHz"
+
+resetPin: 5
 
 screen:
   fps: 30

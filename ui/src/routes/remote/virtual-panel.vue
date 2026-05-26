@@ -45,7 +45,10 @@ onMounted(() => {
 });
 onUnmounted(() => window.removeEventListener('resize', updateScale));
 
-const ledMode = computed(() => ledState.value?.mode ?? 'off');
+const ledR = computed(() => ledState.value?.r?.mode ?? 'off');
+const ledW = computed(() => ledState.value?.w?.mode ?? 'off');
+const ledB = computed(() => ledState.value?.b?.mode ?? 'off');
+const ledY = computed(() => ledState.value?.y?.mode ?? 'off');
 
 function active(key: LogicalKey) {
   return keyEcho.get(key) === true;
@@ -88,9 +91,7 @@ function pointerup(key: LogicalKey) {
         >
           <i class="fi-sr-angle-up" />
         </button>
-        <div class="led-cell">
-          <div class="led-circle" :class="ledMode" />
-        </div>
+        <div />
         <button
           class="ctrl-btn"
           :class="{ active: active('left') }"
@@ -138,8 +139,14 @@ function pointerup(key: LogicalKey) {
         <div />
       </div>
 
-      <!-- Center: screen -->
+      <!-- Center: LEDs above screen -->
       <div class="vp-center">
+        <div class="led-row">
+          <div class="led-circle led-r" :class="ledR" />
+          <div class="led-circle led-w" :class="ledW" />
+          <div class="led-circle led-b" :class="ledB" />
+          <div class="led-circle led-y" :class="ledY" />
+        </div>
         <div class="screen-box">
           <ScreenViewer :show-led="false" />
         </div>
@@ -194,6 +201,8 @@ function pointerup(key: LogicalKey) {
 </template>
 
 <style scoped lang="scss">
+@use 'sass:color';
+
 .vp-shell {
   display: flex;
   align-items: center;
@@ -215,59 +224,58 @@ function pointerup(key: LogicalKey) {
   }
 }
 
-.led-cell {
+.led-row {
   display: flex;
-  align-items: center;
+  gap: 8px;
   justify-content: center;
+  margin-bottom: 6px;
 }
 
 .led-circle {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 35%, #555, #333 50%, #1a1a1a 100%);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
 
-  &.on {
-    background: radial-gradient(
-      circle at 35% 35%,
-      #ff9999,
-      #e53e3e 50%,
-      #a00 100%
-    );
-    box-shadow:
-      0 0 3px 1px rgba(229, 62, 62, 0.9),
-      0 0 8px 3px rgba(229, 62, 62, 0.6),
-      0 0 18px 6px rgba(229, 62, 62, 0.25);
-  }
-
+// Per-color on/blink states
+@mixin led-lit($hi, $mid, $lo, $r, $g, $b) {
+  &.on,
   &.blink {
-    background: radial-gradient(
-      circle at 35% 35%,
-      #ff9999,
-      #e53e3e 50%,
-      #a00 100%
-    );
+    background: radial-gradient(circle at 35% 35%, $hi, $mid 50%, $lo 100%);
     box-shadow:
-      0 0 3px 1px rgba(229, 62, 62, 0.9),
-      0 0 8px 3px rgba(229, 62, 62, 0.6),
-      0 0 18px 6px rgba(229, 62, 62, 0.25);
-    animation: led-blink 500ms step-start infinite;
+      0 0 3px 1px rgba($r, $g, $b, 0.9),
+      0 0 8px 3px rgba($r, $g, $b, 0.6),
+      0 0 18px 6px rgba($r, $g, $b, 0.25);
+  }
+  &.blink {
+    animation: led-blink-#{$lo} 500ms step-start infinite;
+  }
+  @keyframes led-blink-#{$lo} {
+    50% {
+      background: radial-gradient(
+        circle at 35% 35%,
+        color.adjust($hi, $lightness: -35%),
+        color.adjust($mid, $lightness: -35%) 50%,
+        $lo 100%
+      );
+      box-shadow: none;
+    }
   }
 }
 
-@keyframes led-blink {
-  50% {
-    background: radial-gradient(
-      circle at 35% 35%,
-      #553333,
-      #3a1010 50%,
-      #200 100%
-    );
-    box-shadow:
-      0 0 2px 1px rgba(100, 20, 20, 0.4),
-      0 0 4px 2px rgba(100, 20, 20, 0.2);
-  }
+.led-r {
+  @include led-lit(#ff9999, #e53e3e, #6b0000, 229, 62, 62);
+}
+.led-w {
+  @include led-lit(#ffffff, #cccccc, #555555, 220, 220, 220);
+}
+.led-b {
+  @include led-lit(#99ccff, #3b82f6, #00286b, 59, 130, 246);
+}
+.led-y {
+  @include led-lit(#fff176, #f6c026, #6b4a00, 246, 192, 38);
 }
 
 .joy-grid {
@@ -413,6 +421,9 @@ function pointerup(key: LogicalKey) {
 /* ── Center screen ── */
 .vp-center {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .screen-box {

@@ -47,21 +47,6 @@ const brightnessOptions: SelectOption[] = [
   { name: '100%', value: '100', icon: 'sun' },
 ];
 
-const modeVal = ref('day');
-const modeOptions: SelectOption[] = [
-  { name: 'Day', value: 'day', icon: 'sun' },
-  { name: 'Night', value: 'night', icon: 'moon' },
-  { name: 'Auto', value: 'auto', icon: 'eclipse-alt' },
-];
-
-const volumeVal = ref('med');
-const volumeOptions: SelectOption[] = [
-  { name: 'Off', value: 'off' },
-  { name: 'Low', value: 'low' },
-  { name: 'Med', value: 'med' },
-  { name: 'High', value: 'high' },
-];
-
 // Clock computeds — recompute whenever `now` ticks.
 const timeFormat = computed(() => config.value?.panel.timeFormat ?? '12h');
 const homeTimezone = computed(

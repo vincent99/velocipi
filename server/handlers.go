@@ -106,7 +106,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		case "led":
 			var lm inboundLEDMsg
 			if err := json.Unmarshal(data, &lm); err == nil {
-				go hub.handleLEDMsg(lm.State, lm.Rate)
+				go hub.handleLEDMsg(lm.Channel, lm.State, lm.Rate)
 			}
 		case "navigate":
 			var nm inboundNavigateMsg

@@ -55,15 +55,21 @@ export interface SensorConfig {
 
 export interface ExpanderBits {
   knobCenter: number;
-  knobInner: number;
-  knobOuter: number;
-  led: number;
+  knobInnerA: number;
+  knobInnerB: number;
+  knobOuterA: number;
+  knobOuterB: number;
+  ledR: number;
+  ledW: number;
+  ledB: number;
+  ledY: number;
   joyCenter: number;
   joyDown: number;
   joyUp: number;
   joyRight: number;
   joyLeft: number;
-  joyKnob: number;
+  joyKnobA: number;
+  joyKnobB: number;
 }
 
 export interface ExpanderConfig {

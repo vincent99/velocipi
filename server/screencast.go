@@ -155,7 +155,10 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 			}
 		}
 		if e := hardware.Expander(); e != nil {
-			hardware.LED().Off(e)
+			hardware.LEDRed().Off(e)
+			hardware.LEDWhite().Off(e)
+			hardware.LEDBlue().Off(e)
+			hardware.LEDYellow().Off(e)
 		}
 	}()
 

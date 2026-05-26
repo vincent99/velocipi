@@ -15,9 +15,13 @@ import (
 	"github.com/vincent99/velocipi/server/hardware/lightsensor"
 	"github.com/vincent99/velocipi/server/hardware/thermalcam"
 	"github.com/vincent99/velocipi/server/hardware/tpms"
+	"github.com/warthog618/go-gpiocdev"
 )
 
 var (
+	resetOnce sync.Once
+	resetLine *gpiocdev.Line // nil when ResetPin == 0
+
 	airConOnce sync.Once
 	airConUnit *aircon.Client
 
@@ -33,8 +37,14 @@ var (
 	expanderOnce sync.Once
 	expanderUnit *expander.Expander
 
-	ledOnce sync.Once
-	ledUnit *led.Controller
+	ledRedOnce    sync.Once
+	ledRedUnit    *led.Controller
+	ledWhiteOnce  sync.Once
+	ledWhiteUnit  *led.Controller
+	ledBlueOnce   sync.Once
+	ledBlueUnit   *led.Controller
+	ledYellowOnce sync.Once
+	ledYellowUnit *led.Controller
 
 	g3xOnce sync.Once
 	g3xUnit *g3x.G3X
@@ -42,6 +52,49 @@ var (
 	thermalOnce sync.Once
 	thermalUnit *thermalcam.ThermalCam
 )
+
+// resetLineInit opens the shared hardware reset GPIO line on first call.
+// Returns nil (and logs) if ResetPin is 0 or the line cannot be opened.
+func resetLineInit() *gpiocdev.Line {
+	resetOnce.Do(func() {
+		cfg := config.Load().Config
+		if cfg.ResetPin == 0 {
+			return
+		}
+		chip := cfg.OLED.GPIOChip
+		if chip == "" {
+			chip = "gpiochip0"
+		}
+		l, err := gpiocdev.RequestLine(chip, cfg.ResetPin,
+			gpiocdev.AsOutput(1),
+			gpiocdev.WithPullUp,
+		)
+		if err != nil {
+			log.Printf("hardware: reset pin %d open error: %v", cfg.ResetPin, err)
+			return
+		}
+		log.Printf("hardware: reset pin %d ready", cfg.ResetPin)
+		resetLine = l
+	})
+	return resetLine
+}
+
+// Reset pulses the shared hardware reset pin low for dur, then high.
+// Does nothing if no ResetPin is configured.
+func Reset(dur time.Duration) {
+	l := resetLineInit()
+	if l == nil {
+		return
+	}
+	if err := l.SetValue(0); err != nil {
+		log.Println("hardware: reset low error:", err)
+		return
+	}
+	time.Sleep(dur)
+	if err := l.SetValue(1); err != nil {
+		log.Println("hardware: reset high error:", err)
+	}
+}
 
 // AirCon returns the singleton AirCon BLE client, or nil if not configured.
 func AirCon() *aircon.Client {
@@ -108,7 +161,9 @@ func Expander() *expander.Expander {
 			return
 		}
 		// All pins are inputs except the LED pin.
-		inputs := uint16(0xFFFF) &^ (1 << cfg.Expander.Bits.LED)
+		outputs := uint16((1 << cfg.Expander.Bits.LEDR) | (1 << cfg.Expander.Bits.LEDW) | (1 << cfg.Expander.Bits.LEDB) | (1 << cfg.Expander.Bits.LEDY))
+		inputs := uint16(0xFFFF) &^ outputs
+
 		if err := e.Init(inputs); err != nil {
 			log.Println("hardware: expander init error:", err)
 			return
@@ -153,11 +208,30 @@ func ThermalCam() *thermalcam.ThermalCam {
 	return thermalUnit
 }
 
-// LED returns the singleton LED controller for the expander's LED pin.
-func LED() *led.Controller {
-	ledOnce.Do(func() {
-		cfg := config.Load().Config
-		ledUnit = led.New(cfg.Expander.Bits.LED)
+func LEDRed() *led.Controller {
+	ledRedOnce.Do(func() {
+		ledRedUnit = led.New(config.Load().Config.Expander.Bits.LEDR)
 	})
-	return ledUnit
+	return ledRedUnit
+}
+
+func LEDWhite() *led.Controller {
+	ledWhiteOnce.Do(func() {
+		ledWhiteUnit = led.New(config.Load().Config.Expander.Bits.LEDW)
+	})
+	return ledWhiteUnit
+}
+
+func LEDBlue() *led.Controller {
+	ledBlueOnce.Do(func() {
+		ledBlueUnit = led.New(config.Load().Config.Expander.Bits.LEDB)
+	})
+	return ledBlueUnit
+}
+
+func LEDYellow() *led.Controller {
+	ledYellowOnce.Do(func() {
+		ledYellowUnit = led.New(config.Load().Config.Expander.Bits.LEDY)
+	})
+	return ledYellowUnit
 }

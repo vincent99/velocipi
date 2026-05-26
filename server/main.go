@@ -32,10 +32,15 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
+	hardware.Reset(200 * time.Millisecond)
+
 	// Start LED blinking immediately as a startup indicator.
 	// It will be turned off once the first frame blits to the OLED.
 	if e := hardware.Expander(); e != nil {
-		hardware.LED().Blink(e, 250*time.Millisecond)
+		hardware.LEDRed().Blink(e, 250*time.Millisecond)
+		hardware.LEDWhite().On(e)
+		hardware.LEDBlue().On(e)
+		hardware.LEDYellow().On(e)
 	}
 
 	// Initialise the OLED display. Non-fatal if the hardware isn't present.
@@ -591,7 +596,10 @@ func main() {
 
 	// Turn off LED and clear OLED on exit.
 	if e := hardware.Expander(); e != nil {
-		hardware.LED().Off(e)
+		hardware.LEDRed().Off(e)
+		hardware.LEDWhite().Off(e)
+		hardware.LEDBlue().Off(e)
+		hardware.LEDYellow().Off(e)
 	}
 	if display != nil {
 		display.Close()
