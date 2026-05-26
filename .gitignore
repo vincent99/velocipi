@@ -4,6 +4,7 @@
 *.so
 *.dylib
 *.lck
+*.bak
 
 # Test binary, built with `go test -c`
 *.test
@@ -45,3 +46,4 @@ aircon/name.txt
 *.zip
 .history
 /chrome-headless-shell
+_autosave-*
