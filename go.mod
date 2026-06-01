@@ -5,18 +5,19 @@ go 1.25.4
 require (
 	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327
 	github.com/chromedp/chromedp v0.14.2
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/gorilla/websocket v1.5.3
 	github.com/sigurn/crc16 v0.0.0-20240131213347-83fcde1e29d1
 	github.com/warthog618/go-gpiocdev v0.9.1
-	periph.io/x/conn/v3 v3.7.2
+	gopkg.in/yaml.v3 v3.0.1
+	modernc.org/sqlite v1.46.1
+	periph.io/x/conn/v3 v3.7.3
 	periph.io/x/host/v3 v3.8.5
 	tinygo.org/x/bluetooth v0.14.0
 )
 
 require (
-	github.com/bogem/id3v2/v2 v2.1.4 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
-	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-json-experiment/json v0.0.0-20250725192818-e39067aee2d2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
@@ -36,10 +37,7 @@ require (
 	github.com/tinygo-org/pio v0.2.0 // indirect
 	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/sys v0.37.0 // indirect
-	golang.org/x/text v0.3.8 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.46.1 // indirect
 )
