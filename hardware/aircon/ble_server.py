@@ -13,7 +13,7 @@ Characteristics (all UTF-8 strings):
   0003  setpoint  rw  float as string, e.g. "72.50"
   0004  circ      rw  "recirc" | "fresh"
   0005  panel     rw  float as string (panel sensor temp, °F)
-  0006  settings  rw  JSON: delta, fan_high_thresh, fan_med_thresh, fan_change_interval, auto_loop_interval, temp_read_interval
+  0006  settings  rw  JSON: delta, fan_high_thresh, fan_med_thresh, fan_change_interval, auto_loop_interval, temp_read_interval, setpoint_min, setpoint_max, brightness
   0007  status    rn  JSON: temps, compressor state, error
 
 Writes are validated server-side; invalid values are silently ignored.
@@ -47,6 +47,9 @@ _SETTINGS_DEFAULTS = {
     'fan_change_interval': config.DEFAULT_FAN_CHANGE_INTERVAL,
     'auto_loop_interval':  config.DEFAULT_AUTO_LOOP_INTERVAL,
     'temp_read_interval':  config.DEFAULT_TEMP_READ_INTERVAL,
+    'setpoint_min':        config.DEFAULT_SETPOINT_MIN,
+    'setpoint_max':        config.DEFAULT_SETPOINT_MAX,
+    'brightness':          config.DEFAULT_BRIGHTNESS,
 }
 
 def _unwrap_settings(d):

@@ -40,6 +40,10 @@ class ACController:
         self.ble_notify          = bool(saved.get('ble_notify',           config.DEFAULT_BLE_NOTIFY))
         self.ble_device_name     = saved.get('ble_device_name',          config.BLE_DEVICE_NAME)
         config.BLE_DEVICE_NAME   = self.ble_device_name  # keep module-level var in sync
+        self.setpoint_min        = float(saved.get('setpoint_min',        config.DEFAULT_SETPOINT_MIN))
+        self.setpoint_max        = float(saved.get('setpoint_max',        config.DEFAULT_SETPOINT_MAX))
+        self.brightness          = float(saved.get('brightness',          config.DEFAULT_BRIGHTNESS))
+        self.setpoint            = min(max(self.setpoint, self.setpoint_min), self.setpoint_max)
 
         # panel_temp is never persisted; 0 means "not available".
         self.panel_temp = 0.0
@@ -109,12 +113,15 @@ class ACController:
 
     async def set_setpoint(self, temp, source='system'):
         try:
-            self.setpoint = float(temp)
-            log.log(source, f'setpoint → {self.setpoint:.1f}°F')
-            self._save()
-            return True
+            v = float(temp)
         except (ValueError, TypeError):
             return False
+        if v < self.setpoint_min or v > self.setpoint_max:
+            return False
+        self.setpoint = v
+        log.log(source, f'setpoint → {self.setpoint:.1f}°F')
+        self._save()
+        return True
 
     async def set_circulation(self, circ, source='system'):
         if circ not in (config.CIRC_RECIRC, config.CIRC_FRESH):
@@ -187,6 +194,19 @@ class ACController:
                 self.temp_read_interval = float(settings['temp_read_interval'])
                 self._sensors.temp_read_interval = self.temp_read_interval
                 changed.append(f'temp_read_interval={self.temp_read_interval}')
+            if 'setpoint_min' in settings or 'setpoint_max' in settings:
+                new_min = float(settings.get('setpoint_min', self.setpoint_min))
+                new_max = float(settings.get('setpoint_max', self.setpoint_max))
+                if new_min < new_max:
+                    self.setpoint_min = new_min
+                    self.setpoint_max = new_max
+                    self.setpoint = min(max(self.setpoint, new_min), new_max)
+                    changed.append(f'setpoint_min={new_min}  setpoint_max={new_max}')
+            if 'brightness' in settings:
+                v = float(settings['brightness'])
+                if 0 <= v <= 100:
+                    self.brightness = v
+                    changed.append(f'brightness={v}')
             if changed:
                 log.log(source, 'settings: ' + '  '.join(changed))
             self._save()
@@ -222,6 +242,9 @@ class ACController:
             'pwm_duty':            self._pwm.duty_cycle,
             'ble_device_name':     self.ble_device_name,
             'ble_notify':          self.ble_notify,
+            'setpoint_min':        self.setpoint_min,
+            'setpoint_max':        self.setpoint_max,
+            'brightness':          self.brightness,
         }
 
     # ── Async control loop ────────────────────────────────────────────────────

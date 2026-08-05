@@ -50,6 +50,9 @@ DEFAULT_SETPOINT    = 72.0   # °F
 DEFAULT_CIRCULATION = CIRC_RECIRC
 DEFAULT_DELTA       = 2.0    # °F hysteresis around setpoint
 DEFAULT_BLE_NOTIFY  = True   # send GATT notifications to connected clients
+DEFAULT_SETPOINT_MIN = 60.0  # °F — minimum allowed setpoint
+DEFAULT_SETPOINT_MAX = 80.0  # °F — maximum allowed setpoint
+DEFAULT_BRIGHTNESS   = 100   # percent — display brightness
 
 # ── Auto-mode fan speed thresholds ───────────────────────────────────────────
 # |current - setpoint| or |panel - cabin| >= these values selects that speed.

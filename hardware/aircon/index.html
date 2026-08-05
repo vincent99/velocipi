@@ -245,7 +245,7 @@
           min="60"
           max="80"
           oninput="document.getElementById('lbl-setpoint').textContent = this.value + '°'"
-          onchange="setNum('setpoint', this.value)"
+          onchange="setNum('setpoint', clampSetpoint(this.value))"
           style="flex:1;"
         />
       </div>
@@ -363,6 +363,21 @@
           onchange="setSetting('temp_read_interval', this.value)" />
       </div>
       <div class="row">
+        <span class="lbl">Setpoint Min (&deg;F)</span>
+        <input type="number" id="inp-setpoint-min" step="1"
+          onchange="setSetting('setpoint_min', this.value)" />
+      </div>
+      <div class="row">
+        <span class="lbl">Setpoint Max (&deg;F)</span>
+        <input type="number" id="inp-setpoint-max" step="1"
+          onchange="setSetting('setpoint_max', this.value)" />
+      </div>
+      <div class="row">
+        <span class="lbl">Brightness (%)</span>
+        <input type="number" id="inp-brightness" step="1" min="0" max="100"
+          onchange="setSetting('brightness', this.value)" />
+      </div>
+      <div class="row">
         <span class="lbl"></span>
         <button id="btn-restart" onclick="restart()">Restart</button>
         <a id="btn-repl" href="#" onclick="openRepl(); return false;"><button>REPL</button></a>
@@ -454,8 +469,11 @@
         });
 
         // Setpoint — only in auto mode
+        var setpointEl = document.getElementById("inp-setpoint");
+        if (s.setpoint_min !== undefined) setpointEl.min = s.setpoint_min;
+        if (s.setpoint_max !== undefined) setpointEl.max = s.setpoint_max;
         setInputIfUnfocused("inp-setpoint", Math.round(s.setpoint));
-        if (document.activeElement !== document.getElementById('inp-setpoint')) {
+        if (document.activeElement !== setpointEl) {
           document.getElementById('lbl-setpoint').textContent = Math.round(s.setpoint) + '°';
         }
         setDisabled("inp-setpoint", s.mode !== "auto");
@@ -498,6 +516,9 @@
         setInputIfUnfocused("inp-fan-change",  s.fan_change_interval);
         setInputIfUnfocused("inp-auto-loop",   s.auto_loop_interval);
         setInputIfUnfocused("inp-temp-read",   s.temp_read_interval);
+        setInputIfUnfocused("inp-setpoint-min", s.setpoint_min);
+        setInputIfUnfocused("inp-setpoint-max", s.setpoint_max);
+        setInputIfUnfocused("inp-brightness",   s.brightness);
       }
 
       function poll() {
@@ -535,6 +556,16 @@
             poll();
           })
           .catch(function () {});
+      }
+
+      function clampSetpoint(value) {
+        var el = document.getElementById("inp-setpoint");
+        var n = parseFloat(value);
+        var min = parseFloat(el.min);
+        var max = parseFloat(el.max);
+        if (!isNaN(min)) n = Math.max(n, min);
+        if (!isNaN(max)) n = Math.min(n, max);
+        return n;
       }
 
       function setNum(attr, value) {
