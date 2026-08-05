@@ -47,3 +47,5 @@ aircon/name.txt
 .history
 /chrome-headless-shell
 _autosave-*
+.venv
+__pycache__
