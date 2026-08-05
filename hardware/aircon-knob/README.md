@@ -2,11 +2,13 @@
 
 A Python port of the [CrowPanel 1.28"-HMI ESP32 Rotary Display](https://www.elecrow.com/wiki/CrowPanel_1.28inch-HMI_ESP32_Rotary_Display.html)
 firmware in `../temp_knob/firmware/` (C++/Arduino/LVGL): same board, same
-direct-BLE-to-the-AirCon-controller architecture, same 5 screens — but this
-one uses real LVGL widgets through MicroPython's LVGL bindings instead of
-either the C++ firmware's Arduino toolchain or a hand-rolled framebuf UI.
-See that directory's README for the hardware/pin background; this one only
-covers what's different about the Python version.
+direct-BLE-to-the-AirCon-controller architecture — but this one uses real
+LVGL widgets through MicroPython's LVGL bindings instead of either the C++
+firmware's Arduino toolchain or a hand-rolled framebuf UI, and has since
+diverged from that version's screen layout/interaction model (see "Screens"
+below) toward a touch-swipe + knob-gauge design. See that directory's README
+for the hardware/pin background; this one only covers what's different
+about the Python version.
 
 **Nothing here depends on `../temp_knob/`'s LVGL Editor project or its
 component library/fonts/icons** — this is a from-scratch, self-contained
@@ -98,20 +100,21 @@ deletes in favor of these).
 | --- | --- |
 | `boot.py` / `main.py` | Boot-time setup, a startup splash shown before touch/encoder/BLE init, then the asyncio loop pumping `lv.timer_handler()` and periodically pushing BLE state into widgets. |
 | `check_lvgl_api.py` | Standalone LVGL API surface sanity check — run this before `main.py` on a fresh setup; see "Before running main.py" below. |
-| `ble_config.py` | AirCon device name / service / characteristic UUIDs — edit this first. |
-| `aircon_ble.py` | `aioble`-based BLE GATT central; mirrors `server/hardware/aircon/aircon.go` and `../temp_knob/firmware/src/aircon_ble.cpp`. Unaffected by the LVGL switch — BLE and graphics are independent. |
-| `hal.py` | Display/touch setup via lvgl_micropython's built-in `gc9a01`/`cst816s` drivers, plus a custom `lv.indev` for the rotary encoder. |
+| `ble_config.py` | AirCon service / characteristic UUIDs — edit this first. No longer has a device *name* constant — see "Connect / Disconnected screens" below. |
+| `aircon_ble.py` | `aioble`-based BLE GATT central; mirrors `server/hardware/aircon/aircon.go` and `../temp_knob/firmware/src/aircon_ble.cpp`. Unaffected by the LVGL switch — BLE and graphics are independent. `AirconClient` takes the device name to connect to (persisted by `panel_settings.py`) rather than a hardcoded constant, and can `scan_for_aircons()` for `screens.ConnectTile`'s picker. |
+| `panel_settings.py` | Persists the panel's own settings (currently just the picked AirCon device name) to flash — separate from the AirCon controller's own settings, which sync over BLE into `aircon_ble.AirconState.settings`. |
+| `hal.py` | Display/touch setup via lvgl_micropython's built-in `gc9a01`/`cst816s` drivers. Touch self-registers as an LVGL pointer indev; the rotary encoder is returned as a plain `encoder.Encoder` object for the `screens/` package to poll directly, not wired through an `lv.indev`/`lv.group`. |
 | `encoder.py` | Rotary encoder quadrature decode + button (no built-in driver for this exists). |
 | `theme.py` | Colors (mirrors `../temp_knob/ui/globals.xml`'s tokens) and the Nasalization fonts, loaded via `lv.binfont_create()`. |
-| `screens.py` | The 5 actual screens, built from real LVGL widgets (`lv.tileview`, `lv.arc`, `lv.roller`, `lv.slider`) — a close Python port of `../temp_knob/firmware/src/ui_app.cpp`. |
+| `screens/` | The panel's screens, built from real LVGL widgets (`lv.tileview`, `lv.arc`, `lv.roller`, `lv.line`). One module per screen — see "Screens" below and the table right after it. Diverged from a straight port of `../temp_knob/firmware/src/ui_app.cpp`. |
 | `fonts/` | The converted Nasalization `.bin` fonts; see `fonts/README.md`. |
 | `images/splash.bin` | Startup splash image, converted from `aircon.png` (240×240, matches the panel exactly) with LVGL's own `LVGLImage.py` converter into LVGL's native runtime-loadable binary image format — same reasoning as the fonts: doesn't depend on a PNG decoder being compiled into the firmware build. Regenerate with `python3 LVGLImage.py --ofmt BIN --cf RGB565 -o images aircon.png` then `mv images/aircon.bin images/splash.bin` (`--name` didn't actually rename the output in testing, despite the tool's own `--help` claiming it does for single-file input — hence the manual `mv`). `LVGLImage.py` lives in upstream LVGL's `scripts/` folder; needs `pip install pypng lz4`. Loaded via `lv.image_dsc_t` constructed from its raw pixel bytes, not via `img.set_src(path)` — see "Not hardware-verified" below for why. |
 
 ## If the board won't boot / never shows up as a USB serial device
 
 This bit on real hardware once: `main.py` used to `import screens` at the
-top of the file, before `lv.init()` ran. `screens.py` imports `theme.py`,
-which used to call `lv.binfont_create(...)` at **module import time** —
+top of the file, before `lv.init()` ran. The `screens/` package imports
+`theme.py`, which used to call `lv.binfont_create(...)` at **module import time** —
 meaning it ran during that top-of-file import, before `lv.init()` had set up
 LVGL's internal state. That's not just wrong, it can crash hard *inside the
 C binding* rather than raising a catchable Python exception — severely
@@ -125,7 +128,7 @@ rather than at the top of the file, so nothing LVGL-related can run before
 If you still hit a dead/non-enumerating board after that fix, the general
 recovery approach: get a **bare REPL first** (don't let `main.py` auto-run —
 temporarily rename it, or interrupt with Ctrl-C fast enough after a reset if
-the board does briefly enumerate), then paste `hal.py`'s and `screens.py`'s
+the board does briefly enumerate), then paste `hal.py`'s and `screens/`'s
 logic in piece by piece over the REPL (`lv.init()`, then `hal.hal_init(...)`,
 then one screen at a time) to find exactly which call hard-crashes rather
 than raises — that boundary is almost always "something called before the
@@ -168,8 +171,8 @@ actual hands-on debugging on real hardware afterward.
   exercises, including two real corrections it found:
   `lv.group_set_default` is actually `group.set_default()`, and
   `lv.ANIM`/`lv.ROLLER_MODE` don't exist as nested enum classes at all
-  (worked around with plain `0` in `screens.py` — both `LV_ANIM_OFF` and
-  `LV_ROLLER_MODE_NORMAL` are long-standing `0` upstream).
+  (worked around with plain `0` in `screens/connect.py` — both `LV_ANIM_OFF`
+  and `LV_ROLLER_MODE_NORMAL` are long-standing `0` upstream).
 - `SPI.Bus`/`lcd_bus.SPIBus`/`gc9a01.GC9A01(...)` construction and the
   GC9A01 init command sequence itself (matches the known-working
   Arduino/LGFX reference almost line-for-line).
@@ -292,28 +295,94 @@ actual hands-on debugging on real hardware afterward.
 3. **`theme.py`'s fonts** (`lv.binfont_create()`) — never independently
    verified the way the splash image was. Not raising is no longer trusted
    as proof of success on this build (see finding 7 above) — worth watching
-   for once `screens.py`'s actual text-bearing widgets are reachable and
-   visible on the panel.
+   for once the `screens/` package's actual text-bearing widgets are
+   reachable and visible on the panel.
 
 ## Screens
+
+| Module | Screen(s) |
+| --- | --- |
+| `screens/__init__.py` | `App` — owns which screen is showing, dispatches knob input, orchestrates the + shaped tileview grid. |
+| `screens/widgets.py` | Shared LVGL widget-construction helpers used by more than one screen. |
+| `screens/home.py` | Home. |
+| `screens/connect.py` | Connect. |
+| `screens/disconnected.py` | Disconnected. |
 
 On power-up, a full-screen splash (`images/splash.bin`, converted from
 `aircon.png`) shows for ~2 seconds before anything else happens — including
 before touch/encoder/BLE init — so there's visible proof the panel and
 display path are alive even if something further into startup fails. Then:
-same control surface and interaction model as the C++ version — an
-`lv.tileview` of tiles (swipe with touch to move between them) sharing one
-`lv.group` for the rotary encoder (turn to move focus / adjust the focused
-control when in "edit" mode, press to toggle edit mode — LVGL's standard
-`LV_INDEV_TYPE_ENCODER` convention):
+an `lv.tileview` arranged in a + shaped grid around the Home tile, navigated
+by touch swipes (no knob push needed) instead of the C++ version's linear
+tile strip:
 
-1. **Home** — setpoint (arc, knob-adjustable), mode/fan/compressor summary,
-   current cabin temp, connection status.
-2. **Mode / Fan** — mode (off/fan/auto/cool) and fan speed (low/medium/high)
-   rollers.
-3. **Circulation** — recirculate/fresh-air roller.
-4. **Settings** — one slider per key the controller reports in its settings
-   map (dynamic, rebuilt live if the key set changes), range approximated as
-   ±10 around the controller's compiled-in default.
-5. **Status** — cabin/blower/exhaust/baggage/tail temperatures and any error
-   string from the controller.
+- **Home** (center) — the only screen with real controls right now:
+  - An outer dial gauge rings almost the whole panel edge. It's
+    knob-adjustable: off→low/medium/high (not wrapping) when mode is
+    off/fan/cool, or setpoint (bounded by the controller's BLE-reported
+    `setpoint_min`/`setpoint_max` settings) when mode is auto.
+  - Inside the gauge, a 3-row grid: current cabin temp; mode and
+    recirculation cells (act as buttons — tap-and-press to cycle through
+    their options, see "Interaction model" below); setpoint (auto mode
+    only) and current fan speed. The bottom row's background turns dark
+    blue while the compressor is running.
+  - Swipe down → History, up → Settings, right → Temps.
+- **History** (swipe down from Home, up to return) — placeholder.
+- **Settings** (swipe up from Home, down to return) — placeholder. (The
+  previous per-setting slider list moved out of the way for this — not
+  gone, just not rebuilt into the new layout yet.)
+- **Temps** (swipe right from Home, left to return) — placeholder. (Same
+  deal: the previous cabin/blower/exhaust/baggage/tail readout moved out of
+  the way, not gone.)
+
+### Connect / Disconnected screens
+
+Not part of the swipeable + grid — `screens.App` shows one of these
+full-screen in place of the tileview instead, based on whether a device has
+been picked (`panel_settings.get_aircon_device_name()`) and whether
+`aircon_ble.AirconClient` currently has a live connection
+(`client.state.connected`):
+
+- **Connect** — a knob-driven picker: `aircon_ble.AirconClient.scan_for_aircons()`
+  scans for any BLE peripheral advertising the AirCon service UUID
+  (`ble_config.AIRCON_SERVICE_UUID`) — not by name, since each physical
+  controller can have its own custom `BLE_DEVICE_NAME` (`../aircon/config.py`'s
+  `set_ble_name()`) — and lists whatever it finds. Turning the knob moves
+  the highlighted device; pressing the button picks it, which persists the
+  choice (`panel_settings.set_aircon_device_name()`) and moves to
+  Disconnected ("Connecting…") while `AirconClient` attempts the connection.
+  Shown on first boot (nothing picked yet) or from Disconnected's knob push.
+- **Disconnected** — a full red screen with a thick red-on-darker-red X
+  spanning the panel's corners and white "Connecting…"/"Disconnected" text.
+  Says "Connecting…" only the very first time it's shown; every later
+  showing says "Disconnected" (`screens.DisconnectedTile._shown_before`).
+  Shown at startup if a device is already picked (until the first
+  successful connect), and any time the connection drops while Home was
+  showing — `screens.App.refresh()` flips back to Home as soon as
+  `client.state.connected` is true again. Pressing the knob here goes to
+  Connect, to pick a different device.
+
+### Interaction model
+
+Different from LVGL's usual `LV_INDEV_TYPE_ENCODER` convention (turn to
+move focus between group members, press to toggle "edit mode") — this
+panel's knob always drives whichever control is "current" on the active
+screen (nothing on the placeholder screens), and the touchscreen and knob's
+push-button are mechanically coupled (pressing down on the screen is what
+presses the button underneath, so you can't press one without touching the
+screen too):
+
+- Turning the knob adjusts the Home screen's gauge value (see above); does
+  nothing on History/Settings/Temps.
+- A touch tap alone never does anything.
+- A "click" on the mode/recirc cells needs a touch point on that cell *and*
+  the knob's button down at some point during the touch — see
+  `screens._wire_button()`.
+- Swipes need only touch (no button) and move between tiles via the
+  tileview's own gesture handling.
+
+Connect and Disconnected are simpler and purely knob-driven (no touch) —
+they aren't sharing panel space with any swipe gesture, so there's no
+touch/swipe ambiguity to resolve there the way `_wire_button()` handles for
+Home. The knob's button press is edge-detected once per screen in
+`screens.App.poll_input()` rather than gated on touch.

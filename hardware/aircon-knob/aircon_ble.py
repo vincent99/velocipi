@@ -15,6 +15,12 @@ callbacks ran on a separate FreeRTOS task), everything here is a single
 cooperative asyncio event loop, so plain attribute reads/writes on
 AirconState are safe without locking — no two coroutines run truly
 concurrently, only interleaved at `await` points.
+
+AirconClient no longer connects to a hardcoded device name (see
+ble_config.py) -- it's constructed with whatever panel_settings.py has
+persisted (possibly ""), and set_device_name() (called by
+screens.ConnectTile once the user picks one from scan_for_aircons()'s
+results) both persists the new choice and wakes run() up to act on it.
 """
 
 import asyncio
@@ -23,8 +29,8 @@ import json
 import aioble
 import bluetooth
 
+import panel_settings
 from ble_config import (
-    AIRCON_DEVICE_NAME,
     AIRCON_SERVICE_UUID,
     UUID_MODE,
     UUID_FAN,
@@ -48,7 +54,14 @@ _CHAR_UUIDS = {
 _JSON_CHARS = ("settings", "status")
 
 _SCAN_DURATION_MS = 5000
+_PICKER_SCAN_DURATION_MS = 4000  # scan_for_aircons()'s default -- see screens.ConnectTile
 _RECONNECT_DELAY_MS = 5000
+
+# Guards every aioble.scan() call -- both the reconnect loop's own scan
+# (_find_device) and the Connect screen's device picker (scan_for_aircons)
+# can be triggered independently, and aioble likely can't run two scans at
+# once; this makes sure they queue instead of overlapping.
+_scan_lock = asyncio.Lock()
 
 
 class AirconState:
@@ -101,17 +114,41 @@ def _json_complete(buf):
 
 
 class AirconClient:
-    def __init__(self):
+    def __init__(self, device_name=""):
+        self.device_name = device_name  # "" until the user picks one on the Connect screen
         self.state = AirconState()
         self.dirty = asyncio.Event()
         self._chars = {}
+        # Wakes run() immediately when set_device_name() gives it something
+        # to connect to, instead of leaving it idling until whatever poll
+        # interval it happened to be sleeping on.
+        self._name_event = asyncio.Event()
 
     def _mark_dirty(self):
         self.dirty.set()
 
+    def set_device_name(self, name):
+        """Called by screens.ConnectTile when the user picks a device from
+        the scan list. Persists it (so it's still picked after a reboot)
+        and wakes run() if it was idling with no device chosen yet.
+        """
+        self.device_name = name
+        panel_settings.set_aircon_device_name(name)
+        self._name_event.set()
+
     async def run(self):
-        """Runs forever: scan, connect, subscribe, reconnect on drop."""
+        """Runs forever: scan, connect, subscribe, reconnect on drop. Waits
+        (without scanning) whenever no device has been picked yet --
+        set_device_name() wakes this back up as soon as one is.
+        """
         while True:
+            if not self.device_name:
+                self.state.connected = False
+                self._mark_dirty()
+                await self._name_event.wait()
+                self._name_event.clear()
+                continue
+
             device = await self._find_device()
             if device is not None:
                 try:
@@ -124,14 +161,47 @@ class AirconClient:
             await asyncio.sleep_ms(_RECONNECT_DELAY_MS)
 
     async def _find_device(self):
-        print("aircon_ble: scanning for %r..." % (AIRCON_DEVICE_NAME,))
-        async with aioble.scan(
-            _SCAN_DURATION_MS, interval_us=30000, window_us=30000, active=True
-        ) as scanner:
-            async for result in scanner:
-                if result.name() == AIRCON_DEVICE_NAME:
-                    return result.device
+        print("aircon_ble: scanning for %r..." % (self.device_name,))
+        async with _scan_lock:
+            async with aioble.scan(
+                _SCAN_DURATION_MS, interval_us=30000, window_us=30000, active=True
+            ) as scanner:
+                async for result in scanner:
+                    if result.name() == self.device_name:
+                        return result.device
         return None
+
+    async def scan_for_aircons(self, duration_ms=_PICKER_SCAN_DURATION_MS):
+        """Scans for any BLE peripheral advertising AIRCON_SERVICE_UUID --
+        not by name, since each physical controller can have its own custom
+        BLE_DEVICE_NAME (see ble_config.py's docstring) -- for
+        screens.ConnectTile's device picker. Returns a list of
+        (name, aioble.Device) pairs, deduplicated and sorted by name;
+        devices with no advertised name are skipped, since there'd be
+        nothing sensible to show/select for those.
+
+        NOT hardware-verified: result.services() is this project's best
+        guess at how aioble exposes a scan result's advertised service
+        UUIDs (matching the shape used in aioble's own examples), but
+        untested against a live radio -- see ../README.md's "Still open"
+        list for the rest of this project's unverified aioble surface.
+        """
+        seen = set()
+        found = []
+        async with _scan_lock:
+            async with aioble.scan(
+                duration_ms, interval_us=30000, window_us=30000, active=True
+            ) as scanner:
+                async for result in scanner:
+                    if _SVC not in result.services():
+                        continue
+                    name = result.name()
+                    if not name or name in seen:
+                        continue
+                    seen.add(name)
+                    found.append((name, result.device))
+        found.sort(key=lambda pair: pair[0])
+        return found
 
     async def _connect_and_run(self, device):
         print("aircon_ble: connecting...")

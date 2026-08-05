@@ -3,7 +3,7 @@ remaining `lv.*` name mismatches in one pass instead of one flash-cycle per
 AttributeError. This project's code was written against the LVGL Python
 binding's well-established naming convention, but not verified against the
 actual generated binding (no hardware available while writing it) -- this
-script builds one of everything main.py/hal.py/screens.py/theme.py touch
+script builds one of everything main.py/hal.py/screens/*.py/theme.py touch
 and reports exactly what's missing, without needing the BLE/display/touch
 hardware to be working first (a no-op dummy display stands in for the real
 GC9A01 -- see build_dummy_display() -- since widgets need *some* registered
@@ -51,26 +51,46 @@ for name in (
     "color_hex", "binfont_create", "obj", "label", "roller", "arc", "slider",
     "tileview", "pct", "SIZE_CONTENT", "screen_active", "group_create",
     "timer_handler", "indev_create", "display_create", "DIR", "EVENT",
-    "PART", "OPA", "FLEX_FLOW", "FLEX_ALIGN",
+    "PART", "OPA", "FLEX_FLOW", "FLEX_ALIGN", "SYMBOL",
     "INDEV_TYPE", "INDEV_STATE", "COLOR_FORMAT", "DISPLAY_RENDER_MODE",
 ):
     check("lv." + name, (lambda n=name: getattr(lv, n)), search_in=lv, search_term=name)
 
-print("\n=== confirmed absent, already worked around in screens.py ===")
+print("\n=== confirmed absent, worked around with plain 0 (screens/connect.py's roller) ===")
 print("(lv.ANIM / lv.ROLLER_MODE don't exist as nested enum-group classes on")
-print(" this binding; screens.py uses the plain numeric values instead --")
-print(" see its _ANIM_OFF/_ROLLER_MODE_NORMAL. Not counted as failures below;")
-print(" only worth re-checking if you're curious whether a real symbolic")
-print(" name exists somewhere else in dir(lv).)")
+print(" this binding -- screens/connect.py's roller (the Connect screen's")
+print(" device picker) uses plain numeric values (_ANIM_OFF/_ROLLER_MODE_NORMAL)")
+print(" instead. Not counted as failures below; only worth re-checking if")
+print(" you're curious whether a real symbolic name exists somewhere else in")
+print(" dir(lv).)")
 for name in ("ANIM", "ROLLER_MODE"):
     hits = [n for n in dir(lv) if name in n.upper()]
     print("     dir(lv) containing %r: %s" % (name, hits))
 
+print("\n=== lv.SYMBOL.* used for mode/recirc cell icons (screens/home.py) ===")
+for name in ("POWER", "REFRESH", "LOOP", "TINT"):
+    check("lv.SYMBOL." + name, (lambda n=name: getattr(lv.SYMBOL, n)), search_in=lv.SYMBOL, search_term=name)
+
+print("\n=== confirmed: obj flags are lv.obj.FLAG.*, not a top-level lv.OBJ_FLAG ===")
+print("(found on real hardware: AttributeError: 'module' object has no")
+print(" attribute 'OBJ_FLAG' -- unlike DIR/EVENT/PART/etc., which *are*")
+print(" flat lv.* groups, this binding nests the obj-flag enum under the")
+print(" lv.obj widget class itself, matching lv_binding_micropython's own")
+print(" documented obj.add_flag(obj.FLAG.CLICKABLE) usage. screens/widgets.py's")
+print(" add_flag/remove_flag calls use lv.obj.FLAG.* accordingly.)")
+for name in ("CLICKABLE", "HIDDEN", "SCROLLABLE"):
+    check(
+        "lv.obj.FLAG." + name,
+        (lambda n=name: getattr(lv.obj.FLAG, n)),
+        search_in=lv.obj.FLAG,
+        search_term=name,
+    )
+
 print("\n=== enum members actually used in this project ===")
 for path in (
-    "DIR.RIGHT", "DIR.LEFT", "DIR.HOR", "DIR.VER",
-    "EVENT.VALUE_CHANGED",
-    "PART.MAIN", "PART.INDICATOR",
+    "DIR.RIGHT", "DIR.LEFT", "DIR.HOR", "DIR.VER", "DIR.TOP", "DIR.BOTTOM",
+    "EVENT.VALUE_CHANGED", "EVENT.PRESSED", "EVENT.PRESSING", "EVENT.CLICKED",
+    "PART.MAIN", "PART.INDICATOR", "PART.KNOB",
     "OPA.TRANSP", "OPA.COVER",
     "FLEX_FLOW.COLUMN", "FLEX_FLOW.ROW",
     "FLEX_ALIGN.START", "FLEX_ALIGN.CENTER", "FLEX_ALIGN.SPACE_EVENLY",
@@ -135,6 +155,26 @@ else:
     tv = check("lv.tileview(scr)", lambda: lv.tileview(scr))
     if tv is not None:
         check("tv.add_tile(0,0,DIR)", lambda: tv.add_tile(0, 0, lv.DIR.RIGHT), search_in=tv, search_term="tile")
+        # screens/__init__.py's App.poll_input() uses this to tell which tile in the
+        # +-shaped grid is currently active, to gate the knob to the main
+        # screen only. Confirmed on real hardware: it's get_tile_active(),
+        # not get_tile_act() (lv_tileview_get_tile_act() in upstream LVGL C
+        # -- this binding renamed it). Wrapped in a lambda so a wrong guess
+        # is caught by check()'s own try/except instead of raising while
+        # this argument list is being built, before check() is even
+        # entered -- an earlier unwrapped `tv.get_tile_act` reference here
+        # crashed the whole script instead of reporting FAIL + candidates
+        # like every other check.
+        check("tv.get_tile_active()", lambda: tv.get_tile_active(), search_in=tv, search_term="tile")
+        # App.__init__ uses this to force the initially-visible tile to
+        # Home (1,1) -- a tileview otherwise opens on grid cell (0,0), which
+        # is empty in the app's + shaped layout.
+        check(
+            "tv.set_tile_by_index(1,1,False)",
+            lambda: tv.set_tile_by_index(1, 1, False),
+            search_in=tv,
+            search_term="tile",
+        )
         tile_parent = tv
 
     obj = check("lv.obj(parent)", lambda: lv.obj(tile_parent))
@@ -153,6 +193,34 @@ else:
         )
         check("obj.set_scroll_dir", lambda: obj.set_scroll_dir(lv.DIR.VER), search_in=obj)
         check("obj.clean()", obj.clean, search_in=obj)
+        # Used by screens/home.py's HomeTile (circular grid inset) and
+        # screens/widgets.py's _make_button_cell()/_set_visible()
+        # (mode/recirc click targets, setpoint label show/hide).
+        check("obj.set_style_radius", lambda: obj.set_style_radius(4, 0), search_in=obj, search_term="radius")
+        check(
+            "obj.set_style_clip_corner",
+            lambda: obj.set_style_clip_corner(True, 0),
+            search_in=obj,
+            search_term="clip",
+        )
+        check(
+            "obj.add_flag(CLICKABLE)",
+            lambda: obj.add_flag(lv.obj.FLAG.CLICKABLE),
+            search_in=obj,
+            search_term="flag",
+        )
+        check(
+            "obj.remove_flag(HIDDEN)",
+            lambda: obj.remove_flag(lv.obj.FLAG.HIDDEN),
+            search_in=obj,
+            search_term="flag",
+        )
+        check(
+            "obj.add_event_cb(PRESSED)",
+            lambda: obj.add_event_cb(lambda e: None, lv.EVENT.PRESSED, None),
+            search_in=obj,
+            search_term="event",
+        )
 
     label = check("lv.label(parent)", lambda: lv.label(tile_parent))
     if label is not None:
@@ -180,6 +248,23 @@ else:
             search_in=arc,
             search_term="event",
         )
+        # New in HomeTile's outer dial gauge: a wide sweep (not a full
+        # circle) via set_bg_angles, a thicker track/indicator, and a
+        # display-only arc (no draggable knob, doesn't intercept swipes).
+        check("arc.set_bg_angles", lambda: arc.set_bg_angles(120, 60), search_in=arc, search_term="angle")
+        check(
+            "arc.set_style_arc_width",
+            lambda: arc.set_style_arc_width(20, lv.PART.MAIN),
+            search_in=arc,
+            search_term="width",
+        )
+        check(
+            "arc.set_style_bg_opa(KNOB)",
+            lambda: arc.set_style_bg_opa(lv.OPA.TRANSP, lv.PART.KNOB),
+            search_in=arc,
+            search_term="opa",
+        )
+        check("arc.remove_flag(CLICKABLE)", lambda: arc.remove_flag(lv.obj.FLAG.CLICKABLE), search_in=arc, search_term="flag")
 
     roller = check("lv.roller(parent)", lambda: lv.roller(tile_parent))
     if roller is not None:
@@ -203,6 +288,35 @@ else:
         check("slider.set_value", lambda: slider.set_value(5, 0), search_in=slider)
         check("slider.get_value", slider.get_value, search_in=slider)
 
+    print("\n=== lv.line / lv.point_t (screens/disconnected.py's DisconnectedTile X) ===")
+    point_t = check("lv.point_t({...})", lambda: lv.point_t({"x": 0, "y": 0}), search_in=lv, search_term="point")
+    line = check("lv.line(parent)", lambda: lv.line(tile_parent), search_in=lv, search_term="line")
+    if line is not None and point_t is not None:
+        check(
+            "line.set_points",
+            lambda: line.set_points([lv.point_t({"x": 0, "y": 0}), lv.point_t({"x": 100, "y": 100})], 2),
+            search_in=line,
+            search_term="point",
+        )
+        check(
+            "line.set_style_line_width",
+            lambda: line.set_style_line_width(14, 0),
+            search_in=line,
+            search_term="line",
+        )
+        check(
+            "line.set_style_line_color",
+            lambda: line.set_style_line_color(lv.color_hex(0), 0),
+            search_in=line,
+            search_term="line",
+        )
+        check(
+            "line.set_style_line_rounded",
+            lambda: line.set_style_line_rounded(False, 0),
+            search_in=line,
+            search_term="line",
+        )
+
     print("\n=== lv.image (startup splash, main.py's _show_splash()) ===")
     img = check("lv.image(parent)", lambda: lv.image(tile_parent), search_in=lv, search_term="image")
     if img is not None:
@@ -212,7 +326,7 @@ else:
 
 print("\n=== summary ===")
 print("(Not checked here: lv.event_t.get_target_obj()/get_user_data(), used")
-print(" in screens.py's slider/roller/arc callbacks -- only reachable from a")
+print(" in screens/*.py's slider/roller/arc callbacks -- only reachable from a")
 print(" real fired event, not worth synthesizing one just for this script.")
 print(" If a callback raises AttributeError on `e.get_...`, print(dir(e))")
 print(" inside the callback itself the same way.)")
@@ -220,7 +334,7 @@ if _fails:
     print("%d check(s) FAILED:" % len(_fails))
     for f in _fails:
         print("  -", f)
-    print("Fix the corresponding call(s) in hal.py/screens.py/theme.py/main.py,")
+    print("Fix the corresponding call(s) in hal.py/screens/*.py/theme.py/main.py,")
     print("then re-run this script before trying main.py again.")
 else:
     print("All checks passed.")

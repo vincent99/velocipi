@@ -38,6 +38,7 @@ import time
 import lvgl as lv
 
 import hal
+import panel_settings
 
 _REFRESH_PERIOD_MS = 250
 _SPLASH_MS = 2000
@@ -128,14 +129,20 @@ def _show_splash():
 
 
 class _DummyState:
-    """Same attributes aircon_ble.AirconState has, so screens.py's tiles
-    can read them without caring which client built them. Fixed placeholder
-    values -- this is only for exercising the UI/fonts with BLE out of the
-    picture, not a real simulator (../aircon-sim/ is that).
+    """Same attributes aircon_ble.AirconState has, so the screens/ package's
+    tiles can read them without caring which client built them. Fixed
+    placeholder values -- this is only for exercising the UI/fonts with BLE
+    out of the picture, not a real simulator (../aircon-sim/ is that).
+
+    connected=True (unlike a real just-booted AirconState) so dummy mode
+    keeps landing straight on the Home screen as before, now that
+    screens.App gates Home/Disconnected on this flag -- flip it to False
+    (and/or blank _DummyClient's device_name) to exercise the
+    Connect/Disconnected screens instead.
     """
 
     def __init__(self):
-        self.connected = False
+        self.connected = True
         self.mode = "off"
         self.fan = "low"
         self.setpoint = 72.0
@@ -160,10 +167,18 @@ class _DummyClient:
     def __init__(self):
         self.state = _DummyState()
         self.dirty = asyncio.Event()
+        self.device_name = "Dummy AirCon"
 
     async def run(self):
         while True:
             await asyncio.sleep(3600)
+
+    def set_device_name(self, name):
+        self.device_name = name
+
+    async def scan_for_aircons(self, duration_ms=4000):
+        await asyncio.sleep_ms(500)  # pretend a scan takes a moment
+        return [("Dummy AirCon", None), ("Other AirCon", None)]
 
     async def _noop(self, *args):
         return False
@@ -186,10 +201,6 @@ async def main():
     # LVGL's internal log messages -- confirmed absent on this build
     # (clean AttributeError, not a naming mismatch), most likely because
     # LV_USE_LOG isn't compiled in. Not pursued further.
-
-    group = lv.group_create()
-    group.set_default()
-    _checkpoint("group created")
 
     display = hal.hal_init_display()
     _checkpoint("display initialized")
@@ -214,7 +225,7 @@ async def main():
         splash.delete()
     _checkpoint("splash phase done")
 
-    hal.hal_init_input(group)
+    encoder = hal.hal_init_input()
     _checkpoint("touch/encoder initialized")
 
     if _ENABLE_BLE:
@@ -222,7 +233,7 @@ async def main():
         import aircon_ble
 
         _checkpoint("after importing aircon_ble")
-        client = aircon_ble.AirconClient()
+        client = aircon_ble.AirconClient(panel_settings.get_aircon_device_name())
     else:
         print("main: _ENABLE_BLE=False, using _DummyClient (no aioble/bluetooth import)")
         client = _DummyClient()
@@ -243,7 +254,7 @@ async def main():
     import screens
 
     scr = lv.screen_active()
-    app = screens.build(client, group, scr)
+    app = screens.build(client, encoder, scr)
     _checkpoint("screens built")
     asyncio.create_task(client.run())
 
@@ -259,6 +270,13 @@ async def main():
         last_tick_ms = now
 
         lv.timer_handler()
+
+        # Polled every loop iteration (not just on the ~250ms refresh
+        # cadence below) so turning the knob feels immediate: it reads and
+        # applies the encoder's accumulated delta directly to whichever
+        # control is "current" on the active screen -- see
+        # screens.App.poll_input()/HomeTile.handle_knob().
+        app.poll_input()
 
         if client.dirty.is_set() or time.ticks_diff(now, last_refresh_ms) >= _REFRESH_PERIOD_MS:
             client.dirty.clear()

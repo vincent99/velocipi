@@ -20,6 +20,8 @@ COLOR_ACCENT = lv.color_hex(0x9429FF)  # color_accent
 COLOR_ACCENT_TEXT = lv.color_hex(0xFFFFFF)
 COLOR_DANGER = lv.color_hex(0xE5484D)
 COLOR_TRACK = lv.color_hex(0x9AA3B2)
+COLOR_COMPRESSOR_ON = lv.color_hex(0x0B1F4D)  # dark blue fill behind the bottom row while the compressor is running
+COLOR_DANGER_DARK = lv.color_hex(0x7A1F1F)  # darker red for the Disconnected screen's X, against COLOR_DANGER's background
 
 SPACE_XS = 2
 SPACE_SM = 4

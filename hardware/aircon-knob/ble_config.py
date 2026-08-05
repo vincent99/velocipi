@@ -1,15 +1,20 @@
-"""BLE identity of the AirCon controller this panel connects to.
+"""BLE identity of the AirCon controller(s) this panel can connect to.
 
-Values below match ../aircon/config.py (the real RP2350 firmware) and
-../aircon-sim/config.py (the desktop BLE simulator) exactly -- all three
-need to agree, along with the Go server's config
-(server/config/config.go AirConConfig, set via AIRCON_DEVICENAME /
-AIRCON_SERVICEUUID in .env) if you also want the Pi connecting to the same
-device. If you change the device name or UUIDs on the real controller,
-update all of these to match.
+AIRCON_SERVICE_UUID and the characteristic UUIDs below match
+../aircon/config.py (the real RP2350 firmware), ../aircon-sim/config.py
+(the desktop BLE simulator), and the Go server's config
+(server/config/config.go AirConConfig, via AIRCON_SERVICEUUID in .env) --
+all need to agree if you change them on the real controller.
+
+Unlike an earlier version of this file, there's no AIRCON_DEVICE_NAME
+constant here anymore -- each physical controller can have its own custom
+BLE_DEVICE_NAME (../aircon/config.py's config.BLE_DEVICE_NAME, settable at
+runtime via its set_ble_name()), so this panel scans for *any* device
+advertising AIRCON_SERVICE_UUID (aircon_ble.AirconClient.scan_for_aircons())
+and the user picks one by name on the Connect screen (screens.ConnectTile).
+The chosen name is persisted to flash by panel_settings.py, not hardcoded.
 """
 
-AIRCON_DEVICE_NAME = "AirCon"
 AIRCON_SERVICE_UUID = "aaaaaaaa-1111-cccc-00dd-000000000000"
 
 # Same 7 characteristic UUIDs as server/hardware/aircon/aircon.go.

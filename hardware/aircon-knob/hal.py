@@ -208,24 +208,22 @@ def _init_touch():
     return cst816s.CST816S(device, reset_pin=_TOUCH_RST)
 
 
-def _init_encoder(group):
-    """No built-in lvgl_micropython driver for a plain quadrature knob, so
-    this registers a custom lv.indev backed by encoder.py's Gray-code
-    accumulator -- the same decode approach used in the C++ port's hal.cpp
-    and the main Pi server's hub.go.
+def _init_encoder():
+    """No built-in lvgl_micropython driver for a plain quadrature knob.
+
+    Unlike the earlier version of this file, this no longer wraps the knob
+    as an lv.indev of type ENCODER driving an lv.group. That convention
+    couples turning the knob to *focus movement* between group members and
+    an explicit "edit mode" toggle on push -- a fundamentally different
+    interaction than what the screens/ package now wants: the knob always
+    adjusts whichever control is the current screen's "most important
+    thing" (no focus/edit-mode concept), and a push only ever matters
+    together with a touch point (see screens/widgets.py's _wire_button).
+    So the raw encoder.Encoder object is just handed back for
+    screens/main.py to poll directly (read_delta()/button_pressed()) every
+    frame, instead of being registered as an lv.indev at all.
     """
-    enc = Encoder()
-
-    def read_cb(indev, data):
-        delta = enc.read_delta()
-        data.enc_diff = delta
-        data.state = lv.INDEV_STATE.PRESSED if enc.button_pressed() else lv.INDEV_STATE.RELEASED
-
-    indev = lv.indev_create()
-    indev.set_type(lv.INDEV_TYPE.ENCODER)
-    indev.set_read_cb(read_cb)
-    indev.set_group(group)
-    return indev
+    return Encoder()
 
 
 def hal_init_display():
@@ -236,10 +234,14 @@ def hal_init_display():
     return _init_display()
 
 
-def hal_init_input(group):
-    """Sets up touch + the encoder. `group` is the lv.group_t the encoder
-    indev should drive (screens.py builds it and adds its focusable widgets
-    to it).
+def hal_init_input():
+    """Sets up touch + the encoder, returning the raw Encoder object.
+
+    Touch (cst816s) self-registers as an LVGL pointer-type indev from its
+    own constructor -- it hit-tests widgets by coordinate and has no notion
+    of a focus group (that's an encoder/keypad concept), so there's nothing
+    further to wire up here for it. The encoder no longer needs a group
+    either -- see _init_encoder()'s docstring.
     """
     # Best-effort on purpose: letting a touch init failure raise would also
     # prevent the encoder from ever getting initialized, blocking all
@@ -249,19 +251,15 @@ def hal_init_input(group):
     except Exception as e:
         print("hal: touch init failed, continuing without it:", type(e), e.args)
 
-    # Touch is a pointer-type indev -- it hit-tests widgets by coordinate and
-    # has no notion of a focus group (that's an encoder/keypad concept).
-    # Confirmed not implicated in either the old screens.build() crash or
-    # the separate custom-font hang (both tested with this disabled and
-    # re-enabled) -- see main.py's _MinimalApp docstring and the README.
-    _init_encoder(group)
+    return _init_encoder()
 
 
-def hal_init(group):
-    """Sets up display, touch and encoder in one call, returning the
-    display. Equivalent to hal_init_display() + hal_init_input(group); kept
-    for anything that doesn't need the splash-first ordering main.py uses.
+def hal_init():
+    """Sets up display, touch and encoder in one call, returning
+    (display, encoder). Equivalent to hal_init_display() + hal_init_input();
+    kept for anything that doesn't need the splash-first ordering main.py
+    uses.
     """
     display = hal_init_display()
-    hal_init_input(group)
-    return display
+    encoder = hal_init_input()
+    return display, encoder
