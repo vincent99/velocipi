@@ -18,8 +18,15 @@ setup -- see ../hal.py's _init_encoder() docstring for why):
     widgets._wire_button(). Connect and Disconnected are simpler: a bare
     knob push (edge-detected in App.poll_input(), no touch needed) is
     enough, since neither shares panel space with a swipe gesture.
-  - Swipes (no push needed) navigate between Home/History/Settings/Temps
-    via the tileview's built-in gesture handling.
+  - Swipes (no push needed) navigate between Home/History/Settings/Temps --
+    not the tileview's own built-in scrolling/gesture engine (disabled
+    entirely by removing its SCROLLABLE flag, see App.__init__: it was
+    stealing drags away from Home's mode/recirc buttons, its sliding-snap
+    animation felt laggy, and even with per-tile dir_=NONE it still
+    rubber-banded under a touch-drag), but App._wire_tile_swipe()'s own
+    press/release distance tracking -- a drag has to clear
+    App._SWIPE_THRESHOLD_* (half the screen height/width) before it jumps
+    straight to the target tile, with no transition animation at all.
 
 CAVEAT: written against the LVGL Python binding's well-established naming
 convention (widget constructors take `parent`, C function
@@ -45,10 +52,17 @@ import theme
 from .connect import ConnectTile
 from .disconnected import DisconnectedTile
 from .home import HomeTile
-from .widgets import _make_placeholder_tile, _set_visible
+from .widgets import _make_placeholder_tile, _set_visible, _wire_swipe
 
 
 class App:
+    # Minimum drag distance (pixels) for a swipe to register -- "half the
+    # screen height/width", not LVGL's own much smaller built-in gesture
+    # limit (irrelevant now regardless, since tileview's touch-scrolling is
+    # disabled below in favor of this project's own _wire_swipe()).
+    _SWIPE_THRESHOLD_Y = hal.HEIGHT // 2
+    _SWIPE_THRESHOLD_X = hal.WIDTH // 2
+
     def __init__(self, client, encoder, scr, display):
         self.client = client
         self.encoder = encoder
@@ -62,22 +76,69 @@ class App:
         self.tileview = lv.tileview(scr)
         self.tileview.set_size(lv.pct(100), lv.pct(100))
         self.tileview.set_style_bg_color(theme.COLOR_BG, 0)
-        # Unlike widgets._transparent()'s containers, the tileview can't
-        # just have its SCROLLABLE flag removed -- scrolling *is* the
-        # swipe-between-tiles mechanism. set_scrollbar_mode(OFF) hides the
-        # scrollbar indicator it draws during that scrolling without
-        # touching the scrolling itself.
         self.tileview.set_scrollbar_mode(lv.SCROLLBAR_MODE.OFF)
+        # Two earlier attempts here BOTH turned out insufficient, confirmed
+        # on real hardware: set_scroll_dir(NONE) on the tileview itself,
+        # and (after that) creating every tile with dir_=NONE instead of
+        # DIR.TOP/BOTTOM/LEFT. Both were still-visible-scrollbar/rubber-
+        # band-when-dragged failures -- dir_ turned out to only govern
+        # which tile a completed *gesture* is allowed to snap to, not
+        # whether the tileview can be drag-scrolled at all in the first
+        # place; that base scrolling capability comes from the object
+        # being SCROLLABLE (inherited from plain lv_obj), same as any other
+        # scrollable container, and neither of the tileview-specific knobs
+        # above touches that. Removing SCROLLABLE outright is the
+        # unambiguous fix: no scroll capability at all means no drag
+        # response, no rubber-band overscroll, no scrollbar, full stop.
+        #
+        # NOT hardware-verified: whether set_tile_by_index() (used just
+        # below, and by App._wire_tile_swipe() for all navigation) and
+        # get_tile_active() (used by poll_input() to gate the knob to only
+        # the active tile) still work without SCROLLABLE. Both are
+        # programmatic calls, not simulated touch input, so they
+        # *shouldn't* depend on the flag that only gates input-driven
+        # scrolling -- but if tile-switching or knob input silently breaks
+        # after this change, this flag is the first thing to suspect.
+        self.tileview.remove_flag(lv.obj.FLAG.SCROLLABLE)
 
-        # A + shaped grid around the main tile at (1,1): History below
-        # (swipe down from main, swipe up from history to return), Settings
-        # above (swipe up from main, swipe down from settings to return),
-        # Temps to the right (swipe right from main, swipe left from temps
-        # to return). Only placeholders for History/Settings/Temps for now.
+        # A + shaped grid around the main tile at (1,1): History above,
+        # Settings below, Temps to the left. Only placeholders for
+        # History/Settings/Temps for now. dir_=NONE on every tile (not
+        # DIR.TOP/BOTTOM/LEFT) -- on its own (see comment above) this
+        # doesn't stop drag-scrolling, but it's still correct to leave in
+        # place: it stops a completed swipe gesture from ever being treated
+        # as a valid snap-to-adjacent-tile target, belt-and-suspenders
+        # alongside removing SCROLLABLE. Each tile's *actual* swipe-out
+        # directions are declared via _wire_tile_swipe()'s `allowed`
+        # argument below instead.
+        #
+        # Grid position (not gesture direction) is what's inverted from an
+        # earlier version of this layout: History used to sit *below* Home
+        # with an up-to-down gesture reaching it, which read backwards on
+        # real hardware -- swiping down-to-up felt like it should reveal
+        # whatever's below, the way dragging a page down reveals content
+        # further down it (same convention as this file's on_swipe()
+        # comment describes). Moving History above/Settings below/Temps
+        # left keeps on_swipe()'s dx/dy-to-row/col arithmetic completely
+        # literal (up really does mean row-1, no separate inversion layer
+        # to keep track of) while still landing on the gesture feel that
+        # was actually wanted.
         self.home = HomeTile(client, encoder, self.tileview)
-        _make_placeholder_tile(self.tileview, 1, 2, lv.DIR.TOP, "History")
-        _make_placeholder_tile(self.tileview, 1, 0, lv.DIR.BOTTOM, "Settings")
-        _make_placeholder_tile(self.tileview, 2, 1, lv.DIR.LEFT, "Temps")
+        history_tile = _make_placeholder_tile(self.tileview, 1, 0, lv.DIR.NONE, "History")
+        settings_tile = _make_placeholder_tile(self.tileview, 1, 2, lv.DIR.NONE, "Settings")
+        temps_tile = _make_placeholder_tile(self.tileview, 0, 1, lv.DIR.NONE, "Temps")
+
+        # Directions here are the finger's actual motion (see
+        # _classify_swipe()) and on_swipe() below applies them completely
+        # literally (up subtracts from row, left subtracts from col, etc.)
+        # -- from Home: down-to-up reaches History (now above), up-to-down
+        # reaches Settings (now below), right-to-left reaches Temps (now to
+        # the left). Each placeholder's own entry is simply the reverse
+        # gesture, back to Home.
+        self._wire_tile_swipe(self.home.tile, 1, 1, ("up", "down", "left"))
+        self._wire_tile_swipe(history_tile, 1, 0, ("down",))
+        self._wire_tile_swipe(settings_tile, 1, 2, ("up",))
+        self._wire_tile_swipe(temps_tile, 0, 1, ("right",))
 
         # A tileview's initial scroll position is grid cell (0,0) regardless
         # of whether any tile was actually added there -- our + shaped grid
@@ -123,6 +184,57 @@ class App:
             self.connect_tile.on_show()
         elif name == "disconnected":
             self.disconnected_tile.on_show(self._ever_connected)
+
+    def _wire_tile_swipe(self, tile, col, row, allowed):
+        """Makes `tile` (one grid cell of self.tileview) respond to a swipe
+        starting on its own background (not on a CLICKABLE child of its
+        own, like Home's mode/recirc buttons -- see _wire_swipe()'s
+        docstring for why those two never conflict) by jumping straight to
+        the adjacent tile in that direction, provided the drag both clears
+        _SWIPE_THRESHOLD_*/`_classify_swipe()` and the resulting direction
+        is one of `allowed` for this particular tile -- now the *only*
+        thing gating which directions navigate anywhere, since every tile
+        is created with dir_=NONE (see App.__init__) rather than the
+        DIR.TOP/BOTTOM/LEFT bitmask that used to serve this same purpose
+        for tileview's own (now fully disabled) gesture engine.
+        """
+        tile.add_flag(lv.obj.FLAG.CLICKABLE)
+
+        def on_swipe(dx, dy):
+            direction = self._classify_swipe(dx, dy)
+            if direction is None or direction not in allowed:
+                return
+            # Literal: up means the target is one row up (row-1), etc. --
+            # see App.__init__'s grid-layout comment for why History/
+            # Settings/Temps ended up positioned where they did (chosen to
+            # keep this arithmetic literal rather than needing its own
+            # inversion layer on top of it).
+            target_col, target_row = col, row
+            if direction == "up":
+                target_row -= 1
+            elif direction == "down":
+                target_row += 1
+            elif direction == "left":
+                target_col -= 1
+            elif direction == "right":
+                target_col += 1
+            self.tileview.set_tile_by_index(target_col, target_row, False)
+
+        _wire_swipe(tile, on_swipe)
+
+    def _classify_swipe(self, dx, dy):
+        """Returns "up"/"down"/"left"/"right" for a drag of (dx, dy) pixels
+        past _SWIPE_THRESHOLD_* on whichever axis moved further, else None
+        (too short, or too diagonal to call cleanly one way or the other --
+        the larger axis wins).
+        """
+        if abs(dy) >= abs(dx):
+            if abs(dy) < self._SWIPE_THRESHOLD_Y:
+                return None
+            return "up" if dy < 0 else "down"
+        if abs(dx) < self._SWIPE_THRESHOLD_X:
+            return None
+        return "right" if dx > 0 else "left"
 
     def poll_input(self):
         """Called every main-loop tick (not just on the slower BLE-driven

@@ -80,6 +80,18 @@ def _make_tile(tileview, col, row, dir_):
     tile.set_style_pad_all(theme.SPACE_LG, 0)
     tile.set_flex_flow(lv.FLEX_FLOW.COLUMN)
     tile.set_flex_align(lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER)
+    # Confirmed on real hardware: removing SCROLLABLE from the parent
+    # tileview (see screens/__init__.py's App.__init__) does NOT stop an
+    # individual tile from independently rubber-banding/scrolling under a
+    # touch-drag -- each tile returned by add_tile() is its own ordinary
+    # lv_obj, scrollable by default same as any plain lv.obj() (this is
+    # exactly why widgets._transparent() always removes it too), and that's
+    # a wholly separate flag from the tileview container's own. Home's tile
+    # in particular has manually-positioned content with negative offsets
+    # (see home.py's _TEMP_Y etc.) that plausibly overflows its bounds
+    # vertically but not horizontally, matching the reported symptom
+    # exactly: right/Temps swiped clean, up/down still rubber-banded.
+    tile.remove_flag(lv.obj.FLAG.SCROLLABLE)
     return tile
 
 
@@ -90,6 +102,8 @@ def _make_bare_tile(tileview, col, row, dir_):
     tile = tileview.add_tile(col, row, dir_)
     tile.set_style_bg_color(theme.COLOR_BG, 0)
     tile.set_style_pad_all(0, 0)
+    # See _make_tile()'s comment above -- same reasoning applies here.
+    tile.remove_flag(lv.obj.FLAG.SCROLLABLE)
     return tile
 
 
@@ -207,3 +221,64 @@ def _wire_button(cell, encoder, on_click):
     cell.add_event_cb(on_released, lv.EVENT.RELEASED, None)
     cell.add_event_cb(on_released, lv.EVENT.PRESS_LOST, None)
     cell.add_event_cb(on_clicked, lv.EVENT.CLICKED, None)
+
+
+def _wire_swipe(obj, on_swipe):
+    """Wires `obj` (must be CLICKABLE) to call `on_swipe(dx, dy)` with the
+    total touch displacement (release point minus press point, in pixels)
+    once a press-drag-release completes on it.
+
+    Deliberately NOT LVGL's own gesture system (LV_EVENT_GESTURE) or a
+    tileview's built-in scroll-to-snap -- screens/__init__.py's App
+    disables tileview's touch-scrolling entirely (set_scroll_dir(NONE))
+    since a press that started on a CLICKABLE child (e.g. home.HomeTile's
+    mode/recirc buttons) but drifted a few pixels was getting stolen by
+    the tileview's scroll-chain, turning an intended tap into an
+    accidental page-drag. Measuring the raw drag distance ourselves here
+    instead means navigation only triggers past a deliberately large,
+    tunable threshold (see screens/__init__.py's App._SWIPE_THRESHOLD_*)
+    rather than LVGL's own much smaller built-in gesture limit -- and
+    since a press starting on a button fires PRESSED on that button, not
+    on its parent tile (LVGL hit-tests the most specific/topmost object,
+    events don't bubble to ancestors unless explicitly told to), this
+    never interferes with _wire_button's own click handling above.
+
+    NOT hardware-verified: e.get_indev() + a caller-owned lv.point_t()
+    passed to indev.get_point() is this project's best guess at how to
+    read a touch point from inside an LVGL Python event callback (a
+    standard pattern in upstream LVGL's own C examples), but this is the
+    first place anything in this codebase calls a method on the event
+    object itself -- see check_lvgl_api.py. Wrapped in try/except so a
+    wrong guess here just disables swipe navigation (logged once) instead
+    of crashing the whole panel.
+    """
+    _state = {"x": 0, "y": 0, "ok": True}
+
+    def _point(e):
+        indev = e.get_indev()
+        p = lv.point_t()
+        indev.get_point(p)
+        return p.x, p.y
+
+    def on_pressed(e):
+        if not _state["ok"]:
+            return
+        try:
+            _state["x"], _state["y"] = _point(e)
+        except Exception as ex:
+            _state["ok"] = False
+            print("widgets: swipe tracking disabled, point read failed:", type(ex), ex.args)
+
+    def on_released(e):
+        if not _state["ok"]:
+            return
+        try:
+            x, y = _point(e)
+        except Exception as ex:
+            _state["ok"] = False
+            print("widgets: swipe tracking disabled, point read failed:", type(ex), ex.args)
+            return
+        on_swipe(x - _state["x"], y - _state["y"])
+
+    obj.add_event_cb(on_pressed, lv.EVENT.PRESSED, None)
+    obj.add_event_cb(on_released, lv.EVENT.RELEASED, None)

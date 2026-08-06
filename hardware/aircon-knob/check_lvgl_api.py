@@ -88,7 +88,7 @@ for name in ("CLICKABLE", "HIDDEN", "SCROLLABLE"):
 
 print("\n=== enum members actually used in this project ===")
 for path in (
-    "DIR.RIGHT", "DIR.LEFT", "DIR.HOR", "DIR.VER", "DIR.TOP", "DIR.BOTTOM",
+    "DIR.RIGHT", "DIR.LEFT", "DIR.HOR", "DIR.VER", "DIR.TOP", "DIR.BOTTOM", "DIR.NONE",
     "EVENT.VALUE_CHANGED", "EVENT.PRESSED", "EVENT.PRESSING", "EVENT.CLICKED",
     "EVENT.RELEASED", "EVENT.PRESS_LOST",
     "ALIGN.BOTTOM_MID",
@@ -124,6 +124,20 @@ if indev is not None:
     if group is not None:
         check("indev.set_group(group)", lambda: indev.set_group(group), search_in=indev)
 
+    # Used by screens/widgets.py's _wire_swipe() to read a touch point for
+    # swipe-distance tracking. lv.point_t (distinct from lv.point_precise_t,
+    # used by screens/disconnected.py's line -- see further down) and
+    # indev.get_point() are checkable here directly; e.get_indev() (getting
+    # *this* indev back out from inside a live event callback, which is
+    # what _wire_swipe() actually does) is NOT checkable by this script at
+    # all -- it needs a real event to have actually fired, which requires
+    # live touch input, not just object construction/method lookup. If
+    # swipe navigation doesn't work on real hardware, that's the first
+    # thing to check by hand (e.g. print(dir(e)) inside a PRESSED handler).
+    point = check("lv.point_t({...})", lambda: lv.point_t({"x": 0, "y": 0}), search_in=lv, search_term="point")
+    if point is not None:
+        check("indev.get_point(point)", lambda: indev.get_point(point), search_in=indev, search_term="point")
+
 
 def build_dummy_display():
     """A no-op display: widgets need *a* registered display to exist safely
@@ -156,7 +170,27 @@ else:
     tile_parent = scr
     tv = check("lv.tileview(scr)", lambda: lv.tileview(scr))
     if tv is not None:
-        check("tv.add_tile(0,0,DIR)", lambda: tv.add_tile(0, 0, lv.DIR.RIGHT), search_in=tv, search_term="tile")
+        # App.__init__ removes SCROLLABLE from the tileview itself (unlike
+        # widgets._transparent()'s containers, which do the same thing but
+        # for unrelated decorative reasons) to kill its built-in touch-
+        # scroll/gesture-navigate entirely -- two lesser attempts before
+        # this (set_scroll_dir(NONE), then creating every tile with
+        # dir_=NONE) both turned out insufficient on real hardware: the
+        # tileview still rubber-banded under a touch-drag and still showed
+        # its scrollbar either way. Removing SCROLLABLE outright is the
+        # unambiguous fix -- no scroll capability at all means no drag
+        # response, no rubber-band, no scrollbar. Done immediately after
+        # construction, before add_tile()/set_tile_by_index() below, to
+        # mirror App.__init__'s actual ordering and specifically verify
+        # those two calls still work on a tile *after* this rather than
+        # just in isolation.
+        check("tv.remove_flag(SCROLLABLE)", lambda: tv.remove_flag(lv.obj.FLAG.SCROLLABLE), search_in=tv)
+        check(
+            "tv.add_tile(0,0,DIR.NONE)",
+            lambda: tv.add_tile(0, 0, lv.DIR.NONE),
+            search_in=tv,
+            search_term="tile",
+        )
         # screens/__init__.py's App.poll_input() uses this to tell which tile in the
         # +-shaped grid is currently active, to gate the knob to the main
         # screen only. Confirmed on real hardware: it's get_tile_active(),
@@ -170,17 +204,19 @@ else:
         check("tv.get_tile_active()", lambda: tv.get_tile_active(), search_in=tv, search_term="tile")
         # App.__init__ uses this to force the initially-visible tile to
         # Home (1,1) -- a tileview otherwise opens on grid cell (0,0), which
-        # is empty in the app's + shaped layout.
+        # is empty in the app's + shaped layout. Also App._wire_tile_swipe()'s
+        # own means of jumping tiles on a qualifying swipe, now that
+        # SCROLLABLE's gone -- if this still works with SCROLLABLE removed
+        # above, so does that.
         check(
-            "tv.set_tile_by_index(1,1,False)",
-            lambda: tv.set_tile_by_index(1, 1, False),
+            "tv.set_tile_by_index(0,0,False)",
+            lambda: tv.set_tile_by_index(0, 0, False),
             search_in=tv,
             search_term="tile",
         )
-        # App.__init__ uses this to hide the scrollbar the tileview draws
-        # while swiping between tiles -- unlike widgets._transparent()'s
-        # containers, the tileview can't just have SCROLLABLE removed,
-        # since scrolling *is* the swipe mechanism.
+        # App.__init__ also calls this, though it's likely a no-op now that
+        # SCROLLABLE (and therefore any scrollbar) is gone -- kept in case
+        # it isn't.
         check(
             "tv.set_scrollbar_mode(OFF)",
             lambda: tv.set_scrollbar_mode(lv.SCROLLBAR_MODE.OFF),

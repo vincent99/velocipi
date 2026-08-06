@@ -85,10 +85,16 @@ class HomeTile:
     def __init__(self, client, encoder, tileview):
         self.client = client
         self.encoder = encoder
-        # Enabled swipe-out directions: down to History, up to Settings,
-        # right to Temps (see screens/__init__.py's App.__init__() grid
-        # layout for where those tiles sit relative to this one).
-        self.tile = _make_bare_tile(tileview, 1, 1, lv.DIR.TOP | lv.DIR.BOTTOM | lv.DIR.RIGHT)
+        # dir_=NONE, not DIR.TOP|BOTTOM|RIGHT -- tileview's *own* gesture
+        # engine (a swipe past its built-in threshold scrolls+snaps to the
+        # adjacent tile permitted by this bitmask) is fully disabled across
+        # every tile in the app now, in favor of App._wire_tile_swipe()'s
+        # own larger-threshold, no-animation navigation -- see
+        # screens/__init__.py's App.__init__ for why (this tile's swipe-out
+        # directions -- down-to-up to History, up-to-down to Settings,
+        # right-to-left to Temps -- are declared there instead, alongside
+        # the other tiles').
+        self.tile = _make_bare_tile(tileview, 1, 1, lv.DIR.NONE)
 
         self.arc = lv.arc(self.tile)
         self.arc.set_size(236,236)
