@@ -22,10 +22,10 @@ const saved = ref(false);
 const error = ref('');
 
 // AirCon BLE settings — loaded from /aircon/state, not from the YAML config.
-const acSettings = ref<Record<
-  string,
-  { value: number; default: number }
-> | null>(null);
+// Keys are "v"/"d" (not "value"/"default"), matching
+// server/hardware/aircon/aircon.go's SettingValue JSON tags, which in turn
+// match the BLE settings characteristic's own terse wire format.
+const acSettings = ref<Record<string, { v: number; d: number }> | null>(null);
 const acEdits = ref<Record<string, number>>({});
 const activeSection = ref('filesystem');
 
@@ -166,14 +166,14 @@ const acSettingsFields = [
 function acValue(key: string): number {
   return key in acEdits.value
     ? acEdits.value[key]
-    : (acSettings.value?.[key]?.value ?? 0);
+    : (acSettings.value?.[key]?.v ?? 0);
 }
 function acIsModified(key: string): boolean {
-  const def = acSettings.value?.[key]?.default;
+  const def = acSettings.value?.[key]?.d;
   return def !== undefined && acValue(key) !== def;
 }
 function acReset(key: string) {
-  const def = acSettings.value?.[key]?.default;
+  const def = acSettings.value?.[key]?.d;
   if (def !== undefined) {
     acEdits.value = { ...acEdits.value, [key]: def };
   }

@@ -53,11 +53,16 @@ _SETTINGS_DEFAULTS = {
 }
 
 def _unwrap_settings(d):
-    """Accept flat {key: value} or wrapped {key: {value: v, default: d}} — return flat."""
+    """Accept flat {key: value} or wrapped {key: {v: value, d: default}} — return flat.
+
+    Wire keys are the terse "v"/"d" (not "value"/"default") to keep the
+    settings characteristic's JSON payload under the default BLE ATT MTU's
+    single-read/notification-fragment size where possible.
+    """
     out = {}
     for k, v in d.items():
         if isinstance(v, dict):
-            vv = v.get('value')
+            vv = v.get('v')
             if vv is not None:
                 out[k] = vv
         else:
@@ -140,8 +145,9 @@ class BLEServer:
         _write('setpoint', self._c_setpoint, _enc_f(s['setpoint']))
         _write('circ',     self._c_circ,     _enc_str(s['circulation']))
         _write('panel',    self._c_panel,    _enc_f(s['panel_temp']))
+        # "v"/"d", not "value"/"default" -- see _unwrap_settings()'s docstring.
         _write('settings', self._c_settings, json.dumps({
-            k: {'value': s[k], 'default': _SETTINGS_DEFAULTS[k]}
+            k: {'v': s[k], 'd': _SETTINGS_DEFAULTS[k]}
             for k in _SETTINGS_DEFAULTS if k in s
         }).encode())
         self._push_status(s)

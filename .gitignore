@@ -48,4 +48,5 @@ aircon/name.txt
 /chrome-headless-shell
 _autosave-*
 .venv
+ble_secrets.json
 __pycache__

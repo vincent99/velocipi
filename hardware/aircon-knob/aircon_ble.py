@@ -102,7 +102,11 @@ class AirconState:
         self.setpoint = 0.0
         self.circulation = ""
         self.panel_temp = 0.0
-        self.settings = {}  # key -> {"value": float, "default": float}
+        # key -> {"value": float, "default": float} -- this local shape is
+        # unchanged even though the wire format uses terser "v"/"d" keys
+        # (see _apply_settings_json()); only the BLE JSON encoding is
+        # compact, not this decoded representation.
+        self.settings = {}
 
         self.current_temp = None
         self.compressor = ""
@@ -491,13 +495,19 @@ class AirconClient:
         except ValueError:
             print("aircon_ble: settings JSON parse error:", text)
             return
+        # Wire keys are "v"/"d" (not "value"/"default") to keep this
+        # characteristic's JSON payload compact -- see aircon-sim/ble_
+        # server.py's _unwrap_settings() docstring for the full reasoning.
+        # Decoded into the same {"value":.., "default":..} local shape as
+        # before regardless (see AirconState.settings above); only the BLE
+        # encoding changed, not this class's own representation.
         settings = {}
         for key, v in raw.items():
             if isinstance(v, (int, float)):
                 settings[key] = {"value": float(v), "default": float(v)}
             elif isinstance(v, dict):
-                val = float(v.get("value", 0.0))
-                settings[key] = {"value": val, "default": float(v.get("default", val))}
+                val = float(v.get("v", 0.0))
+                settings[key] = {"value": val, "default": float(v.get("d", val))}
         self.state.settings = settings
         self._mark_dirty()
 

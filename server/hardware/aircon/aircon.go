@@ -35,9 +35,17 @@ const (
 )
 
 // SettingValue holds a runtime value and its compile-time default.
+//
+// JSON tags are the terse "v"/"d" (not "value"/"default") to match the BLE
+// settings characteristic's wire format (see hardware/aircon-sim/ble_server.py's
+// _unwrap_settings() docstring for why) -- this struct is decoded straight
+// from that characteristic's JSON in applySettingsJSON below, and the same
+// tags also shape what State.Settings serializes as to the UI (both the
+// /aircon/state REST endpoint and the airConState websocket message), so
+// ui/src/routes/remote/settings.vue must be kept in sync with these tags.
 type SettingValue struct {
-	Value   float64 `json:"value"`
-	Default float64 `json:"default"`
+	Value   float64 `json:"v"`
+	Default float64 `json:"d"`
 }
 
 // statusPayload is the JSON structure sent by the status characteristic.
@@ -539,7 +547,7 @@ func jsonComplete(data []byte) bool {
 }
 
 // applySettingsJSON unmarshals the settings characteristic JSON and updates state.
-// Accepts both {key: float} and {key: {value: float, default: float}} formats.
+// Accepts both {key: float} and {key: {v: float, d: float}} formats.
 // Must be called with c.mu held for write.
 func (c *Client) applySettingsJSON(data []byte) {
 	data = []byte(strings.TrimRight(string(data), "\x00"))

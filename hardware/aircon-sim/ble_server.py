@@ -52,12 +52,18 @@ def _round(v):
 
 
 def _unwrap_settings(d):
-    """Accept flat {key: value} or wrapped {key: {value: v, default: d}}."""
+    """Accept flat {key: value} or wrapped {key: {v: value, d: default}}.
+
+    Wire keys are the terse "v"/"d" (not "value"/"default", matching
+    ../aircon/ble_server.py) to keep the settings characteristic's JSON
+    payload under the default BLE ATT MTU's single-read/notification-
+    fragment size where possible.
+    """
     out = {}
     for k, v in d.items():
         if isinstance(v, dict):
-            if v.get("value") is not None:
-                out[k] = v["value"]
+            if v.get("v") is not None:
+                out[k] = v["v"]
         else:
             out[k] = v
     return out
@@ -81,6 +87,12 @@ class SimBLEServer:
         self._uuid_name = {v.lower(): k for k, v in self._name_uuid.items()}
 
     async def start(self, loop):
+        # bless's backend (CoreBluetooth/BlueZ) already logs central
+        # subscribe/unsubscribe and raw read/write requests -- but only at
+        # DEBUG, which main.py's basicConfig(level=INFO) suppresses. Turn it
+        # on here so "did a client even connect/subscribe" is visible.
+        # logging.getLogger("bless").setLevel(logging.DEBUG)
+
         server = BlessServer(name=config.BLE_DEVICE_NAME, loop=loop)
         server.read_request_func = self._on_read
         server.write_request_func = self._on_write
@@ -147,12 +159,16 @@ class SimBLEServer:
     # multiple attributes) so that's safe without extra locking.
 
     def _on_read(self, characteristic, **kwargs):
+        name = self._uuid_name.get(str(characteristic.uuid).lower())
+        logger.info("read %s (%s): %r", name or "?", characteristic.uuid, bytes(characteristic.value or b""))
         return characteristic.value
 
     def _on_write(self, characteristic, value, **kwargs):
         characteristic.value = value
         name = self._uuid_name.get(str(characteristic.uuid).lower())
+        logger.info("write request %s (%s): %r", name or "?", characteristic.uuid, bytes(value))
         if name is None:
+            logger.warning("write to unrecognized characteristic %s, ignoring", characteristic.uuid)
             return
         try:
             if name == "mode":
@@ -167,9 +183,9 @@ class SimBLEServer:
                 self.ctrl.set_panel_temp(_dec_f(value))
             elif name == "settings":
                 self.ctrl.set_settings(_unwrap_settings(json.loads(bytes(value).decode())))
-            logger.info("write %s: %r", name, bytes(value))
-        except Exception as e:
-            logger.warning("write %s failed: %s", name, e)
+            logger.info("write %s applied: %r", name, bytes(value))
+        except Exception:
+            logger.exception("write %s failed (value=%r)", name, bytes(value))
 
     # ── push state → characteristics, notify only what changed ────────────
 
@@ -181,9 +197,10 @@ class SimBLEServer:
             "setpoint": _enc_f(s["setpoint"]),
             "circ": _enc_str(s["circulation"]),
             "panel": _enc_f(s["panel_temp"]),
+            # "v"/"d", not "value"/"default" -- see _unwrap_settings()'s docstring.
             "settings": bytearray(
                 json.dumps(
-                    {k: {"value": s[k], "default": SETTINGS_DEFAULTS[k]} for k in SETTINGS_DEFAULTS}
+                    {k: {"v": s[k], "d": SETTINGS_DEFAULTS[k]} for k in SETTINGS_DEFAULTS}
                 ).encode()
             ),
             "status": bytearray(
