@@ -51,8 +51,8 @@ for name in (
     "color_hex", "binfont_create", "obj", "label", "roller", "arc", "slider",
     "tileview", "pct", "SIZE_CONTENT", "screen_active", "group_create",
     "timer_handler", "indev_create", "display_create", "DIR", "EVENT",
-    "PART", "OPA", "FLEX_FLOW", "FLEX_ALIGN", "SYMBOL",
-    "INDEV_TYPE", "INDEV_STATE", "COLOR_FORMAT", "DISPLAY_RENDER_MODE",
+    "PART", "OPA", "FLEX_FLOW", "FLEX_ALIGN", "SYMBOL", "SCROLLBAR_MODE",
+    "INDEV_TYPE", "INDEV_STATE", "COLOR_FORMAT", "DISPLAY_RENDER_MODE", "ALIGN",
 ):
     check("lv." + name, (lambda n=name: getattr(lv, n)), search_in=lv, search_term=name)
 
@@ -90,6 +90,8 @@ print("\n=== enum members actually used in this project ===")
 for path in (
     "DIR.RIGHT", "DIR.LEFT", "DIR.HOR", "DIR.VER", "DIR.TOP", "DIR.BOTTOM",
     "EVENT.VALUE_CHANGED", "EVENT.PRESSED", "EVENT.PRESSING", "EVENT.CLICKED",
+    "EVENT.RELEASED", "EVENT.PRESS_LOST",
+    "ALIGN.BOTTOM_MID",
     "PART.MAIN", "PART.INDICATOR", "PART.KNOB",
     "OPA.TRANSP", "OPA.COVER",
     "FLEX_FLOW.COLUMN", "FLEX_FLOW.ROW",
@@ -175,6 +177,16 @@ else:
             search_in=tv,
             search_term="tile",
         )
+        # App.__init__ uses this to hide the scrollbar the tileview draws
+        # while swiping between tiles -- unlike widgets._transparent()'s
+        # containers, the tileview can't just have SCROLLABLE removed,
+        # since scrolling *is* the swipe mechanism.
+        check(
+            "tv.set_scrollbar_mode(OFF)",
+            lambda: tv.set_scrollbar_mode(lv.SCROLLBAR_MODE.OFF),
+            search_in=tv,
+            search_term="scrollbar",
+        )
         tile_parent = tv
 
     obj = check("lv.obj(parent)", lambda: lv.obj(tile_parent))
@@ -183,8 +195,25 @@ else:
         check("obj.set_style_bg_opa", lambda: obj.set_style_bg_opa(lv.OPA.TRANSP, 0), search_in=obj)
         check("obj.set_style_border_width", lambda: obj.set_style_border_width(0, 0), search_in=obj)
         check("obj.set_style_bg_color", lambda: obj.set_style_bg_color(lv.color_hex(0), 0), search_in=obj)
+        # Used by screens/widgets.py's _make_button_cell for the mode/recirc
+        # buttons' always-visible outline.
+        check(
+            "obj.set_style_border_color",
+            lambda: obj.set_style_border_color(lv.color_hex(0), 0),
+            search_in=obj,
+            search_term="border",
+        )
+        check(
+            "obj.set_style_border_opa",
+            lambda: obj.set_style_border_opa(lv.OPA.COVER, 0),
+            search_in=obj,
+            search_term="border",
+        )
         check("obj.set_style_pad_all", lambda: obj.set_style_pad_all(4, 0), search_in=obj)
         check("obj.set_style_pad_row", lambda: obj.set_style_pad_row(4, 0), search_in=obj)
+        # Used by screens/disconnected.py's label background padding.
+        check("obj.set_style_pad_hor", lambda: obj.set_style_pad_hor(4, 0), search_in=obj, search_term="pad")
+        check("obj.set_style_pad_ver", lambda: obj.set_style_pad_ver(4, 0), search_in=obj, search_term="pad")
         check("obj.set_flex_flow", lambda: obj.set_flex_flow(lv.FLEX_FLOW.COLUMN), search_in=obj)
         check(
             "obj.set_flex_align",
@@ -193,6 +222,16 @@ else:
         )
         check("obj.set_scroll_dir", lambda: obj.set_scroll_dir(lv.DIR.VER), search_in=obj)
         check("obj.clean()", obj.clean, search_in=obj)
+        # Used by screens/home.py's HomeTile to anchor the fan/setpoint
+        # stack to the bottom of the tile -- first use of .align() anywhere
+        # in this codebase (everything else so far has used .center(),
+        # confirmed working below).
+        check(
+            "obj.align(BOTTOM_MID)",
+            lambda: obj.align(lv.ALIGN.BOTTOM_MID, 0, 0),
+            search_in=obj,
+            search_term="align",
+        )
         # Used by screens/home.py's HomeTile (circular grid inset) and
         # screens/widgets.py's _make_button_cell()/_set_visible()
         # (mode/recirc click targets, setpoint label show/hide).
@@ -221,6 +260,22 @@ else:
             search_in=obj,
             search_term="event",
         )
+        # Used by screens/widgets.py's _wire_button for hover/active touch
+        # feedback on the mode/recirc button cells -- reverting the fill
+        # back to transparent on either a normal release or the touch
+        # sliding off the widget mid-press.
+        check(
+            "obj.add_event_cb(RELEASED)",
+            lambda: obj.add_event_cb(lambda e: None, lv.EVENT.RELEASED, None),
+            search_in=obj,
+            search_term="event",
+        )
+        check(
+            "obj.add_event_cb(PRESS_LOST)",
+            lambda: obj.add_event_cb(lambda e: None, lv.EVENT.PRESS_LOST, None),
+            search_in=obj,
+            search_term="event",
+        )
 
     label = check("lv.label(parent)", lambda: lv.label(tile_parent))
     if label is not None:
@@ -234,6 +289,17 @@ else:
         check("label.set_style_text_color", lambda: label.set_style_text_color(lv.color_hex(0), 0), search_in=label)
         check("label.center()", label.center, search_in=label)
         check("label.set_style_text_opa", lambda: label.set_style_text_opa(128, 0), search_in=label)
+        # theme.py's FONT_TITLE/FONT_BUTTON_LABEL/FONT_BUTTON_ICON -- montserrat
+        # 12-48 are only in this project's LVGL image as of the mode/recirc
+        # button restyle, so confirm the specific sizes theme.py now loads
+        # actually resolve (lv.font_montserrat_14 above predates that build).
+        for size in (18, 20, 32):
+            check(
+                "lv.font_montserrat_%d" % size,
+                (lambda s=size: getattr(lv, "font_montserrat_%d" % s)),
+                search_in=lv,
+                search_term="font_montserrat",
+            )
 
     arc = check("lv.arc(parent)", lambda: lv.arc(tile_parent))
     if arc is not None:
@@ -281,6 +347,17 @@ else:
         check("roller.get_selected", roller.get_selected, search_in=roller)
         check("roller.set_selected", lambda: roller.set_selected(0, 0), search_in=roller)
 
+    print("\n=== lv.spinner (screens/connect.py's ConnectTile loading indicator) ===")
+    spinner = check("lv.spinner(parent)", lambda: lv.spinner(tile_parent), search_in=lv, search_term="spinner")
+    if spinner is not None:
+        check("spinner.set_size", lambda: spinner.set_size(48, 48), search_in=spinner, search_term="size")
+        check(
+            "spinner.set_style_arc_color",
+            lambda: spinner.set_style_arc_color(lv.color_hex(0), lv.PART.INDICATOR),
+            search_in=spinner,
+            search_term="arc",
+        )
+
     slider = check("lv.slider(parent)", lambda: lv.slider(tile_parent))
     if slider is not None:
         check("slider.set_width", lambda: slider.set_width(lv.pct(50)), search_in=slider)
@@ -288,13 +365,25 @@ else:
         check("slider.set_value", lambda: slider.set_value(5, 0), search_in=slider)
         check("slider.get_value", slider.get_value, search_in=slider)
 
-    print("\n=== lv.line / lv.point_t (screens/disconnected.py's DisconnectedTile X) ===")
-    point_t = check("lv.point_t({...})", lambda: lv.point_t({"x": 0, "y": 0}), search_in=lv, search_term="point")
+    print("\n=== lv.line / lv.point_precise_t (screens/disconnected.py's DisconnectedTile X) ===")
+    # Confirmed on real hardware: line.set_points() wants lv_point_precise_t,
+    # not lv_point_t -- passing lv.point_t raised "SyntaxError: Can't convert
+    # lv_point_t to lv_point_precise_t!" (an LVGL-level type-check failure,
+    # not a missing-attribute one, hence the except Exception branch below
+    # rather than AttributeError).
+    point_t = check(
+        "lv.point_precise_t({...})",
+        lambda: lv.point_precise_t({"x": 0, "y": 0}),
+        search_in=lv,
+        search_term="point",
+    )
     line = check("lv.line(parent)", lambda: lv.line(tile_parent), search_in=lv, search_term="line")
     if line is not None and point_t is not None:
         check(
             "line.set_points",
-            lambda: line.set_points([lv.point_t({"x": 0, "y": 0}), lv.point_t({"x": 100, "y": 100})], 2),
+            lambda: line.set_points(
+                [lv.point_precise_t({"x": 0, "y": 0}), lv.point_precise_t({"x": 100, "y": 100})], 2
+            ),
             search_in=line,
             search_term="point",
         )

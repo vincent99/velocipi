@@ -8,7 +8,7 @@ import asyncio
 import lvgl as lv
 
 import theme
-from .widgets import _label, _make_screen
+from .widgets import _label, _make_screen, _set_visible
 
 # lv.ANIM/lv.ROLLER_MODE don't exist as nested enum-group classes on this
 # binding (see ../check_lvgl_api.py) -- both LV_ANIM_OFF and
@@ -30,15 +30,25 @@ class ConnectTile:
     events) -- this screen isn't sharing space with any swipe gesture, so
     there's no touch/swipe ambiguity here to resolve the way
     widgets._wire_button() does for Home.
+
+    Until a real AirCon match turns up, this shows a spinner + "N other
+    devices found" instead of a roller with an unselectable "(none found)"
+    entry -- see _apply_results().
     """
 
     _SCAN_MS = 4000
+    _SCAN_GAP_MS = 300  # brief pause between back-to-back scan passes
 
     def __init__(self, client, scr):
         self.client = client
         self.screen = _make_screen(scr)
 
-        _label(self.screen, "Connect", font=theme.FONT_DISPLAY)
+        _label(self.screen, "Connect", font=theme.FONT_TITLE)
+
+        self.spinner = lv.spinner(self.screen)
+        self.spinner.set_size(48, 48)
+        self.spinner.set_style_arc_color(theme.COLOR_ACCENT, lv.PART.INDICATOR)
+
         self.status_label = _label(self.screen, "", color=theme.COLOR_TEXT_MUTED)
 
         self.roller = lv.roller(self.screen)
@@ -53,31 +63,71 @@ class ConnectTile:
         self.roller.set_options("", _ROLLER_MODE_NORMAL)
 
         self._results = []  # [(name, aioble.Device), ...], see aircon_ble.AirconClient.scan_for_aircons
-        self._scanning = False
+        self._active = False  # True while this is the shown screen -- see on_show()/on_hide()
 
     def on_show(self):
         """Called by App._show() every time this becomes the active
-        screen -- (re)starts a scan so the list reflects what's actually in
-        range right now, not whatever was found last time this was shown.
+        screen -- starts (or restarts) a repeating scan that keeps running
+        for as long as this screen stays up, so devices that power on or
+        wander into range after this screen was shown still turn up
+        without the user having to back out and back in again.
         """
-        asyncio.create_task(self._scan())
-
-    async def _scan(self):
-        self._scanning = True
+        self._active = True
         self._results = []
-        self.roller.set_options("Scanning...", _ROLLER_MODE_NORMAL)
-        self.status_label.set_text("")
-        try:
-            self._results = await self.client.scan_for_aircons(self._SCAN_MS)
-        except Exception as e:
-            print("screens.connect: scan_for_aircons failed:", e)
-        self._scanning = False
+        _set_visible(self.spinner, True)
+        _set_visible(self.roller, False)
+        self.status_label.set_text("Scanning for AirCon...")
+        asyncio.create_task(self._scan_loop())
+
+    def on_hide(self):
+        """Called by App._show() when navigating away from this screen --
+        stops _scan_loop() rather than leaving it running (and holding
+        aircon_ble._scan_lock) in the background indefinitely.
+        """
+        self._active = False
+
+    async def _scan_loop(self):
+        while self._active:
+            try:
+                new_results, other_count = await self.client.scan_for_aircons(self._SCAN_MS)
+            except Exception as e:
+                print("screens.connect: scan_for_aircons failed:", e)
+                new_results, other_count = [], 0
+            if not self._active:
+                return  # navigated away mid-scan
+            self._merge_results(new_results)
+            self._apply_results(other_count)
+            await asyncio.sleep_ms(self._SCAN_GAP_MS)
+
+    def _merge_results(self, new_results):
+        """Folds a fresh scan pass into the running list -- previously seen
+        devices stay put (by name) rather than the list flashing empty and
+        rebuilding every pass, so the highlighted selection doesn't jump
+        around while the user is looking at it.
+        """
+        by_name = dict(self._results)
+        by_name.update(new_results)
+        self._results = sorted(by_name.items())
+
+    def _apply_results(self, other_count):
         if self._results:
+            _set_visible(self.spinner, False)
+            _set_visible(self.roller, True)
+            # Keep whatever's currently highlighted in range rather than
+            # resetting to the top of the list every pass.
+            idx = min(self.roller.get_selected(), len(self._results) - 1)
             self.roller.set_options("\n".join(name for name, _dev in self._results), _ROLLER_MODE_NORMAL)
-            self.roller.set_selected(0, _ANIM_OFF)
+            self.roller.set_selected(idx, _ANIM_OFF)
+            self.status_label.set_text("")
         else:
-            self.roller.set_options("(none found)", _ROLLER_MODE_NORMAL)
-            self.status_label.set_text("No AirCon devices found -- move closer and try again")
+            _set_visible(self.spinner, True)
+            _set_visible(self.roller, False)
+            if other_count:
+                self.status_label.set_text(
+                    "%d other device%s found" % (other_count, "" if other_count == 1 else "s")
+                )
+            else:
+                self.status_label.set_text("Scanning for AirCon...")
 
     def handle_knob(self, delta):
         if not delta or not self._results:
@@ -86,7 +136,7 @@ class ConnectTile:
         self.roller.set_selected(idx, _ANIM_OFF)
 
     def select_current(self):
-        if self._scanning or not self._results:
+        if not self._results:
             return
         name, _dev = self._results[self.roller.get_selected()]
         self.client.set_device_name(name)

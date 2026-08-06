@@ -20,18 +20,20 @@ hardware: it doesn't raise a catchable Python exception, it crashes hard
 enough to take the USB serial port down with it.
 
 aircon_ble is deferred for a related but distinct reason: it transitively
-imports aioble/bluetooth, which touches the BLE stack -- also suspected
-(not yet confirmed) of leaving less heap for LVGL's own allocations shortly
-after, given lv.group_create() failed with a huge garbage allocation size
-right after lv.init() when aircon_ble was imported at module level, despite
-that exact call succeeding fine in check_lvgl_api.py (which never imports
-aircon_ble/aioble/bluetooth at all). This also better matches showing the
-splash before touching BLE/hardware at all, which was the point of adding
-it.
+imports aioble/bluetooth, which touches the BLE stack -- once suspected of
+leaving less heap for LVGL's own allocations shortly after, given
+lv.group_create() failed with a huge garbage allocation size right after
+lv.init() when aircon_ble was imported at module level, despite that exact
+call succeeding fine in check_lvgl_api.py (which never imports
+aircon_ble/aioble/bluetooth at all). That didn't reproduce with the current
+screens/ package -- real BLE and the desktop simulator (../aircon-sim/)
+both now work end-to-end -- but the splash-before-BLE ordering is worth
+keeping regardless, so the import stays deferred here.
 """
 
 import asyncio
 import gc
+import machine
 import micropython
 import time
 
@@ -44,16 +46,52 @@ _REFRESH_PERIOD_MS = 250
 _SPLASH_MS = 2000
 _SPLASH_IMAGE = "images/splash.bin"
 
-# Temporary diagnostic switch: a hard, uncatchable crash (kills the USB
-# serial port mid-print, no traceback) was seen right around screens.build()
-# on real hardware -- immediately after importing aircon_ble (which pulls in
-# aioble/bluetooth) and constructing AirconClient, but *before* client.run()
-# is ever started (AirconClient.__init__ itself does nothing but set plain
-# attributes -- see aircon_ble.py). Set this False to skip importing
-# aioble/bluetooth entirely and drive the UI off _DummyClient instead, to
-# check whether the BLE stack's own init (not an active scan/connection) is
-# implicated. Flip back to True once that's settled either way.
-_ENABLE_BLE = False
+# Hold the knob's push-button continuously for this long, on any screen, and
+# main()'s loop reboots the panel -- a physical-only escape hatch for a
+# wedged UI that doesn't depend on BLE, touch, or anything else that might
+# itself be part of what's wedged. Deliberately handled here at the
+# top-level loop rather than inside screens/, since it needs to work
+# regardless of which tile is active or whether a touch point is also down
+# (unlike the Home tile's mode/recirc buttons, which require touch+button
+# together -- see screens/widgets.py's _wire_button docstring).
+_REBOOT_HOLD_MS = 5000
+
+# See _init_watchdog(). Kept as a module global (rather than threaded
+# through every function that might want to feed it) because machine.WDT
+# can't be stopped once created, so there's only ever at most one for the
+# life of the process -- same rationale as theme.py's FONT_* globals.
+_WATCHDOG_TIMEOUT_MS = 8000
+_wdt = None
+
+
+def _init_watchdog():
+    """Arms the hardware watchdog: if nothing feeds it for
+    _WATCHDOG_TIMEOUT_MS, the ESP32 resets itself. Covers both a startup
+    hang (fed from _checkpoint(), called after each major init step below)
+    and a runtime hang/crash (fed once per main-loop iteration) -- either
+    way, a wedged panel recovers on its own instead of needing a manual
+    power cycle.
+
+    Called as the very first thing in main(), before anything else that
+    could plausibly hang (display/touch/BLE init), so startup itself is
+    covered too, not just the steady-state loop.
+
+    NOT hardware-verified: machine.WDT's constructor signature and its
+    actual min/max timeout range on this specific ESP32 build are assumed
+    from MicroPython's documented machine.WDT API, not confirmed against
+    this firmware. Also per that same API: once started, a WDT cannot be
+    stopped/disabled for the rest of the process's life -- if
+    _WATCHDOG_TIMEOUT_MS turns out too tight for some legitimate slow path
+    (e.g. aioble's multi-second scan window in aircon_ble.py), the fix is
+    to raise the timeout or feed more often around that path, not to try
+    to disable it.
+    """
+    global _wdt
+    try:
+        _wdt = machine.WDT(timeout=_WATCHDOG_TIMEOUT_MS)
+        print("main: watchdog armed, timeout=%dms" % _WATCHDOG_TIMEOUT_MS)
+    except Exception as e:
+        print("main: watchdog init failed, continuing without one:", type(e), e.args)
 
 
 def _checkpoint(label):
@@ -64,6 +102,8 @@ def _checkpoint(label):
     # rather than accumulated garbage.
     gc.collect()
     print("checkpoint:", label, "mem_free=", gc.mem_free(), "stack_use=", micropython.stack_use())
+    if _wdt is not None:
+        _wdt.feed()
 
 
 def _pump(ms):
@@ -128,69 +168,9 @@ def _show_splash():
         return None
 
 
-class _DummyState:
-    """Same attributes aircon_ble.AirconState has, so the screens/ package's
-    tiles can read them without caring which client built them. Fixed
-    placeholder values -- this is only for exercising the UI/fonts with BLE
-    out of the picture, not a real simulator (../aircon-sim/ is that).
-
-    connected=True (unlike a real just-booted AirconState) so dummy mode
-    keeps landing straight on the Home screen as before, now that
-    screens.App gates Home/Disconnected on this flag -- flip it to False
-    (and/or blank _DummyClient's device_name) to exercise the
-    Connect/Disconnected screens instead.
-    """
-
-    def __init__(self):
-        self.connected = True
-        self.mode = "off"
-        self.fan = "low"
-        self.setpoint = 72.0
-        self.circulation = "fresh"
-        self.current_temp = 68.0
-        self.compressor = "off"
-        self.cabin_temp = 68.0
-        self.blower_temp = 70.0
-        self.exhaust_temp = 65.0
-        self.baggage_temp = 66.0
-        self.tail_temp = 64.0
-        self.error = ""
-        self.settings = {"delta": {"value": 2.0, "default": 2.0}}
-
-
-class _DummyClient:
-    """Stand-in for aircon_ble.AirconClient used when _ENABLE_BLE is False.
-    Never imports aioble/bluetooth at all, so the UI can be exercised on
-    real hardware with the BLE stack fully out of the picture.
-    """
-
-    def __init__(self):
-        self.state = _DummyState()
-        self.dirty = asyncio.Event()
-        self.device_name = "Dummy AirCon"
-
-    async def run(self):
-        while True:
-            await asyncio.sleep(3600)
-
-    def set_device_name(self, name):
-        self.device_name = name
-
-    async def scan_for_aircons(self, duration_ms=4000):
-        await asyncio.sleep_ms(500)  # pretend a scan takes a moment
-        return [("Dummy AirCon", None), ("Other AirCon", None)]
-
-    async def _noop(self, *args):
-        return False
-
-    set_mode = _noop
-    set_fan = _noop
-    set_circulation = _noop
-    set_setpoint = _noop
-    set_setting = _noop
-
-
 async def main():
+    _init_watchdog()
+
     hal.init_board_power()
     _checkpoint("board power initialized")
 
@@ -228,15 +208,11 @@ async def main():
     encoder = hal.hal_init_input()
     _checkpoint("touch/encoder initialized")
 
-    if _ENABLE_BLE:
-        _checkpoint("before importing aircon_ble (pulls in aioble/bluetooth)")
-        import aircon_ble
+    _checkpoint("before importing aircon_ble (pulls in aioble/bluetooth)")
+    import aircon_ble
 
-        _checkpoint("after importing aircon_ble")
-        client = aircon_ble.AirconClient(panel_settings.get_aircon_device_name())
-    else:
-        print("main: _ENABLE_BLE=False, using _DummyClient (no aioble/bluetooth import)")
-        client = _DummyClient()
+    _checkpoint("after importing aircon_ble")
+    client = aircon_ble.AirconClient(panel_settings.get_aircon_device_name())
     _checkpoint("client constructed")
 
     # The real screen construction (lv.tileview + widgets) was cleared of
@@ -244,7 +220,7 @@ async def main():
     # actual cause of the original hard crash was theme.load_fonts()'s
     # custom Nasalization binfont loading (lv.binfont_create()), which was
     # unreliable in its own right -- see theme.py's docstring. theme.py now
-    # points FONT_BODY/FONT_DISPLAY at LVGL's built-in font instead, so
+    # points FONT_BODY/FONT_TITLE at LVGL's built-in font instead, so
     # load_fonts() is cheap and solid again.
     import theme
 
@@ -260,8 +236,12 @@ async def main():
 
     last_refresh_ms = 0
     last_tick_ms = time.ticks_ms()
+    btn_hold_start_ms = None
     while True:
         now = time.ticks_ms()
+        if _wdt is not None:
+            _wdt.feed()
+
         # See _pump()'s comment above: without this, LVGL's tick never
         # advances and it never redraws after its one forced initial
         # render -- this is the loop that drives the actual running UI, so
@@ -270,6 +250,20 @@ async def main():
         last_tick_ms = now
 
         lv.timer_handler()
+
+        # Long-press-to-reboot: see _REBOOT_HOLD_MS's comment above. A
+        # plain continuous read of button_pressed() (not an edge-detected
+        # one like App.poll_input() does for Connect/Disconnected's bare
+        # knob push), tracked independently of anything screens/ is doing
+        # with the same button state this same tick.
+        if encoder.button_pressed():
+            if btn_hold_start_ms is None:
+                btn_hold_start_ms = now
+            elif time.ticks_diff(now, btn_hold_start_ms) >= _REBOOT_HOLD_MS:
+                print("main: knob held for %dms, rebooting" % _REBOOT_HOLD_MS)
+                machine.reset()
+        else:
+            btn_hold_start_ms = None
 
         # Polled every loop iteration (not just on the ~250ms refresh
         # cadence below) so turning the knob feels immediate: it reads and
@@ -300,7 +294,36 @@ except KeyboardInterrupt:
     # particular, how this interacts with an active `mpremote mount .`
     # session (soft reset re-runs boot.py/main.py from the device's own
     # flash afterward, which may or may not respect the mount) is untested.
+    #
+    # NOT hardware-verified: whether ESP32's hardware watchdog timer itself
+    # (as opposed to the Python-level state _init_watchdog() sets up) keeps
+    # running across a soft_reset() -- a soft reset restarts the MicroPython
+    # VM and re-runs main.py (which calls _init_watchdog() again), but it's
+    # unconfirmed whether that's a true no-op for a WDT that was already
+    # armed, or whether the underlying timer peripheral keeps counting
+    # through it. If a `mpremote mount .` dev session ever sees an
+    # unexpected hard reset shortly after a Ctrl-C, check this first.
     print("KeyboardInterrupt: soft-resetting for a clean slate")
-    import machine
-
     machine.soft_reset()
+except Exception as e:
+    # Any other uncaught exception -- a real crash, not a dev-session
+    # Ctrl-C. Left alone, _wdt (see _init_watchdog()) would reset the board
+    # anyway once _WATCHDOG_TIMEOUT_MS elapses with nothing left running to
+    # feed it, but resetting immediately here recovers faster than waiting
+    # out that timeout. machine.reset() (a real hardware reset), not
+    # soft_reset() -- unlike the deliberate-Ctrl-C case above, there's no
+    # `mpremote mount` session to stay polite to here, and a crash may have
+    # left SPI/I2C hosts claimed in a broken state that only a hardware
+    # reset reliably clears (same reasoning as that case's own comment).
+    #
+    # sys.print_exception (MicroPython's traceback.print_exc equivalent --
+    # there's no `traceback` module in core MicroPython) logs the full
+    # traceback before resetting, not just the exception's bare args, since
+    # this is the one path here where the *cause* of the reset matters for
+    # debugging and would otherwise be lost the instant machine.reset()
+    # fires.
+    import sys
+
+    print("main: uncaught exception, rebooting:")
+    sys.print_exception(e)
+    machine.reset()

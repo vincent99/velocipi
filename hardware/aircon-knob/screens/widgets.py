@@ -19,7 +19,13 @@ def _cycle(options, current, delta):
 
 
 def _fmt_temp(v):
-    return "%.0f\xc2\xb0F" % v if v else "--"
+    # \xb0 is the single Unicode codepoint for "°" (U+00B0) -- an earlier
+    # version of this used "\xc2\xb0" (presumably meant as the UTF-8 *byte*
+    # encoding of "°"), but \x escapes in a plain str literal are per-
+    # codepoint, not per-byte, so that produced two real characters ("Â" +
+    # "°") instead of one, rendering as a broken-glyph box before the degree
+    # sign.
+    return "%.0f\xb0F" % v if v else "--"
 
 
 def _transparent(parent):
@@ -53,6 +59,14 @@ def _row(parent):
     return r
 
 
+def _column(parent):
+    c = _transparent(parent)
+    c.set_size(lv.pct(100), lv.SIZE_CONTENT)
+    c.set_flex_flow(lv.FLEX_FLOW.COLUMN)
+    c.set_flex_align(lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER)
+    return c
+
+
 def _set_visible(obj, visible):
     if visible:
         obj.remove_flag(lv.obj.FLAG.HIDDEN)
@@ -84,7 +98,7 @@ def _make_bare_tile(tileview, col, row, dir_):
 
 def _make_placeholder_tile(tileview, col, row, dir_, text):
     tile = _make_tile(tileview, col, row, dir_)
-    _label(tile, text, font=theme.FONT_DISPLAY)
+    _label(tile, text, font=theme.FONT_TITLE)
     return tile
 
 
@@ -105,14 +119,35 @@ def _make_screen(scr):
 
 
 def _make_button_cell(parent):
-    """Half-width flex cell that acts like a button (see _wire_button) --
-    used for the mode/recirc cells in home.HomeTile's middle row.
+    """Roughly-half-width flex cell that acts like a button (see
+    _wire_button) -- used for the mode/recirc cells in home.HomeTile's
+    middle row. Width is under 50% (with the gap absorbed by the parent
+    row's SPACE_EVENLY alignment) so the two cells' rounded borders don't
+    touch; height is SIZE_CONTENT (not a percentage of the parent row) so
+    the cell always has room for its two-line icon+label content --
+    home.py's row2 is itself SIZE_CONTENT too, so it grows to fit whichever
+    cell ends up tallest rather than squeezing both into a fixed height.
+    set_style_pad_all gives the touch target (and the two-line content)
+    some breathing room instead of shrink-wrapping tight to the text.
+
+    Border + radius are always visible (not just on touch) so the touch
+    target itself is legible; the fill color is left to _wire_button's
+    hover/active feedback. BUTTON_RADIUS is a uniform corner radius on all
+    four corners as the practical stand-in for "curve to match the round
+    panel" -- LVGL styles don't support rounding only the outer two corners
+    of a cell sitting flush against its neighbor.
     """
     cell = _transparent(parent)
-    cell.set_size(lv.pct(50), lv.pct(100))
+    cell.set_size(lv.pct(46), lv.SIZE_CONTENT)
     cell.set_flex_flow(lv.FLEX_FLOW.COLUMN)
     cell.set_flex_align(lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER)
     cell.add_flag(lv.obj.FLAG.CLICKABLE)
+    cell.set_style_radius(theme.BUTTON_RADIUS, 0)
+    cell.set_style_clip_corner(True, 0)
+    cell.set_style_border_width(2, 0)
+    cell.set_style_border_color(theme.COLOR_TRACK, 0)
+    cell.set_style_border_opa(lv.OPA.COVER, 0)
+    cell.set_style_pad_all(theme.SPACE_MD, 0)
     return cell
 
 
@@ -128,15 +163,42 @@ def _wire_button(cell, encoder, on_click):
     just once) rather than only at the exact release instant, since the
     real ordering of "finger lifts" vs. "button switch releases" for this
     mechanically-coupled hardware isn't verified.
+
+    Also drives visual touch feedback, independent of that click-gating
+    latch: the cell fills with COLOR_HOVER as soon as it's touched, and
+    upgrades to COLOR_ACTIVE for as long as the knob button is down too
+    (falling back to hover, not clearing outright, if the button is
+    released while still touching) -- cleared back to transparent once the
+    touch itself lifts. NOT hardware-verified: this assumes LVGL's PRESSING
+    event keeps firing periodically while a touch is held stationary (not
+    just on movement), which is what lets the active-state upgrade react to
+    a button press that happens mid-touch rather than only at touch-down.
     """
-    _seen = {"btn": False}
+    _seen = {"btn": False, "touching": False}
+
+    def _restyle():
+        if not _seen["touching"]:
+            cell.set_style_bg_opa(lv.OPA.TRANSP, 0)
+            return
+        cell.set_style_bg_opa(lv.OPA.COVER, 0)
+        if encoder.button_pressed():
+            cell.set_style_bg_color(theme.COLOR_ACTIVE, 0)
+        else:
+            cell.set_style_bg_color(theme.COLOR_HOVER, 0)
 
     def on_pressed(e):
+        _seen["touching"] = True
         _seen["btn"] = encoder.button_pressed()
+        _restyle()
 
     def on_pressing(e):
         if encoder.button_pressed():
             _seen["btn"] = True
+        _restyle()
+
+    def on_released(e):
+        _seen["touching"] = False
+        _restyle()
 
     def on_clicked(e):
         if _seen["btn"]:
@@ -145,4 +207,6 @@ def _wire_button(cell, encoder, on_click):
 
     cell.add_event_cb(on_pressed, lv.EVENT.PRESSED, None)
     cell.add_event_cb(on_pressing, lv.EVENT.PRESSING, None)
+    cell.add_event_cb(on_released, lv.EVENT.RELEASED, None)
+    cell.add_event_cb(on_released, lv.EVENT.PRESS_LOST, None)
     cell.add_event_cb(on_clicked, lv.EVENT.CLICKED, None)

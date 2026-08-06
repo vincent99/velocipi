@@ -55,6 +55,12 @@ class App:
         self.tileview = lv.tileview(scr)
         self.tileview.set_size(lv.pct(100), lv.pct(100))
         self.tileview.set_style_bg_color(theme.COLOR_BG, 0)
+        # Unlike widgets._transparent()'s containers, the tileview can't
+        # just have its SCROLLABLE flag removed -- scrolling *is* the
+        # swipe-between-tiles mechanism. set_scrollbar_mode(OFF) hides the
+        # scrollbar indicator it draws during that scrolling without
+        # touching the scrolling itself.
+        self.tileview.set_scrollbar_mode(lv.SCROLLBAR_MODE.OFF)
 
         # A + shaped grid around the main tile at (1,1): History below
         # (swipe down from main, swipe up from history to return), Settings
@@ -82,6 +88,7 @@ class App:
 
         self._screen = None  # "home" | "connect" | "disconnected" -- see _show()
         self._btn_prev = False  # for edge-detecting the knob's push-button in poll_input()
+        self._ever_connected = False  # set True the first time refresh() sees client.state.connected
 
         if client.device_name:
             # A device is already picked -- show Disconnected ("Connecting…")
@@ -95,14 +102,20 @@ class App:
     def _show(self, name):
         if self._screen == name:
             return
+        prev = self._screen
         self._screen = name
         _set_visible(self.tileview, name == "home")
         _set_visible(self.connect_tile.screen, name == "connect")
         _set_visible(self.disconnected_tile.screen, name == "disconnected")
+        if prev == "connect":
+            # Stops ConnectTile's background scan loop rather than leaving
+            # it running (and holding aircon_ble._scan_lock) after
+            # navigating away -- see ConnectTile.on_hide().
+            self.connect_tile.on_hide()
         if name == "connect":
             self.connect_tile.on_show()
         elif name == "disconnected":
-            self.disconnected_tile.on_show()
+            self.disconnected_tile.on_show(self._ever_connected)
 
     def poll_input(self):
         """Called every main-loop tick (not just on the slower BLE-driven
@@ -140,6 +153,7 @@ class App:
     def refresh(self):
         s = self.client.state
         if s.connected:
+            self._ever_connected = True
             self._show("home")
             self.home.refresh()
         elif self._screen == "home":

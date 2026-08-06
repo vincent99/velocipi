@@ -287,8 +287,12 @@ actual hands-on debugging on real hardware afterward.
 **Still open:**
 1. **`aioble` API surface** — targets the central-role connect/subscribe flow
    documented in micropython-lib's `aioble` README/examples at the time of
-   writing; a newer release may have renamed something. Not yet exercised
-   against a live AirCon controller or `../aircon-sim/`.
+   writing; a newer release may have renamed something. Confirmed working
+   end-to-end against both a live AirCon controller and `../aircon-sim/`.
+   One narrower piece is still unverified: `scan_for_aircons()`'s
+   `result.device.addr`-based dedup of non-matching devices (for its "N
+   other devices found" count) — falls back to an undeduplicated count if
+   that attribute isn't there.
 2. **BLE single-central contention** — same accepted tradeoff as the C++
    version: if the AirCon controller only accepts one BLE central connection,
    this panel and the Pi's `aircon.Client` can't both be connected at once.
@@ -347,16 +351,29 @@ been picked (`panel_settings.get_aircon_device_name()`) and whether
   scans for any BLE peripheral advertising the AirCon service UUID
   (`ble_config.AIRCON_SERVICE_UUID`) — not by name, since each physical
   controller can have its own custom `BLE_DEVICE_NAME` (`../aircon/config.py`'s
-  `set_ble_name()`) — and lists whatever it finds. Turning the knob moves
-  the highlighted device; pressing the button picks it, which persists the
-  choice (`panel_settings.set_aircon_device_name()`) and moves to
-  Disconnected ("Connecting…") while `AirconClient` attempts the connection.
-  Shown on first boot (nothing picked yet) or from Disconnected's knob push.
-- **Disconnected** — a full red screen with a thick red-on-darker-red X
-  spanning the panel's corners and white "Connecting…"/"Disconnected" text.
-  Says "Connecting…" only the very first time it's shown; every later
-  showing says "Disconnected" (`screens.DisconnectedTile._shown_before`).
-  Shown at startup if a device is already picked (until the first
+  `set_ble_name()`) — and returns `(found, other_count)`: AirCon matches, plus
+  a count of other (non-matching) BLE devices seen, deduplicated by address.
+  Until a real match turns up, `screens.ConnectTile` shows a spinner and "N
+  other devices found" instead of a roller with an unselectable "(none
+  found)" entry — reassurance that the radio itself is working, not just
+  silently stuck at zero. `screens.ConnectTile` keeps re-scanning in a loop
+  for as long as this screen stays up (`_scan_loop()`), merging each pass
+  into the running list rather than clearing it, so devices that show up
+  late still appear without backing out and back in. Once at least one
+  AirCon is found, the spinner is replaced by the roller: turning the knob
+  moves the highlighted device; pressing the button picks it, which
+  persists the choice (`panel_settings.set_aircon_device_name()`) and moves
+  to Disconnected ("Connecting…") while `AirconClient` attempts the
+  connection. Shown on first boot (nothing picked yet) or from
+  Disconnected's knob push.
+- **Disconnected** — a thick red X spanning the panel's corners on a black
+  background, with white "Connecting…"/"Disconnected" text (on its own red
+  background box) centered on top. Says "Connecting…" until the BLE
+  connection has been established at least once, "Disconnected" for any
+  drop after that — tracked as `screens.App._ever_connected`, not whether
+  this screen itself has been shown before (so a drop right after the very
+  first successful connect still says "Disconnected", not "Connecting…"
+  again). Shown at startup if a device is already picked (until the first
   successful connect), and any time the connection drops while Home was
   showing — `screens.App.refresh()` flips back to Home as soon as
   `client.state.connected` is true again. Pressing the knob here goes to

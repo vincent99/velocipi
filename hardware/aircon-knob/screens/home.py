@@ -9,7 +9,7 @@ import asyncio
 import lvgl as lv
 
 import theme
-from .widgets import _cycle, _fmt_temp, _label, _make_bare_tile, _make_button_cell, _row, _set_visible, _transparent, _wire_button
+from .widgets import _column, _cycle, _fmt_temp, _label, _make_bare_tile, _make_button_cell, _row, _set_visible, _transparent, _wire_button
 
 MODES = ("off", "fan", "auto", "cool")
 CIRCS = ("recirc", "fresh")
@@ -40,6 +40,10 @@ _MODE_ICON = {
 _MODE_TEXT = {"off": "Off", "fan": "Fan", "auto": "Auto", "cool": "Cool"}
 _CIRC_ICON = {"recirc": lv.SYMBOL.LOOP, "fresh": lv.SYMBOL.REFRESH}
 _CIRC_TEXT = {"recirc": "Recirc", "fresh": "Fresh"}
+# str.capitalize() isn't in MicroPython's built-in str type, so fan names
+# (POWER_STATES, minus "off" which has its own label above) get their own
+# display-text lookup rather than title-casing at render time.
+_FAN_TEXT = {"low": "Low", "medium": "Medium", "high": "High"}
 
 
 class HomeTile:
@@ -81,8 +85,10 @@ class HomeTile:
         self.arc.set_style_bg_opa(lv.OPA.TRANSP, lv.PART.KNOB)
         self.arc.set_style_border_width(0, lv.PART.KNOB)
 
-        # Circular inset holding the 3-row grid, sized to sit just inside
-        # the gauge's track.
+        # Circular inset holding current-temp + the mode/recirc buttons,
+        # sized to sit just inside the gauge's track. Only 2 rows now --
+        # row3 (fan/setpoint) moved out to be positioned against self.tile
+        # directly, below.
         inset = 236 - 2 * self._ARC_WIDTH - theme.SPACE_MD
         self.grid = _transparent(self.tile)
         self.grid.set_size(inset, inset)
@@ -91,25 +97,45 @@ class HomeTile:
         self.grid.set_style_clip_corner(True, 0)
         self.grid.set_flex_flow(lv.FLEX_FLOW.COLUMN)
         self.grid.set_flex_align(lv.FLEX_ALIGN.START, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER)
+        self.grid.set_style_pad_row(theme.SPACE_MD, 0)
 
+        # SIZE_CONTENT, not a fixed lv.pct() height, for both this and row2
+        # below -- the button restyle's two-line (icon + label) cells need
+        # more room than an even 3-way split of the inset gave them, so
+        # rows now size to fit their actual content instead.
         row1 = _transparent(self.grid)
-        row1.set_size(lv.pct(100), lv.pct(33))
-        self.current_temp_label = _label(row1, font=theme.FONT_DISPLAY, color=theme.COLOR_TEXT)
+        row1.set_size(lv.pct(100), lv.SIZE_CONTENT)
+        self.current_temp_label = _label(row1, font=theme.FONT_TITLE, color=theme.COLOR_TEXT)
         self.current_temp_label.center()
 
         row2 = _row(self.grid)
-        row2.set_height(lv.pct(33))
         self.mode_cell = _make_button_cell(row2)
-        self.mode_label = _label(self.mode_cell)
+        self.mode_icon_label = _label(self.mode_cell, font=theme.FONT_BUTTON_ICON)
+        self.mode_text_label = _label(self.mode_cell, font=theme.FONT_BUTTON_LABEL)
         self.recirc_cell = _make_button_cell(row2)
-        self.recirc_label = _label(self.recirc_cell)
+        self.recirc_icon_label = _label(self.recirc_cell, font=theme.FONT_BUTTON_ICON)
+        self.recirc_text_label = _label(self.recirc_cell, font=theme.FONT_BUTTON_LABEL)
         _wire_button(self.mode_cell, encoder, self._cycle_mode)
         _wire_button(self.recirc_cell, encoder, self._cycle_circ)
 
-        self.row3 = _row(self.grid)
-        self.row3.set_height(lv.pct(34))
-        self.setpoint_label = _label(self.row3, font=theme.FONT_DISPLAY, color=theme.COLOR_TEXT)
-        self.fan_label = _label(self.row3, font=theme.FONT_DISPLAY, color=theme.COLOR_TEXT)
+        # Fan speed above setpoint (setpoint only shown in auto mode -- see
+        # refresh()'s _set_visible call below), anchored to the very bottom
+        # of the tile rather than living inside the circular `grid` above --
+        # deliberately outside/independent of that inset's own height
+        # budget so it can sit lower on the screen. Fine for it to overlap
+        # the gauge arc down there: HomeTile's bg_angles leaves a 60-degree
+        # gap centered at the bottom (see _GAUGE_START_ANGLE/_GAUGE_END_
+        # ANGLE above) where the arc draws nothing at all.
+        self.row3 = _column(self.tile)
+        self.fan_label = _label(self.row3, font=theme.FONT_TITLE, color=theme.COLOR_TEXT)
+        self.setpoint_label = _label(self.row3, font=theme.FONT_TITLE, color=theme.COLOR_TEXT)
+        # NOT hardware-verified: obj.align()/lv.ALIGN.BOTTOM_MID follow this
+        # binding's usual naming convention and lv_obj_center() (used
+        # elsewhere in this file, confirmed working) is itself just a thin
+        # wrapper around lv_obj_align() in upstream LVGL, but this is the
+        # first direct use of .align() in this codebase -- see
+        # check_lvgl_api.py.
+        self.row3.align(lv.ALIGN.BOTTOM_MID, 0, -theme.SPACE_SM)
 
     # ── Button-cell actions ──────────────────────────────────────────────
 
@@ -172,25 +198,27 @@ class HomeTile:
 
         self.current_temp_label.set_text(_fmt_temp(s.current_temp))
 
-        icon = _MODE_ICON.get(s.mode, "")
+        self.mode_icon_label.set_text(_MODE_ICON.get(s.mode, ""))
         name = _MODE_TEXT.get(s.mode, s.mode or "--")
         if s.mode in ("fan", "cool") and s.fan:
-            self.mode_label.set_text("%s %s %s" % (icon, name, s.fan.capitalize()))
+            self.mode_text_label.set_text("%s %s" % (name, _FAN_TEXT.get(s.fan, s.fan)))
         else:
-            self.mode_label.set_text("%s %s" % (icon, name))
+            self.mode_text_label.set_text(name)
 
-        circ_icon = _CIRC_ICON.get(s.circulation, "")
-        circ_name = _CIRC_TEXT.get(s.circulation, s.circulation or "--")
-        self.recirc_label.set_text("%s %s" % (circ_icon, circ_name))
+        self.recirc_icon_label.set_text(_CIRC_ICON.get(s.circulation, ""))
+        self.recirc_text_label.set_text(_CIRC_TEXT.get(s.circulation, s.circulation or "--"))
 
         _set_visible(self.setpoint_label, s.mode == "auto")
         if s.mode == "auto":
-            self.setpoint_label.set_text("%.0f\xc2\xb0F" % s.setpoint if s.setpoint else "--")
+            # See widgets._fmt_temp for why this is "\xb0" and not
+            # "\xc2\xb0". No "F" suffix here (unlike _fmt_temp) -- setpoint
+            # is shown bare, e.g. "72°".
+            self.setpoint_label.set_text("%.0f\xb0" % s.setpoint if s.setpoint else "--")
 
         if s.mode == "off":
             self.fan_label.set_text("Off")
         else:
-            self.fan_label.set_text(s.fan.capitalize() if s.fan else "--")
+            self.fan_label.set_text(_FAN_TEXT.get(s.fan, "--") if s.fan else "--")
 
         # Gauge range/value: fan/cool/off share the 0..len(POWER_STATES)-1
         # power dial; auto reads its range from the controller's BLE
