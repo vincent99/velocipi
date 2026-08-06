@@ -22,9 +22,9 @@ logger = logging.getLogger("aircon-sim.ble")
 # Wire key (as sent/received on the settings characteristic) -> controller
 # attribute name. Controller attributes stay verbose (self.fan_high_thresh
 # etc., unchanged) -- only the wire keys are terse, to keep the settings
-# JSON payload's size down. "delta" isn't renamed; the rest drop
-# "_thresh"/"_interval" and "setpoint" -> "set", matching
-# ../aircon/ble_server.py exactly (this file has no "brightness" setting).
+# JSON payload's size down. "delta" and "brightness" aren't renamed; the
+# rest drop "_thresh"/"_interval" and "setpoint" -> "set", matching
+# ../aircon/ble_server.py exactly.
 SETTINGS_WIRE_KEYS = {
     "delta": "delta",
     "fan_high": "fan_high_thresh",
@@ -34,6 +34,7 @@ SETTINGS_WIRE_KEYS = {
     "temp_read": "temp_read_interval",
     "set_min": "setpoint_min",
     "set_max": "setpoint_max",
+    "brightness": "brightness",
 }
 
 # Compile-time defaults reported alongside each tunable's live value in the
@@ -48,6 +49,7 @@ SETTINGS_DEFAULTS = {
     "temp_read": config.DEFAULT_TEMP_READ_INTERVAL,
     "set_min": config.DEFAULT_SETPOINT_MIN,
     "set_max": config.DEFAULT_SETPOINT_MAX,
+    "brightness": config.DEFAULT_BRIGHTNESS,
 }
 
 

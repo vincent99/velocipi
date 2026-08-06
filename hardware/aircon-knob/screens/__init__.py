@@ -40,6 +40,7 @@ unverified assumption about this MicroPython build's import support.
 
 import lvgl as lv
 
+import hal
 import theme
 from .connect import ConnectTile
 from .disconnected import DisconnectedTile
@@ -48,9 +49,15 @@ from .widgets import _make_placeholder_tile, _set_visible
 
 
 class App:
-    def __init__(self, client, encoder, scr):
+    def __init__(self, client, encoder, scr, display):
         self.client = client
         self.encoder = encoder
+        self.display = display
+        # Tracks the last brightness percentage actually applied, so
+        # refresh() (called every ~250ms regardless of whether anything
+        # changed) only calls hal.set_brightness() when the BLE settings
+        # value itself changes, not every single cycle.
+        self._last_brightness = None
 
         self.tileview = lv.tileview(scr)
         self.tileview.set_size(lv.pct(100), lv.pct(100))
@@ -152,6 +159,7 @@ class App:
 
     def refresh(self):
         s = self.client.state
+        self._apply_brightness(s)
         if s.connected:
             self._ever_connected = True
             self._show("home")
@@ -160,12 +168,31 @@ class App:
             # Connection dropped while Home was showing.
             self._show("disconnected")
 
+    def _apply_brightness(self, s):
+        """Follows the AC controller's BLE "brightness" setting (0-100,
+        see hardware/aircon-sim/ble_server.py's SETTINGS_WIRE_KEYS) live --
+        no-ops until that characteristic's been read at least once (state
+        .settings starts empty), and persists across a brief disconnect
+        since state.settings isn't cleared on disconnect, only a full
+        reconnect re-reads it.
+        """
+        sv = s.settings.get("brightness")
+        if not sv:
+            return
+        pct = sv["value"]
+        if pct == self._last_brightness:
+            return
+        self._last_brightness = pct
+        hal.set_brightness(self.display, pct)
 
-def build(client, encoder, scr):
+
+def build(client, encoder, scr, display):
     """Returns the App. `encoder` is the raw encoder.Encoder object from
     hal.hal_init_input() -- polled directly by App.poll_input()/
     HomeTile.handle_knob(), not wired through an lv.indev/group (see
     ../hal.py's _init_encoder() docstring for why). `scr` is the active
-    screen (lv.screen_active()), fetched by main.py.
+    screen (lv.screen_active()), and `display` the object hal.hal_init_
+    display() returned (used to follow the BLE "brightness" setting --
+    see App._apply_brightness()), both fetched by main.py.
     """
-    return App(client, encoder, scr)
+    return App(client, encoder, scr, display)

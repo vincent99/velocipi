@@ -32,6 +32,7 @@ DEFAULT_AUTO_FAN_MED_THRESH = 2.0
 DEFAULT_FAN_CHANGE_INTERVAL = 30
 DEFAULT_AUTO_LOOP_INTERVAL = 5
 DEFAULT_TEMP_READ_INTERVAL = 3
+DEFAULT_BRIGHTNESS = 10  # percent -- display brightness
 
 # ── BLE identity/UUIDs -- must match ../aircon/config.py exactly, and match
 # whatever hardware/aircon-knob/ble_config.py the panel is flashed with. ───

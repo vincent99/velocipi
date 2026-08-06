@@ -37,11 +37,11 @@ _DEFAULT_SETPOINT_MAX = 100.0
 _MODE_ICON = {
     "off": lv.SYMBOL.POWER,
     "fan": lv.SYMBOL.REFRESH,
-    "auto": lv.SYMBOL.LOOP,
-    "cool": lv.SYMBOL.TINT,
+    "cool": lv.SYMBOL.CHARGE,
+    "auto": lv.SYMBOL.EYE_OPEN,
 }
 _MODE_TEXT = {"off": "Off", "fan": "Fan", "auto": "Auto", "cool": "Cool"}
-_CIRC_ICON = {"recirc": lv.SYMBOL.LOOP, "fresh": lv.SYMBOL.REFRESH}
+_CIRC_ICON = {"recirc": lv.SYMBOL.REFRESH, "fresh": lv.SYMBOL.SHUFFLE}
 _CIRC_TEXT = {"recirc": "Recirc", "fresh": "Fresh"}
 # str.capitalize() isn't in MicroPython's built-in str type, so fan names
 # (POWER_STATES) get their own display-text lookup rather than title-casing
@@ -91,7 +91,7 @@ class HomeTile:
         self.tile = _make_bare_tile(tileview, 1, 1, lv.DIR.TOP | lv.DIR.BOTTOM | lv.DIR.RIGHT)
 
         self.arc = lv.arc(self.tile)
-        self.arc.set_size(240,240)
+        self.arc.set_size(236,236)
         self.arc.center()
         self.arc.set_bg_angles(self._GAUGE_START_ANGLE, self._GAUGE_END_ANGLE)
         self.arc.set_style_arc_width(self._ARC_WIDTH, lv.PART.MAIN)
@@ -199,27 +199,26 @@ class HomeTile:
             return
         s = self.client.state
 
+        # Off is inert -- the knob does nothing at all (no mode change, no
+        # fan change) while off, matching the arc being hidden entirely in
+        # refresh() rather than showing some stale/meaningless dial value.
+        # The mode button (see MODES/_cycle_mode) is the only way in or out
+        # of off now.
+        if s.mode == "off":
+            return
+
         if s.mode == "auto":
             lo, hi = self._setpoint_min(), self._setpoint_max()
             target = min(max(s.setpoint + delta, lo), hi)
             asyncio.create_task(self.client.set_setpoint(target))
             return
 
-        # Fan-speed dial: low/medium/high, not wrapping at either end. No
-        # "off" tick -- turning the knob always implies "on" (mode=off is
-        # button-only, see MODES/_cycle_mode). s.fan persists across mode
-        # changes even while off (the controller only clears the *active*
-        # fan speed on mode=off, not the stored setting -- see
-        # ../../aircon-sim/controller.py's _apply()), so this picks up
-        # wherever the fan speed was left rather than resetting to "low"
-        # every time.
+        # Only fan/cool reach here (auto and off both returned above) --
+        # fan-speed dial: low/medium/high, not wrapping at either end,
+        # mode unchanged (no set_mode() call needed -- it's already
+        # fan/cool).
         idx = POWER_STATES.index(s.fan) if s.fan in POWER_STATES else 0
         idx = min(max(idx + delta, 0), len(POWER_STATES) - 1)
-
-        # Keep the current mode if it's already fan/cool, else (off/auto)
-        # turning the knob switches into fan mode at the selected speed.
-        target_mode = s.mode if s.mode in ("fan", "cool") else "fan"
-        asyncio.create_task(self.client.set_mode(target_mode))
         asyncio.create_task(self.client.set_fan(POWER_STATES[idx]))
 
     # ── Refresh ───────────────────────────────────────────────────────────
@@ -244,27 +243,33 @@ class HomeTile:
             # is shown bare, e.g. "72°".
             self.setpoint_label.set_text("%.0f\xb0" % s.setpoint if s.setpoint else "--")
 
-        if s.mode == "off":
-            self.fan_label.set_text("Off")
-        else:
+        # Hidden entirely while off, same reasoning as setpoint_label above
+        # (and the arc itself, in the gauge block below) -- no fan speed
+        # means anything then.
+        _set_visible(self.fan_label, s.mode != "off")
+        if s.mode != "off":
             self.fan_label.set_text(_FAN_TEXT.get(s.fan, "--") if s.fan else "--")
 
-        # Gauge range/value: fan/cool/off all show the fan-speed dial (off
-        # shows wherever s.fan was last left, per handle_knob()'s own
-        # comment on why); auto reads its range from the controller's BLE
-        # settings (set_min/set_max) instead.
+        # Gauge: hidden entirely while off -- there's no dial value that
+        # means anything then (handle_knob() ignores the knob in this
+        # state too, see there), so showing some stale fan-speed/setpoint
+        # position would just be confusing. Shown otherwise: fan/cool show
+        # the fan-speed dial, auto reads its range from the controller's
+        # BLE settings (set_min/set_max) instead.
         #
-        # Both branches pad the arc's low end by one extra "fake" unit that
-        # handle_knob() never actually lets the value reach (it still
-        # clamps to the real lo/hi and real 0..len(POWER_STATES)-1 there,
-        # unchanged) -- purely so the indicator always shows a visible
-        # sliver of fill even at the coldest/lowest reachable setting,
-        # instead of looking fully empty right at the true minimum.
+        # Both non-off branches pad the arc's low end by one extra "fake"
+        # unit that handle_knob() never actually lets the value reach (it
+        # still clamps to the real lo/hi and real 0..len(POWER_STATES)-1
+        # there, unchanged) -- purely so the indicator always shows a
+        # visible sliver of fill even at the coldest/lowest reachable
+        # setting, instead of looking fully empty right at the true
+        # minimum.
+        _set_visible(self.arc, s.mode != "off")
         if s.mode == "auto":
             lo, hi = self._setpoint_min(), self._setpoint_max()
             self.arc.set_range(int(lo) - 1, int(hi))
             self.arc.set_value(int(s.setpoint))
-        else:
+        elif s.mode != "off":
             self.arc.set_range(-1, len(POWER_STATES) - 1)
             idx = POWER_STATES.index(s.fan) if s.fan in POWER_STATES else 0
             self.arc.set_value(idx)

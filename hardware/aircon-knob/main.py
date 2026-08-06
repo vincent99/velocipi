@@ -197,7 +197,7 @@ async def main():
     lv.screen_active().set_style_bg_color(lv.color_hex(0x000000), 0)
     for _ in range(5):
         _pump(30)
-    display.set_backlight(100)
+    hal.set_brightness(display, 100)
 
     splash = _show_splash()
     await asyncio.sleep_ms(_SPLASH_MS)
@@ -230,7 +230,7 @@ async def main():
     import screens
 
     scr = lv.screen_active()
-    app = screens.build(client, encoder, scr)
+    app = screens.build(client, encoder, scr, display)
     _checkpoint("screens built")
     asyncio.create_task(client.run())
 

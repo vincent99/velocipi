@@ -234,6 +234,27 @@ def hal_init_display():
     return _init_display()
 
 
+# display.set_backlight()'s own range is 0-100 with 0 meaning fully off --
+# the AC controller's "brightness" BLE setting is also 0-100, but 0 there
+# means "as dim as possible", not "off" (screens/__init__.py's App reads
+# that setting and calls set_brightness() below with it directly). This is
+# the floor set_backlight() gets clamped to instead of 0, so the panel
+# never goes dark just because the AC's brightness setting was turned all
+# the way down.
+_BACKLIGHT_MIN_PCT = 5
+
+
+def set_brightness(display, pct):
+    """Maps an 0-100 "brightness" percentage (as reported by the AC
+    controller's BLE settings characteristic) onto set_backlight()'s own
+    0-100 range, floored at _BACKLIGHT_MIN_PCT instead of letting 0 turn
+    the backlight fully off.
+    """
+    pct = min(max(pct, 0), 100)
+    backlight_pct = _BACKLIGHT_MIN_PCT + (pct / 100.0) * (100 - _BACKLIGHT_MIN_PCT)
+    display.set_backlight(backlight_pct)
+
+
 def hal_init_input():
     """Sets up touch + the encoder, returning the raw Encoder object.
 

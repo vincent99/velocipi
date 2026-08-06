@@ -55,6 +55,7 @@ class SimController:
         self.fan_change_interval = config.DEFAULT_FAN_CHANGE_INTERVAL
         self.auto_loop_interval = config.DEFAULT_AUTO_LOOP_INTERVAL
         self.temp_read_interval = config.DEFAULT_TEMP_READ_INTERVAL
+        self.brightness = config.DEFAULT_BRIGHTNESS
 
         self.compressor_on = False
         self.active_fan_speed = None
@@ -160,6 +161,10 @@ class SimController:
                     self.setpoint_min = new_min
                     self.setpoint_max = new_max
                     self.setpoint = min(max(self.setpoint, new_min), new_max)
+            if "brightness" in settings:
+                v = float(settings["brightness"])
+                if 0 <= v <= 100:
+                    self.brightness = v
             self._notify()
             return True
         except (ValueError, TypeError):
@@ -190,6 +195,7 @@ class SimController:
             "temp_read_interval": self.temp_read_interval,
             "setpoint_min": self.setpoint_min,
             "setpoint_max": self.setpoint_max,
+            "brightness": self.brightness,
         }
 
     # ── Mode transitions, ported from ../aircon/controller.py's _apply() ──
