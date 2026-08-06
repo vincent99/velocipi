@@ -222,6 +222,10 @@ else:
         )
         check("obj.set_scroll_dir", lambda: obj.set_scroll_dir(lv.DIR.VER), search_in=obj)
         check("obj.clean()", obj.clean, search_in=obj)
+        # Used by screens/home.py's HomeTile to keep the gauge arc's ring
+        # strokes painting on top of the current-temp cell's compressor-on
+        # background fill, regardless of the two objects' creation order.
+        check("obj.move_foreground()", obj.move_foreground, search_in=obj, search_term="move_foreground")
         # Used by screens/home.py's HomeTile to anchor the fan/setpoint
         # stack to the bottom of the tile -- first use of .align() anywhere
         # in this codebase (everything else so far has used .center(),
@@ -293,7 +297,7 @@ else:
         # 12-48 are only in this project's LVGL image as of the mode/recirc
         # button restyle, so confirm the specific sizes theme.py now loads
         # actually resolve (lv.font_montserrat_14 above predates that build).
-        for size in (18, 20, 32):
+        for size in (18, 20, 32, 36):
             check(
                 "lv.font_montserrat_%d" % size,
                 (lambda s=size: getattr(lv, "font_montserrat_%d" % s)),

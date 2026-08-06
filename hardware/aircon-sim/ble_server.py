@@ -19,15 +19,35 @@ import config
 
 logger = logging.getLogger("aircon-sim.ble")
 
+# Wire key (as sent/received on the settings characteristic) -> controller
+# attribute name. Controller attributes stay verbose (self.fan_high_thresh
+# etc., unchanged) -- only the wire keys are terse, to keep the settings
+# JSON payload's size down. "delta" isn't renamed; the rest drop
+# "_thresh"/"_interval" and "setpoint" -> "set", matching
+# ../aircon/ble_server.py exactly (this file has no "brightness" setting).
+SETTINGS_WIRE_KEYS = {
+    "delta": "delta",
+    "fan_high": "fan_high_thresh",
+    "fan_med": "fan_med_thresh",
+    "fan_change": "fan_change_interval",
+    "auto_loop": "auto_loop_interval",
+    "temp_read": "temp_read_interval",
+    "set_min": "setpoint_min",
+    "set_max": "setpoint_max",
+}
+
 # Compile-time defaults reported alongside each tunable's live value in the
-# settings characteristic, same shape as the real firmware's ble_server.py.
+# settings characteristic, keyed by wire name (see SETTINGS_WIRE_KEYS
+# above), same shape as the real firmware's ble_server.py.
 SETTINGS_DEFAULTS = {
     "delta": config.DEFAULT_DELTA,
-    "fan_high_thresh": config.DEFAULT_AUTO_FAN_HIGH_THRESH,
-    "fan_med_thresh": config.DEFAULT_AUTO_FAN_MED_THRESH,
-    "fan_change_interval": config.DEFAULT_FAN_CHANGE_INTERVAL,
-    "auto_loop_interval": config.DEFAULT_AUTO_LOOP_INTERVAL,
-    "temp_read_interval": config.DEFAULT_TEMP_READ_INTERVAL,
+    "fan_high": config.DEFAULT_AUTO_FAN_HIGH_THRESH,
+    "fan_med": config.DEFAULT_AUTO_FAN_MED_THRESH,
+    "fan_change": config.DEFAULT_FAN_CHANGE_INTERVAL,
+    "auto_loop": config.DEFAULT_AUTO_LOOP_INTERVAL,
+    "temp_read": config.DEFAULT_TEMP_READ_INTERVAL,
+    "set_min": config.DEFAULT_SETPOINT_MIN,
+    "set_max": config.DEFAULT_SETPOINT_MAX,
 }
 
 
@@ -52,20 +72,24 @@ def _round(v):
 
 
 def _unwrap_settings(d):
-    """Accept flat {key: value} or wrapped {key: {v: value, d: default}}.
+    """Accept flat {wire_key: value} or wrapped {wire_key: [value, default]}
+    -- return flat {attr_key: value} for controller.set_settings().
 
-    Wire keys are the terse "v"/"d" (not "value"/"default", matching
-    ../aircon/ble_server.py) to keep the settings characteristic's JSON
-    payload under the default BLE ATT MTU's single-read/notification-
-    fragment size where possible.
+    Value is a bare 2-element [value, default] array (not a {"v","d"}
+    object), matching ../aircon/ble_server.py, to keep the settings
+    characteristic's JSON payload under the default BLE ATT MTU's
+    single-read/notification-fragment size where possible.
     """
     out = {}
     for k, v in d.items():
-        if isinstance(v, dict):
-            if v.get("v") is not None:
-                out[k] = v["v"]
+        attr = SETTINGS_WIRE_KEYS.get(k)
+        if attr is None:
+            continue
+        if isinstance(v, (list, tuple)):
+            if len(v) > 0 and v[0] is not None:
+                out[attr] = v[0]
         else:
-            out[k] = v
+            out[attr] = v
     return out
 
 
@@ -197,10 +221,15 @@ class SimBLEServer:
             "setpoint": _enc_f(s["setpoint"]),
             "circ": _enc_str(s["circulation"]),
             "panel": _enc_f(s["panel_temp"]),
-            # "v"/"d", not "value"/"default" -- see _unwrap_settings()'s docstring.
+            # [value, default], not {"v":.., "d":..} -- see
+            # _unwrap_settings()'s docstring. wire_key/attr_key per
+            # SETTINGS_WIRE_KEYS above.
             "settings": bytearray(
                 json.dumps(
-                    {k: {"v": s[k], "d": SETTINGS_DEFAULTS[k]} for k in SETTINGS_DEFAULTS}
+                    {
+                        wire: [s[attr], SETTINGS_DEFAULTS[wire]]
+                        for wire, attr in SETTINGS_WIRE_KEYS.items()
+                    }
                 ).encode()
             ),
             "status": bytearray(

@@ -495,19 +495,25 @@ class AirconClient:
         except ValueError:
             print("aircon_ble: settings JSON parse error:", text)
             return
-        # Wire keys are "v"/"d" (not "value"/"default") to keep this
-        # characteristic's JSON payload compact -- see aircon-sim/ble_
-        # server.py's _unwrap_settings() docstring for the full reasoning.
-        # Decoded into the same {"value":.., "default":..} local shape as
-        # before regardless (see AirconState.settings above); only the BLE
-        # encoding changed, not this class's own representation.
+        # Each entry is a bare [value, default] 2-element array (not a
+        # {"v":.., "d":..} object) to keep this characteristic's JSON
+        # payload compact -- see aircon-sim/ble_server.py's
+        # _unwrap_settings() docstring for the full reasoning. Keys
+        # themselves are also terse wire names now (e.g. "set_min", not
+        # "setpoint_min" -- see that same file's SETTINGS_WIRE_KEYS): this
+        # class has no need for a separate verbose internal name the way
+        # the controllers do, so self.state.settings is keyed by whatever
+        # comes over the wire directly. Decoded into the same
+        # {"value":.., "default":..} local shape as before regardless (see
+        # AirconState.settings above).
         settings = {}
         for key, v in raw.items():
             if isinstance(v, (int, float)):
                 settings[key] = {"value": float(v), "default": float(v)}
-            elif isinstance(v, dict):
-                val = float(v.get("v", 0.0))
-                settings[key] = {"value": val, "default": float(v.get("d", val))}
+            elif isinstance(v, (list, tuple)):
+                val = float(v[0]) if len(v) > 0 and v[0] is not None else 0.0
+                default = float(v[1]) if len(v) > 1 and v[1] is not None else val
+                settings[key] = {"value": val, "default": default}
         self.state.settings = settings
         self._mark_dirty()
 

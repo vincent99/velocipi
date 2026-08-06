@@ -19,13 +19,18 @@ COLOR_ACCENT = lv.color_hex(0x9429FF)
 COLOR_ACCENT_TEXT = lv.color_hex(0xFFFFFF)
 COLOR_DANGER = lv.color_hex(0xFF0000)
 COLOR_TRACK = lv.color_hex(0x9AA3B2)
-COLOR_COMPRESSOR_ON = lv.color_hex(0x0B1F4D)  # dark blue fill behind the bottom row while the compressor is running
+COLOR_COMPRESSOR_ON = lv.color_hex(0x0B1F4D)  # dark blue fill behind the current-temp cell while the compressor is running
 # Mode/recirc button-cell touch feedback (see screens/widgets.py's
 # _wire_button): COLOR_HOVER fills the cell while it's touched but the
 # knob's push-button isn't down yet, COLOR_ACTIVE (reusing the existing
 # accent) once the button is also down -- i.e. right before a tap commits.
 COLOR_HOVER = lv.color_hex(0x1E2230)
 COLOR_ACTIVE = COLOR_ACCENT
+# Mode/recirc button outline -- deliberately duller/darker than COLOR_TRACK
+# (used for the gauge's own inactive arc track, which wants to read clearly
+# against the black background) so the outline recedes and doesn't compete
+# with the icon/label content inside it.
+COLOR_BUTTON_OUTLINE = lv.color_hex(0x3A3F4A)
 
 SPACE_XS = 2
 SPACE_SM = 4
@@ -33,7 +38,7 @@ SPACE_MD = 8
 SPACE_LG = 16
 SPACE_XL = 32
 RADIUS = 12
-BUTTON_RADIUS = 24  # mode/recirc cells -- rounder, to echo the round panel's own curve
+BUTTON_RADIUS = 12  # mode/recirc cells -- halved from an earlier, too-round 24 per feedback
 
 # Populated by load_fonts(), which main.py calls right after lv.init() --
 # NOT at import time (unlike the plain lv.color_hex() constants above,
@@ -44,10 +49,11 @@ FONT_BODY = None
 FONT_TITLE = None
 FONT_BUTTON_ICON = None
 FONT_BUTTON_LABEL = None
+FONT_CURRENT_TEMP = None
 
 
 def load_fonts():
-    global FONT_BODY, FONT_TITLE, FONT_BUTTON_ICON, FONT_BUTTON_LABEL
+    global FONT_BODY, FONT_TITLE, FONT_BUTTON_ICON, FONT_BUTTON_LABEL, FONT_CURRENT_TEMP
 
     FONT_BODY = lv.font_montserrat_14
     FONT_TITLE = lv.font_montserrat_20
@@ -56,3 +62,12 @@ def load_fonts():
     # than the text line below it.
     FONT_BUTTON_ICON = lv.font_montserrat_32
     FONT_BUTTON_LABEL = lv.font_montserrat_18
+    # home.HomeTile's current-temp label, sized as a judgment call (not
+    # rendered/measured on real hardware): big enough to read as the
+    # screen's headline number, but conservative enough that the widest
+    # string it ever shows ("999.9°", 6 glyphs -- see widgets._fmt_temp)
+    # still clears the circular inset's chord width up near the top of the
+    # gauge, where that inset is narrower than at its vertical center. If
+    # it visibly clips against the arc, size this down; if there's clear
+    # room to spare, it can go bigger.
+    FONT_CURRENT_TEMP = lv.font_montserrat_36

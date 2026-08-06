@@ -22,10 +22,13 @@ const saved = ref(false);
 const error = ref('');
 
 // AirCon BLE settings — loaded from /aircon/state, not from the YAML config.
-// Keys are "v"/"d" (not "value"/"default"), matching
-// server/hardware/aircon/aircon.go's SettingValue JSON tags, which in turn
-// match the BLE settings characteristic's own terse wire format.
-const acSettings = ref<Record<string, { v: number; d: number }> | null>(null);
+// Each value is a bare [value, default] tuple (not a {v,d} object),
+// matching server/hardware/aircon/aircon.go's SettingValue's custom
+// MarshalJSON, which in turn matches the BLE settings characteristic's own
+// terse wire format. Field keys (fan_high, set_min, etc., not
+// fan_high_thresh/setpoint_min) match that same wire format -- see
+// acSettingsFields below.
+const acSettings = ref<Record<string, [number, number]> | null>(null);
 const acEdits = ref<Record<string, number>>({});
 const activeSection = ref('filesystem');
 
@@ -129,34 +132,37 @@ provide(settingsKey, { isModified, reset, getPath, setPath });
 
 // ── AirCon BLE settings helpers ───────────────────────────────────────────────
 
+// Keys match the BLE wire format's terse names (see acSettings' comment
+// above) -- fan_high, not fan_high_thresh; set_min/set_max, not
+// setpoint_min/setpoint_max.
 const acSettingsFields = [
   { key: 'delta', label: 'Auto delta (°F)', min: 0.5, step: 0.5 },
   {
-    key: 'fan_high_thresh',
+    key: 'fan_high',
     label: 'Fan high threshold (°F)',
     min: 0.5,
     step: 0.5,
   },
   {
-    key: 'fan_med_thresh',
+    key: 'fan_med',
     label: 'Fan med threshold (°F)',
     min: 0.5,
     step: 0.5,
   },
   {
-    key: 'fan_change_interval',
+    key: 'fan_change',
     label: 'Fan change interval (s)',
     min: 1,
     step: 1,
   },
   {
-    key: 'auto_loop_interval',
+    key: 'auto_loop',
     label: 'Auto loop interval (s)',
     min: 1,
     step: 1,
   },
   {
-    key: 'temp_read_interval',
+    key: 'temp_read',
     label: 'Temp read interval (s)',
     min: 1,
     step: 1,
@@ -166,14 +172,14 @@ const acSettingsFields = [
 function acValue(key: string): number {
   return key in acEdits.value
     ? acEdits.value[key]
-    : (acSettings.value?.[key]?.v ?? 0);
+    : (acSettings.value?.[key]?.[0] ?? 0);
 }
 function acIsModified(key: string): boolean {
-  const def = acSettings.value?.[key]?.d;
+  const def = acSettings.value?.[key]?.[1];
   return def !== undefined && acValue(key) !== def;
 }
 function acReset(key: string) {
-  const def = acSettings.value?.[key]?.d;
+  const def = acSettings.value?.[key]?.[1];
   if (def !== undefined) {
     acEdits.value = { ...acEdits.value, [key]: def };
   }

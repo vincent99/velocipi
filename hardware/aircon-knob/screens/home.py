@@ -1,7 +1,7 @@
-"""Home: the main screen. An outer knob-driven dial gauge rings a 3-row
-grid -- current temp, mode/recirc buttons, setpoint/fan-speed -- inset in a
-circle to match the round panel. See screens/__init__.py's module
-docstring for the panel-wide interaction model.
+"""Home: the main screen. An outer knob-driven dial gauge rings three
+manually-positioned elements -- current temp, mode/recirc buttons,
+setpoint/fan-speed -- against the round panel. See screens/__init__.py's
+module docstring for the panel-wide interaction model.
 """
 
 import asyncio
@@ -9,22 +9,25 @@ import asyncio
 import lvgl as lv
 
 import theme
-from .widgets import _column, _cycle, _fmt_temp, _label, _make_bare_tile, _make_button_cell, _row, _set_visible, _transparent, _wire_button
+from .widgets import _column, _cycle, _fmt_temp, _label, _make_bare_tile, _make_button_cell, _set_visible, _transparent, _wire_button
 
-MODES = ("off", "fan", "auto", "cool")
+MODES = ("off", "fan", "cool", "auto")
 CIRCS = ("recirc", "fresh")
 
-# The knob's combined power/fan-speed dial when mode is off/fan/cool -- one
-# ordered scale from fully counterclockwise (off) to fully clockwise (high).
-# See HomeTile.handle_knob().
-POWER_STATES = ("off", "low", "medium", "high")
+# The knob's fan-speed dial, used whenever mode is fan/cool (auto uses the
+# setpoint instead, off isn't reachable via the knob at all -- turning it
+# always implies "on"; the mode button is the only way to power off). See
+# HomeTile.handle_knob().
+POWER_STATES = ("low", "medium", "high")
 
 # Fallback setpoint bounds, used only until the controller's BLE settings
-# characteristic (which now reports setpoint_min/setpoint_max -- see
-# ../../aircon/config.py's DEFAULT_SETPOINT_MIN/MAX) has been read at least
-# once. Matches those same compiled-in defaults.
-_DEFAULT_SETPOINT_MIN = 60.0
-_DEFAULT_SETPOINT_MAX = 80.0
+# characteristic (which reports set_min/set_max -- see
+# ../../aircon/config.py's DEFAULT_SETPOINT_MIN/MAX, currently 60/80) has
+# been read at least once. Deliberately wide open (not those same compiled
+# defaults) so an unread bound doesn't quietly clamp a real setpoint that
+# turns out to sit outside 60-80.
+_DEFAULT_SETPOINT_MIN = 0.0
+_DEFAULT_SETPOINT_MAX = 100.0
 
 # Placeholder icon+text pairings -- lv.SYMBOL.* are LVGL's built-in glyphs
 # (baked into its default font, usable directly inside any label's text), so
@@ -41,16 +44,16 @@ _MODE_TEXT = {"off": "Off", "fan": "Fan", "auto": "Auto", "cool": "Cool"}
 _CIRC_ICON = {"recirc": lv.SYMBOL.LOOP, "fresh": lv.SYMBOL.REFRESH}
 _CIRC_TEXT = {"recirc": "Recirc", "fresh": "Fresh"}
 # str.capitalize() isn't in MicroPython's built-in str type, so fan names
-# (POWER_STATES, minus "off" which has its own label above) get their own
-# display-text lookup rather than title-casing at render time.
+# (POWER_STATES) get their own display-text lookup rather than title-casing
+# at render time.
 _FAN_TEXT = {"low": "Low", "medium": "Medium", "high": "High"}
 
 
 class HomeTile:
-    """The main screen: an outer dial gauge (knob-driven) ringing a 3-row
-    grid -- current temp, mode/recirc buttons, setpoint/fan-speed -- inset
-    in a circle to match the round panel. See screens/__init__.py's module
-    docstring for the interaction model.
+    """The main screen: an outer dial gauge (knob-driven) ringing three
+    manually-positioned elements -- current temp, mode/recirc buttons,
+    setpoint/fan-speed -- against the round panel. See
+    screens/__init__.py's module docstring for the interaction model.
     """
 
     # bg_angles(120, 60): LVGL angles run clockwise from 3 o'clock, so this
@@ -62,6 +65,23 @@ class HomeTile:
     _GAUGE_END_ANGLE = 60
     _ARC_WIDTH = 20  # thicker than an unstyled default arc
 
+    # Manual layout constants for everything except row3 (fan/setpoint,
+    # left alone -- see __init__). No flex grid anymore: each element below
+    # is sized/positioned directly with .align(CENTER, x, y) against
+    # self.tile. Values are pixel deltas applied on top of an estimate of
+    # this screen's earlier flex-computed layout, per specific feedback
+    # after seeing it rendered on real hardware ("~20px higher", "~30px
+    # higher/10px taller/20px wider") -- not independently re-derived, so
+    # nudge these directly if they're off; there's no layout engine
+    # computing them anymore.
+    _TEMP_W = 240
+    _TEMP_H = 56
+    _TEMP_Y = -70
+    _BUTTON_W = 100
+    _BUTTON_H = 80
+    _BUTTON_GAP = 10
+    _BUTTON_Y = 5
+
     def __init__(self, client, encoder, tileview):
         self.client = client
         self.encoder = encoder
@@ -71,7 +91,7 @@ class HomeTile:
         self.tile = _make_bare_tile(tileview, 1, 1, lv.DIR.TOP | lv.DIR.BOTTOM | lv.DIR.RIGHT)
 
         self.arc = lv.arc(self.tile)
-        self.arc.set_size(236, 236)
+        self.arc.set_size(240,240)
         self.arc.center()
         self.arc.set_bg_angles(self._GAUGE_START_ANGLE, self._GAUGE_END_ANGLE)
         self.arc.set_style_arc_width(self._ARC_WIDTH, lv.PART.MAIN)
@@ -85,47 +105,45 @@ class HomeTile:
         self.arc.set_style_bg_opa(lv.OPA.TRANSP, lv.PART.KNOB)
         self.arc.set_style_border_width(0, lv.PART.KNOB)
 
-        # Circular inset holding current-temp + the mode/recirc buttons,
-        # sized to sit just inside the gauge's track. Only 2 rows now --
-        # row3 (fan/setpoint) moved out to be positioned against self.tile
-        # directly, below.
-        inset = 236 - 2 * self._ARC_WIDTH - theme.SPACE_MD
-        self.grid = _transparent(self.tile)
-        self.grid.set_size(inset, inset)
-        self.grid.center()
-        self.grid.set_style_radius(inset // 2, 0)
-        self.grid.set_style_clip_corner(True, 0)
-        self.grid.set_flex_flow(lv.FLEX_FLOW.COLUMN)
-        self.grid.set_flex_align(lv.FLEX_ALIGN.START, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER)
-        self.grid.set_style_pad_row(theme.SPACE_MD, 0)
-
-        # SIZE_CONTENT, not a fixed lv.pct() height, for both this and row2
-        # below -- the button restyle's two-line (icon + label) cells need
-        # more room than an even 3-way split of the inset gave them, so
-        # rows now size to fit their actual content instead.
-        row1 = _transparent(self.grid)
-        row1.set_size(lv.pct(100), lv.SIZE_CONTENT)
-        self.current_temp_label = _label(row1, font=theme.FONT_TITLE, color=theme.COLOR_TEXT)
+        # Current-temp cell: full tile width (see _TEMP_W's comment above),
+        # manually centered on the tile with a fixed vertical offset. No
+        # radius/clip styling needed -- it's a plain rectangle now, not
+        # inset inside a circular mask, and the physical round bezel
+        # already hides whatever corners fall outside the visible circle
+        # regardless of what's drawn there (same assumption the arc/tile
+        # already make elsewhere in this file). self.row1 (not a local var)
+        # since refresh() also uses it as the compressor-on highlight
+        # target -- see there.
+        self.row1 = _transparent(self.tile)
+        self.row1.set_size(self._TEMP_W, self._TEMP_H)
+        self.row1.set_style_radius(0, 0)
+        self.current_temp_label = _label(self.row1, font=theme.FONT_CURRENT_TEMP, color=theme.COLOR_TEXT)
         self.current_temp_label.center()
+        self.row1.align(lv.ALIGN.CENTER, 0, self._TEMP_Y)
 
-        row2 = _row(self.grid)
-        self.mode_cell = _make_button_cell(row2)
+        # Mode/recirc buttons, side by side, symmetric about tile-center.
+        button_x = self._BUTTON_W // 2 + self._BUTTON_GAP // 2
+        self.mode_cell = _make_button_cell(self.tile, self._BUTTON_W, self._BUTTON_H)
         self.mode_icon_label = _label(self.mode_cell, font=theme.FONT_BUTTON_ICON)
         self.mode_text_label = _label(self.mode_cell, font=theme.FONT_BUTTON_LABEL)
-        self.recirc_cell = _make_button_cell(row2)
+        self.mode_cell.align(lv.ALIGN.CENTER, -button_x, self._BUTTON_Y)
+
+        self.recirc_cell = _make_button_cell(self.tile, self._BUTTON_W, self._BUTTON_H)
         self.recirc_icon_label = _label(self.recirc_cell, font=theme.FONT_BUTTON_ICON)
         self.recirc_text_label = _label(self.recirc_cell, font=theme.FONT_BUTTON_LABEL)
+        self.recirc_cell.align(lv.ALIGN.CENTER, button_x, self._BUTTON_Y)
+
         _wire_button(self.mode_cell, encoder, self._cycle_mode)
         _wire_button(self.recirc_cell, encoder, self._cycle_circ)
 
         # Fan speed above setpoint (setpoint only shown in auto mode -- see
         # refresh()'s _set_visible call below), anchored to the very bottom
-        # of the tile rather than living inside the circular `grid` above --
-        # deliberately outside/independent of that inset's own height
-        # budget so it can sit lower on the screen. Fine for it to overlap
-        # the gauge arc down there: HomeTile's bg_angles leaves a 60-degree
-        # gap centered at the bottom (see _GAUGE_START_ANGLE/_GAUGE_END_
-        # ANGLE above) where the arc draws nothing at all.
+        # of the tile. Left alone here -- good where it is, per feedback,
+        # even after everything above it went from a flex grid to manual
+        # positioning. Fine for it to overlap the gauge arc down there:
+        # HomeTile's bg_angles leaves a 60-degree gap centered at the
+        # bottom (see _GAUGE_START_ANGLE/_GAUGE_END_ANGLE above) where the
+        # arc draws nothing at all.
         self.row3 = _column(self.tile)
         self.fan_label = _label(self.row3, font=theme.FONT_TITLE, color=theme.COLOR_TEXT)
         self.setpoint_label = _label(self.row3, font=theme.FONT_TITLE, color=theme.COLOR_TEXT)
@@ -135,7 +153,20 @@ class HomeTile:
         # wrapper around lv_obj_align() in upstream LVGL, but this is the
         # first direct use of .align() in this codebase -- see
         # check_lvgl_api.py.
-        self.row3.align(lv.ALIGN.BOTTOM_MID, 0, -theme.SPACE_SM)
+        self.row3.align(lv.ALIGN.BOTTOM_MID, 0, 5)
+
+        # Pushes the arc to the top of self.tile's paint order regardless of
+        # creation order, so refresh()'s compressor-on fill on self.row1
+        # renders underneath the arc's ring strokes instead of covering
+        # them -- row1, added after the arc and now spanning the full tile
+        # width, would otherwise paint right over it (the same problem
+        # row3's fill used to have sitting over the arc's bottom gap,
+        # before it got its own dedicated bottom position). The arc has no
+        # CLICKABLE flag (see above), so this is purely visual -- doesn't
+        # change touch hit-testing at all.
+        # NOT hardware-verified: first use of move_foreground() in this
+        # codebase -- see check_lvgl_api.py.
+        self.arc.move_foreground()
 
     # ── Button-cell actions ──────────────────────────────────────────────
 
@@ -150,11 +181,13 @@ class HomeTile:
     # ── Knob ──────────────────────────────────────────────────────────────
 
     def _setpoint_min(self):
-        sv = self.client.state.settings.get("setpoint_min")
+        # "set_min", not "setpoint_min" -- see aircon_ble.py's
+        # _apply_settings_json() for the terse wire key names.
+        sv = self.client.state.settings.get("set_min")
         return sv["value"] if sv else _DEFAULT_SETPOINT_MIN
 
     def _setpoint_max(self):
-        sv = self.client.state.settings.get("setpoint_max")
+        sv = self.client.state.settings.get("set_max")
         return sv["value"] if sv else _DEFAULT_SETPOINT_MAX
 
     def handle_knob(self, delta):
@@ -172,24 +205,22 @@ class HomeTile:
             asyncio.create_task(self.client.set_setpoint(target))
             return
 
-        # off/fan/cool share one combined dial: off (fully counterclockwise)
-        # through low/medium/high (clockwise), not wrapping at either end.
-        if s.mode == "off":
-            idx = 0
-        elif s.fan in POWER_STATES:
-            idx = POWER_STATES.index(s.fan)
-        else:
-            idx = 1  # unknown/unset fan value -- default into "low"
+        # Fan-speed dial: low/medium/high, not wrapping at either end. No
+        # "off" tick -- turning the knob always implies "on" (mode=off is
+        # button-only, see MODES/_cycle_mode). s.fan persists across mode
+        # changes even while off (the controller only clears the *active*
+        # fan speed on mode=off, not the stored setting -- see
+        # ../../aircon-sim/controller.py's _apply()), so this picks up
+        # wherever the fan speed was left rather than resetting to "low"
+        # every time.
+        idx = POWER_STATES.index(s.fan) if s.fan in POWER_STATES else 0
         idx = min(max(idx + delta, 0), len(POWER_STATES) - 1)
 
-        if idx == 0:
-            asyncio.create_task(self.client.set_mode("off"))
-        else:
-            # Turning up from "off" needs *some* mode to land in; keep the
-            # current one if it's already fan/cool, else default to fan.
-            target_mode = s.mode if s.mode in ("fan", "cool") else "fan"
-            asyncio.create_task(self.client.set_mode(target_mode))
-            asyncio.create_task(self.client.set_fan(POWER_STATES[idx]))
+        # Keep the current mode if it's already fan/cool, else (off/auto)
+        # turning the knob switches into fan mode at the selected speed.
+        target_mode = s.mode if s.mode in ("fan", "cool") else "fan"
+        asyncio.create_task(self.client.set_mode(target_mode))
+        asyncio.create_task(self.client.set_fan(POWER_STATES[idx]))
 
     # ── Refresh ───────────────────────────────────────────────────────────
 
@@ -199,11 +230,9 @@ class HomeTile:
         self.current_temp_label.set_text(_fmt_temp(s.current_temp))
 
         self.mode_icon_label.set_text(_MODE_ICON.get(s.mode, ""))
-        name = _MODE_TEXT.get(s.mode, s.mode or "--")
-        if s.mode in ("fan", "cool") and s.fan:
-            self.mode_text_label.set_text("%s %s" % (name, _FAN_TEXT.get(s.fan, s.fan)))
-        else:
-            self.mode_text_label.set_text(name)
+        # Just the mode name -- "Fan", not "Fan Low". Fan speed shows on
+        # its own down in row3's fan_label instead.
+        self.mode_text_label.set_text(_MODE_TEXT.get(s.mode, s.mode or "--"))
 
         self.recirc_icon_label.set_text(_CIRC_ICON.get(s.circulation, ""))
         self.recirc_text_label.set_text(_CIRC_TEXT.get(s.circulation, s.circulation or "--"))
@@ -220,25 +249,35 @@ class HomeTile:
         else:
             self.fan_label.set_text(_FAN_TEXT.get(s.fan, "--") if s.fan else "--")
 
-        # Gauge range/value: fan/cool/off share the 0..len(POWER_STATES)-1
-        # power dial; auto reads its range from the controller's BLE
-        # settings (setpoint_min/setpoint_max).
+        # Gauge range/value: fan/cool/off all show the fan-speed dial (off
+        # shows wherever s.fan was last left, per handle_knob()'s own
+        # comment on why); auto reads its range from the controller's BLE
+        # settings (set_min/set_max) instead.
+        #
+        # Both branches pad the arc's low end by one extra "fake" unit that
+        # handle_knob() never actually lets the value reach (it still
+        # clamps to the real lo/hi and real 0..len(POWER_STATES)-1 there,
+        # unchanged) -- purely so the indicator always shows a visible
+        # sliver of fill even at the coldest/lowest reachable setting,
+        # instead of looking fully empty right at the true minimum.
         if s.mode == "auto":
             lo, hi = self._setpoint_min(), self._setpoint_max()
-            self.arc.set_range(int(lo), int(hi))
+            self.arc.set_range(int(lo) - 1, int(hi))
             self.arc.set_value(int(s.setpoint))
         else:
-            self.arc.set_range(0, len(POWER_STATES) - 1)
-            if s.mode == "off":
-                idx = 0
-            elif s.fan in POWER_STATES:
-                idx = POWER_STATES.index(s.fan)
-            else:
-                idx = 0
+            self.arc.set_range(-1, len(POWER_STATES) - 1)
+            idx = POWER_STATES.index(s.fan) if s.fan in POWER_STATES else 0
             self.arc.set_value(idx)
 
+        # row1 (current-temp cell), not row3 -- row3 sits low enough to
+        # overlap the arc's bottom gap (see its own comment above), and a
+        # solid fill there visibly covered/blocked the arc. row1 is full
+        # tile width now (see _TEMP_W), so this fill deliberately spans
+        # edge-to-edge under the arc's ring rather than staying inside some
+        # smaller inset. self.arc.move_foreground() (see __init__) keeps
+        # those ring strokes rendering on top of this fill, not under it.
         if s.compressor == "on":
-            self.row3.set_style_bg_opa(lv.OPA.COVER, 0)
-            self.row3.set_style_bg_color(theme.COLOR_COMPRESSOR_ON, 0)
+            self.row1.set_style_bg_opa(lv.OPA.COVER, 0)
+            self.row1.set_style_bg_color(theme.COLOR_COMPRESSOR_ON, 0)
         else:
-            self.row3.set_style_bg_opa(lv.OPA.TRANSP, 0)
+            self.row1.set_style_bg_opa(lv.OPA.TRANSP, 0)

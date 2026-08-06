@@ -13,7 +13,7 @@ Characteristics (all UTF-8 strings):
   0003  setpoint  rw  float as string, e.g. "72.50"
   0004  circ      rw  "recirc" | "fresh"
   0005  panel     rw  float as string (panel sensor temp, °F)
-  0006  settings  rw  JSON: delta, fan_high_thresh, fan_med_thresh, fan_change_interval, auto_loop_interval, temp_read_interval, setpoint_min, setpoint_max, brightness
+  0006  settings  rw  JSON: delta, fan_high, fan_med, fan_change, auto_loop, temp_read, set_min, set_max, brightness (each a [value, default] pair)
   0007  status    rn  JSON: temps, compressor state, error
 
 Writes are validated server-side; invalid values are silently ignored.
@@ -39,34 +39,57 @@ def _dec_str(b: bytes) -> str:
 def _dec_f(b: bytes) -> float:
     return float(b.decode().strip('\x00'))
 
-# Compile-time defaults for the 0006 settings characteristic.
+# Wire key (as sent/received on the 0006 settings characteristic) ->
+# controller attribute name. Controller attributes themselves stay verbose
+# (self.fan_high_thresh etc., unchanged) -- only the wire keys are terse,
+# to keep the settings JSON payload's size down (it's shared across many
+# fragments/reads at the default BLE ATT MTU). 'delta' and 'brightness'
+# aren't renamed; the rest drop "_thresh"/"_interval" and "setpoint" -> "set".
+_SETTINGS_WIRE_KEYS = {
+    'delta':      'delta',
+    'fan_high':   'fan_high_thresh',
+    'fan_med':    'fan_med_thresh',
+    'fan_change': 'fan_change_interval',
+    'auto_loop':  'auto_loop_interval',
+    'temp_read':  'temp_read_interval',
+    'set_min':    'setpoint_min',
+    'set_max':    'setpoint_max',
+    'brightness': 'brightness',
+}
+
+# Compile-time defaults for the 0006 settings characteristic, keyed by wire
+# name (see _SETTINGS_WIRE_KEYS above).
 _SETTINGS_DEFAULTS = {
-    'delta':               config.DEFAULT_DELTA,
-    'fan_high_thresh':     config.DEFAULT_AUTO_FAN_HIGH_THRESH,
-    'fan_med_thresh':      config.DEFAULT_AUTO_FAN_MED_THRESH,
-    'fan_change_interval': config.DEFAULT_FAN_CHANGE_INTERVAL,
-    'auto_loop_interval':  config.DEFAULT_AUTO_LOOP_INTERVAL,
-    'temp_read_interval':  config.DEFAULT_TEMP_READ_INTERVAL,
-    'setpoint_min':        config.DEFAULT_SETPOINT_MIN,
-    'setpoint_max':        config.DEFAULT_SETPOINT_MAX,
-    'brightness':          config.DEFAULT_BRIGHTNESS,
+    'delta':      config.DEFAULT_DELTA,
+    'fan_high':   config.DEFAULT_AUTO_FAN_HIGH_THRESH,
+    'fan_med':    config.DEFAULT_AUTO_FAN_MED_THRESH,
+    'fan_change': config.DEFAULT_FAN_CHANGE_INTERVAL,
+    'auto_loop':  config.DEFAULT_AUTO_LOOP_INTERVAL,
+    'temp_read':  config.DEFAULT_TEMP_READ_INTERVAL,
+    'set_min':    config.DEFAULT_SETPOINT_MIN,
+    'set_max':    config.DEFAULT_SETPOINT_MAX,
+    'brightness': config.DEFAULT_BRIGHTNESS,
 }
 
 def _unwrap_settings(d):
-    """Accept flat {key: value} or wrapped {key: {v: value, d: default}} — return flat.
+    """Accept flat {wire_key: value} or wrapped {wire_key: [value, default]}
+    -- return flat {attr_key: value} for controller.set_settings().
 
-    Wire keys are the terse "v"/"d" (not "value"/"default") to keep the
-    settings characteristic's JSON payload under the default BLE ATT MTU's
-    single-read/notification-fragment size where possible.
+    Value is a bare 2-element [value, default] array (not a {"v","d"}
+    object) to keep the settings characteristic's JSON payload under the
+    default BLE ATT MTU's single-read/notification-fragment size where
+    possible.
     """
     out = {}
     for k, v in d.items():
-        if isinstance(v, dict):
-            vv = v.get('v')
-            if vv is not None:
-                out[k] = vv
+        attr = _SETTINGS_WIRE_KEYS.get(k)
+        if attr is None:
+            continue
+        if isinstance(v, (list, tuple)):
+            if len(v) > 0 and v[0] is not None:
+                out[attr] = v[0]
         else:
-            out[k] = v
+            out[attr] = v
     return out
 
 
@@ -145,10 +168,11 @@ class BLEServer:
         _write('setpoint', self._c_setpoint, _enc_f(s['setpoint']))
         _write('circ',     self._c_circ,     _enc_str(s['circulation']))
         _write('panel',    self._c_panel,    _enc_f(s['panel_temp']))
-        # "v"/"d", not "value"/"default" -- see _unwrap_settings()'s docstring.
+        # [value, default], not {"v":.., "d":..} -- see _unwrap_settings()'s
+        # docstring. wire_key/attr_key per _SETTINGS_WIRE_KEYS above.
         _write('settings', self._c_settings, json.dumps({
-            k: {'v': s[k], 'd': _SETTINGS_DEFAULTS[k]}
-            for k in _SETTINGS_DEFAULTS if k in s
+            wire: [s[attr], _SETTINGS_DEFAULTS[wire]]
+            for wire, attr in _SETTINGS_WIRE_KEYS.items() if attr in s
         }).encode())
         self._push_status(s)
 

@@ -25,7 +25,12 @@ def _fmt_temp(v):
     # codepoint, not per-byte, so that produced two real characters ("Â" +
     # "°") instead of one, rendering as a broken-glyph box before the degree
     # sign.
-    return "%.0f\xb0F" % v if v else "--"
+    #
+    # No "F" suffix, 1 decimal place -- "101.9°", not "102°F". Widest
+    # possible rendering is "999.9°" (6 glyphs); home.HomeTile's
+    # current_temp_label sizing/positioning accounts for that width -- see
+    # theme.FONT_CURRENT_TEMP's comment.
+    return "%.1f\xb0" % v if v else "--"
 
 
 def _transparent(parent):
@@ -49,14 +54,6 @@ def _label(parent, text="", font=None, color=theme.COLOR_TEXT):
     l.set_style_text_font(font or theme.FONT_BODY, 0)
     l.set_style_text_color(color, 0)
     return l
-
-
-def _row(parent):
-    r = _transparent(parent)
-    r.set_size(lv.pct(100), lv.SIZE_CONTENT)
-    r.set_flex_flow(lv.FLEX_FLOW.ROW)
-    r.set_flex_align(lv.FLEX_ALIGN.SPACE_EVENLY, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER)
-    return r
 
 
 def _column(parent):
@@ -118,34 +115,34 @@ def _make_screen(scr):
     return o
 
 
-def _make_button_cell(parent):
-    """Roughly-half-width flex cell that acts like a button (see
-    _wire_button) -- used for the mode/recirc cells in home.HomeTile's
-    middle row. Width is under 50% (with the gap absorbed by the parent
-    row's SPACE_EVENLY alignment) so the two cells' rounded borders don't
-    touch; height is SIZE_CONTENT (not a percentage of the parent row) so
-    the cell always has room for its two-line icon+label content --
-    home.py's row2 is itself SIZE_CONTENT too, so it grows to fit whichever
-    cell ends up tallest rather than squeezing both into a fixed height.
-    set_style_pad_all gives the touch target (and the two-line content)
-    some breathing room instead of shrink-wrapping tight to the text.
+def _make_button_cell(parent, width, height):
+    """Fixed-size flex cell (icon line over label line, see home.py's
+    mode_icon_label/mode_text_label) that acts like a button (see
+    _wire_button) -- used for the mode/recirc cells in home.HomeTile.
+    Explicit pixel width/height, not a percentage of some parent row: those
+    cells are manually positioned directly on home.py's self.tile (no flex
+    grid), so there's no flex parent to size a percentage against.
+    set_style_pad_all gives the two-line icon+label content some breathing
+    room instead of shrink-wrapping tight to the text.
 
     Border + radius are always visible (not just on touch) so the touch
     target itself is legible; the fill color is left to _wire_button's
     hover/active feedback. BUTTON_RADIUS is a uniform corner radius on all
     four corners as the practical stand-in for "curve to match the round
     panel" -- LVGL styles don't support rounding only the outer two corners
-    of a cell sitting flush against its neighbor.
+    of a cell sitting flush against its neighbor. COLOR_BUTTON_OUTLINE
+    (not COLOR_TRACK, used for the gauge's own track) is a duller gray so
+    the outline doesn't compete with the icon/label content inside it.
     """
     cell = _transparent(parent)
-    cell.set_size(lv.pct(46), lv.SIZE_CONTENT)
+    cell.set_size(width, height)
     cell.set_flex_flow(lv.FLEX_FLOW.COLUMN)
     cell.set_flex_align(lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER)
     cell.add_flag(lv.obj.FLAG.CLICKABLE)
     cell.set_style_radius(theme.BUTTON_RADIUS, 0)
     cell.set_style_clip_corner(True, 0)
     cell.set_style_border_width(2, 0)
-    cell.set_style_border_color(theme.COLOR_TRACK, 0)
+    cell.set_style_border_color(theme.COLOR_BUTTON_OUTLINE, 0)
     cell.set_style_border_opa(lv.OPA.COVER, 0)
     cell.set_style_pad_all(theme.SPACE_MD, 0)
     return cell

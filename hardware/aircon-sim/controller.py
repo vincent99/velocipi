@@ -45,7 +45,9 @@ class SimController:
     def __init__(self):
         self.mode = config.DEFAULT_MODE
         self.fan = config.DEFAULT_FAN
-        self.setpoint = config.DEFAULT_SETPOINT
+        self.setpoint_min = config.DEFAULT_SETPOINT_MIN
+        self.setpoint_max = config.DEFAULT_SETPOINT_MAX
+        self.setpoint = min(max(config.DEFAULT_SETPOINT, self.setpoint_min), self.setpoint_max)
         self.circulation = config.DEFAULT_CIRCULATION
         self.delta = config.DEFAULT_DELTA
         self.fan_high_thresh = config.DEFAULT_AUTO_FAN_HIGH_THRESH
@@ -102,11 +104,16 @@ class SimController:
 
     def set_setpoint(self, temp):
         try:
-            self.setpoint = float(temp)
-            self._notify()
-            return True
+            v = float(temp)
         except (ValueError, TypeError):
             return False
+        # Reject out-of-range writes outright (no clamping) -- matches
+        # ../aircon/controller.py's set_setpoint() exactly.
+        if v < self.setpoint_min or v > self.setpoint_max:
+            return False
+        self.setpoint = v
+        self._notify()
+        return True
 
     def set_circulation(self, circ):
         if circ not in (config.CIRC_RECIRC, config.CIRC_FRESH):
@@ -140,6 +147,19 @@ class SimController:
                 self.auto_loop_interval = float(settings["auto_loop_interval"])
             if "temp_read_interval" in settings:
                 self.temp_read_interval = float(settings["temp_read_interval"])
+            if "setpoint_min" in settings or "setpoint_max" in settings:
+                # Matches ../aircon/controller.py's set_settings() exactly:
+                # both bounds move together (so a single min-only or
+                # max-only write still validates against the other current
+                # bound), only applied if the result is still min < max,
+                # and the current setpoint gets pulled back inside the new
+                # range rather than left dangling outside it.
+                new_min = float(settings.get("setpoint_min", self.setpoint_min))
+                new_max = float(settings.get("setpoint_max", self.setpoint_max))
+                if new_min < new_max:
+                    self.setpoint_min = new_min
+                    self.setpoint_max = new_max
+                    self.setpoint = min(max(self.setpoint, new_min), new_max)
             self._notify()
             return True
         except (ValueError, TypeError):
@@ -168,6 +188,8 @@ class SimController:
             "fan_change_interval": self.fan_change_interval,
             "auto_loop_interval": self.auto_loop_interval,
             "temp_read_interval": self.temp_read_interval,
+            "setpoint_min": self.setpoint_min,
+            "setpoint_max": self.setpoint_max,
         }
 
     # ── Mode transitions, ported from ../aircon/controller.py's _apply() ──

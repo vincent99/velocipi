@@ -36,16 +36,32 @@ const (
 
 // SettingValue holds a runtime value and its compile-time default.
 //
-// JSON tags are the terse "v"/"d" (not "value"/"default") to match the BLE
-// settings characteristic's wire format (see hardware/aircon-sim/ble_server.py's
-// _unwrap_settings() docstring for why) -- this struct is decoded straight
+// Marshals/unmarshals as a bare 2-element JSON array [value, default] (not
+// a {"value":..,"default":..} object -- struct tags alone can't produce
+// that, hence the custom (Un)MarshalJSON below) to match the BLE settings
+// characteristic's wire format -- see hardware/aircon-sim/ble_server.py's
+// _unwrap_settings() docstring for why. This struct is decoded straight
 // from that characteristic's JSON in applySettingsJSON below, and the same
-// tags also shape what State.Settings serializes as to the UI (both the
-// /aircon/state REST endpoint and the airConState websocket message), so
-// ui/src/routes/remote/settings.vue must be kept in sync with these tags.
+// array shape also shapes what State.Settings serializes as to the UI
+// (both the /aircon/state REST endpoint and the airConState websocket
+// message), so ui/src/routes/remote/settings.vue must be kept in sync.
 type SettingValue struct {
-	Value   float64 `json:"v"`
-	Default float64 `json:"d"`
+	Value   float64
+	Default float64
+}
+
+func (sv SettingValue) MarshalJSON() ([]byte, error) {
+	return json.Marshal([2]float64{sv.Value, sv.Default})
+}
+
+func (sv *SettingValue) UnmarshalJSON(data []byte) error {
+	var arr [2]float64
+	if err := json.Unmarshal(data, &arr); err != nil {
+		return err
+	}
+	sv.Value = arr[0]
+	sv.Default = arr[1]
+	return nil
 }
 
 // statusPayload is the JSON structure sent by the status characteristic.
@@ -547,7 +563,11 @@ func jsonComplete(data []byte) bool {
 }
 
 // applySettingsJSON unmarshals the settings characteristic JSON and updates state.
-// Accepts both {key: float} and {key: {v: float, d: float}} formats.
+// Accepts both {key: float} and {key: [value, default]} formats. Key names
+// here are whatever the wire sends verbatim (e.g. "fan_high", "set_min" --
+// see hardware/aircon-sim/ble_server.py's SETTINGS_WIRE_KEYS), copied
+// straight through with no translation needed since this map is keyed the
+// same way State.Settings gets served back out to the UI.
 // Must be called with c.mu held for write.
 func (c *Client) applySettingsJSON(data []byte) {
 	data = []byte(strings.TrimRight(string(data), "\x00"))
@@ -563,7 +583,7 @@ func (c *Client) applySettingsJSON(data []byte) {
 		if err := json.Unmarshal(v, &f); err == nil {
 			sv = SettingValue{Value: f, Default: f}
 		} else if err := json.Unmarshal(v, &sv); err == nil {
-			// already {value, default}
+			// already [value, default] -- SettingValue.UnmarshalJSON above handles the array shape.
 		} else {
 			continue
 		}
