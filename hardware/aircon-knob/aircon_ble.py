@@ -626,4 +626,15 @@ class AirconClient:
             self._mark_dirty()
 
     async def set_setting(self, key, value):
+        # Optimistic update, like the other set_*() methods above -- but no
+        # debounce/commit-and-reread needed here (unlike those), since this
+        # only ever fires once per explicit user commit (see
+        # screens/settings.py's SettingsTile), not once per knob detent
+        # during a continuous drag. The settings characteristic's own
+        # push-on-change (see aircon-sim/ble_server.py's push()) reconciles
+        # this the same way it already does for every other settings write.
+        sv = self.state.settings.get(key)
+        if sv is not None:
+            sv["value"] = value
+            self._mark_dirty()
         return await self._write_str("settings", json.dumps({key: value}))

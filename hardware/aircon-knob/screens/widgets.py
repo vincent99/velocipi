@@ -26,11 +26,18 @@ def _fmt_temp(v):
     # "°") instead of one, rendering as a broken-glyph box before the degree
     # sign.
     #
-    # No "F" suffix, 1 decimal place -- "101.9°", not "102°F". Widest
-    # possible rendering is "999.9°" (6 glyphs); home.HomeTile's
+    # No "F" suffix, 1 decimal place -- "72.9°", not "73°F". >=100 drops
+    # the decimal instead ("101°", not "101.9°") -- three digits plus a
+    # decimal point didn't fit the space this label has. Widest possible
+    # rendering is therefore "99.9°" (5 glyphs, from the <100 branch, since
+    # the >=100 branch is never wider than "999°"); home.HomeTile's
     # current_temp_label sizing/positioning accounts for that width -- see
     # theme.FONT_CURRENT_TEMP's comment.
-    return "%.1f\xb0" % v if v else "--"
+    if not v:
+        return "--"
+    if v >= 100.0:
+        return "%.0f\xb0" % v
+    return "%.1f\xb0" % v
 
 
 def _transparent(parent):

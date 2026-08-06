@@ -8,9 +8,11 @@ Interaction model (deliberately different from a typical LVGL encoder+group
 setup -- see ../hal.py's _init_encoder() docstring for why):
   - Turning the knob adjusts whichever control is "current" on the active
     screen (fan speed/power on the main screen when mode is off/fan/cool,
-    setpoint when mode is auto) -- see home.HomeTile.handle_knob(). It does
-    nothing on the History/Settings/Temps placeholders, and moves the
-    highlighted device on Connect -- see connect.ConnectTile.handle_knob().
+    setpoint when mode is auto) -- see home.HomeTile.handle_knob(). It cycles
+    which tunable is selected (or adjusts it, mid-edit) on the Settings tile
+    -- see settings.SettingsTile -- does nothing on the History/Temps
+    placeholders, and moves the highlighted device on Connect -- see
+    connect.ConnectTile.handle_knob().
   - A touch tap alone never triggers anything by itself.
   - A "click" on Home's mode/recirc cells requires a touch point on that
     cell *and* the knob's push-button, since on this hardware pressing down
@@ -52,6 +54,7 @@ import theme
 from .connect import ConnectTile
 from .disconnected import DisconnectedTile
 from .home import HomeTile
+from .settings import SettingsTile
 from .widgets import _make_placeholder_tile, _set_visible, _wire_swipe
 
 
@@ -124,8 +127,8 @@ class App:
         # to keep track of) while still landing on the gesture feel that
         # was actually wanted.
         self.home = HomeTile(client, encoder, self.tileview)
+        self.settings_tile = SettingsTile(client, encoder, self.tileview)
         history_tile = _make_placeholder_tile(self.tileview, 1, 0, lv.DIR.NONE, "History")
-        settings_tile = _make_placeholder_tile(self.tileview, 1, 2, lv.DIR.NONE, "Settings")
         temps_tile = _make_placeholder_tile(self.tileview, 0, 1, lv.DIR.NONE, "Temps")
 
         # Directions here are the finger's actual motion (see
@@ -134,10 +137,14 @@ class App:
         # -- from Home: down-to-up reaches History (now above), up-to-down
         # reaches Settings (now below), right-to-left reaches Temps (now to
         # the left). Each placeholder's own entry is simply the reverse
-        # gesture, back to Home.
+        # gesture, back to Home. Settings' own entry also cancels any
+        # in-progress ACTIVE edit on the way out -- see settings.
+        # SettingsTile.cancel_active()'s docstring.
         self._wire_tile_swipe(self.home.tile, 1, 1, ("up", "down", "left"))
         self._wire_tile_swipe(history_tile, 1, 0, ("down",))
-        self._wire_tile_swipe(settings_tile, 1, 2, ("up",))
+        self._wire_tile_swipe(
+            self.settings_tile.tile, 1, 2, ("up",), on_leave=self.settings_tile.cancel_active
+        )
         self._wire_tile_swipe(temps_tile, 0, 1, ("right",))
 
         # A tileview's initial scroll position is grid cell (0,0) regardless
@@ -180,12 +187,19 @@ class App:
             # it running (and holding aircon_ble._scan_lock) after
             # navigating away -- see ConnectTile.on_hide().
             self.connect_tile.on_hide()
+        if prev == "home":
+            # Defensive backstop for the same reasoning as _wire_tile_swipe's
+            # own on_leave=cancel_active wiring in __init__ (which handles
+            # the ordinary swipe-away case) -- this covers leaving "home"
+            # entirely some other way instead, e.g. a BLE disconnect while
+            # mid-edit on Settings. A no-op if nothing was ACTIVE.
+            self.settings_tile.cancel_active()
         if name == "connect":
             self.connect_tile.on_show()
         elif name == "disconnected":
             self.disconnected_tile.on_show(self._ever_connected)
 
-    def _wire_tile_swipe(self, tile, col, row, allowed):
+    def _wire_tile_swipe(self, tile, col, row, allowed, on_leave=None):
         """Makes `tile` (one grid cell of self.tileview) respond to a swipe
         starting on its own background (not on a CLICKABLE child of its
         own, like Home's mode/recirc buttons -- see _wire_swipe()'s
@@ -197,6 +211,12 @@ class App:
         is created with dir_=NONE (see App.__init__) rather than the
         DIR.TOP/BOTTOM/LEFT bitmask that used to serve this same purpose
         for tileview's own (now fully disabled) gesture engine.
+
+        `on_leave`, if given, is called (with no arguments) right before a
+        qualifying swipe actually navigates away from `tile` -- settings.
+        SettingsTile.cancel_active() uses this to discard an in-progress
+        edit rather than leaving it dangling once the tile's no longer
+        visible.
         """
         tile.add_flag(lv.obj.FLAG.CLICKABLE)
 
@@ -218,6 +238,8 @@ class App:
                 target_col -= 1
             elif direction == "right":
                 target_col += 1
+            if on_leave is not None:
+                on_leave()
             self.tileview.set_tile_by_index(target_col, target_row, False)
 
         _wire_swipe(tile, on_swipe)
@@ -244,23 +266,30 @@ class App:
         at once after swiping back to the main screen.
 
         The knob's push-button is edge-detected here (fires once per
-        physical press, not once per poll while held) for the Connect and
-        Disconnected screens -- unlike home.HomeTile's mode/recirc cells,
-        which need a touch point together with the button (see
-        widgets._wire_button()), these two screens aren't sharing space
-        with a swipe gesture, so a bare button push is enough.
+        physical press, not once per poll while held) for the Connect,
+        Disconnected, and Settings tiles -- unlike home.HomeTile's mode/
+        recirc cells, which need a touch point together with the button
+        (see widgets._wire_button()), none of these three shares screen
+        space with a swipe gesture in a way that'd make a bare button push
+        ambiguous, so a bare push is enough for all of them.
         """
         delta = self.encoder.read_delta()
         pressed = self.encoder.button_pressed()
         btn_edge = pressed and not self._btn_prev
         self._btn_prev = pressed
 
-        if self._screen == "home" and self.tileview.get_tile_active() is self.home.tile:
-            # self._screen == "home" only means the tileview (not Connect/
-            # Disconnected) is the visible top-level screen -- still need
-            # this to check *which* tile within it is active, since the
-            # knob should do nothing on History/Settings/Temps.
+        # self._screen == "home" only means the tileview (not Connect/
+        # Disconnected) is the visible top-level screen -- still need
+        # get_tile_active() to check *which* tile within it is active,
+        # since the knob should do nothing on the History/Temps
+        # placeholders.
+        active_tile = self.tileview.get_tile_active() if self._screen == "home" else None
+        if active_tile is self.home.tile:
             self.home.handle_knob(delta)
+        elif active_tile is self.settings_tile.tile:
+            self.settings_tile.handle_knob(delta)
+            if btn_edge:
+                self.settings_tile.handle_button()
         elif self._screen == "connect":
             self.connect_tile.handle_knob(delta)
             if btn_edge:
@@ -276,6 +305,7 @@ class App:
             self._ever_connected = True
             self._show("home")
             self.home.refresh()
+            self.settings_tile.refresh()
         elif self._screen == "home":
             # Connection dropped while Home was showing.
             self._show("disconnected")

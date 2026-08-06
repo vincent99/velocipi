@@ -31,6 +31,13 @@ COLOR_ACTIVE = COLOR_ACCENT
 # against the black background) so the outline recedes and doesn't compete
 # with the icon/label content inside it.
 COLOR_BUTTON_OUTLINE = lv.color_hex(0x3A3F4A)
+# screens/settings.py: a setting's value renders in this (not COLOR_ACCENT/
+# COLOR_ACTIVE, which already mean "purple = actively engaged" elsewhere)
+# when it differs from its compiled-in default. Same blue as the web UI's
+# own modified-value affordance (ui/src/routes/remote/settings.vue's
+# .save-btn, #3b82f6) for a consistent "blue means changed" vocabulary
+# across both UIs.
+COLOR_MODIFIED = lv.color_hex(0x3B82F6)
 
 SPACE_XS = 2
 SPACE_SM = 4
@@ -65,7 +72,7 @@ def load_fonts():
     # home.HomeTile's current-temp label, sized as a judgment call (not
     # rendered/measured on real hardware): big enough to read as the
     # screen's headline number, but conservative enough that the widest
-    # string it ever shows ("999.9°", 6 glyphs -- see widgets._fmt_temp)
+    # string it ever shows ("99.9°", 5 glyphs -- see widgets._fmt_temp)
     # still clears the circular inset's chord width up near the top of the
     # gauge, where that inset is narrower than at its vertical center. If
     # it visibly clips against the arc, size this down; if there's clear

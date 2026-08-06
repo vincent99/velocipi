@@ -246,6 +246,8 @@ else:
             search_term="border",
         )
         check("obj.set_style_pad_all", lambda: obj.set_style_pad_all(4, 0), search_in=obj)
+        # Used by screens/settings.py's SettingsTile for the gap between a
+        # cell's value and label (value on top, label below).
         check("obj.set_style_pad_row", lambda: obj.set_style_pad_row(4, 0), search_in=obj)
         # Used by screens/disconnected.py's label background padding.
         check("obj.set_style_pad_hor", lambda: obj.set_style_pad_hor(4, 0), search_in=obj, search_term="pad")
