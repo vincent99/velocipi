@@ -10,9 +10,10 @@ setup -- see ../hal.py's _init_encoder() docstring for why):
     screen (fan speed/power on the main screen when mode is off/fan/cool,
     setpoint when mode is auto) -- see home.HomeTile.handle_knob(). It cycles
     which tunable is selected (or adjusts it, mid-edit) on the Settings tile
-    -- see settings.SettingsTile -- does nothing on the History/Temps
-    placeholders, and moves the highlighted device on Connect -- see
-    connect.ConnectTile.handle_knob().
+    -- see settings.SettingsTile -- scrubs the graph's cursor on History --
+    see history.HistoryTile.handle_knob() -- does nothing on the Temps
+    placeholder or the Info tile, and moves the highlighted device on
+    Connect -- see connect.ConnectTile.handle_knob().
   - A touch tap alone never triggers anything by itself.
   - A "click" on Home's mode/recirc cells requires a touch point on that
     cell *and* the knob's push-button, since on this hardware pressing down
@@ -20,7 +21,7 @@ setup -- see ../hal.py's _init_encoder() docstring for why):
     widgets._wire_button(). Connect and Disconnected are simpler: a bare
     knob push (edge-detected in App.poll_input(), no touch needed) is
     enough, since neither shares panel space with a swipe gesture.
-  - Swipes (no push needed) navigate between Home/History/Settings/Temps --
+  - Swipes (no push needed) navigate between Home/History/Settings/Temps/Info --
     not the tileview's own built-in scrolling/gesture engine (disabled
     entirely by removing its SCROLLABLE flag, see App.__init__: it was
     stealing drags away from Home's mode/recirc buttons, its sliding-snap
@@ -35,8 +36,8 @@ convention (widget constructors take `parent`, C function
 `lv_foo_set_bar()` becomes Python `foo.set_bar()`, C enums like
 `LV_EVENT_VALUE_CHANGED` become `lv.EVENT.VALUE_CHANGED`) but not run
 against the actual generated binding. If a name doesn't resolve, check the
-`lvgl.pyi` stub the firmware build / MicroPico's "Configure project" step
-produces -- see ../README.md. ../check_lvgl_api.py exercises the LVGL API
+`lvgl.pyi` stub your lvgl_micropython firmware build produces -- see
+../README.md. ../test/check_lvgl_api.py exercises the LVGL API
 surface these modules add (lv.SYMBOL.*, arc.set_bg_angles, obj
 add/remove_flag, tileview.get_tile_active, lv.line/lv.point_t, etc.) -- run
 that before main.py on a fresh setup.
@@ -51,11 +52,23 @@ import lvgl as lv
 
 import hal
 import theme
-from .connect import ConnectTile
-from .disconnected import DisconnectedTile
-from .home import HomeTile
-from .settings import SettingsTile
 from .widgets import _make_placeholder_tile, _set_visible, _wire_swipe
+
+# The other six tile modules (.connect, .disconnected, .history, .home,
+# .info, .settings) are deliberately NOT imported here at module level --
+# see App.__init__, which imports each one individually, interleaved with a
+# checkpoint() call. `import screens` always fully executes this file first
+# (Python import semantics: `import pkg.submodule` runs `pkg/__init__.py`
+# top to bottom before the submodule), so having all six here would still
+# pay their combined compile/transfer cost in one uninterrupted stretch --
+# exactly the same failure mode .mpy precompilation alone was fixing (see
+# ../Makefile's `mpy` target), just moved one level down. Deferring them
+# into __init__ instead gives the watchdog (and `mount`-mode's per-file
+# round-trip transfer, see ../Makefile's `dev` target comment) a checkpoint
+# between each one. .widgets stays here at module level because
+# _set_visible/_wire_swipe/_make_placeholder_tile are used from other App
+# methods too (_show, poll_input, etc.), not just __init__ -- a local import
+# inside __init__ wouldn't be visible there.
 
 
 class App:
@@ -66,15 +79,9 @@ class App:
     _SWIPE_THRESHOLD_Y = hal.HEIGHT // 2
     _SWIPE_THRESHOLD_X = hal.WIDTH // 2
 
-    def __init__(self, client, encoder, scr, display):
+    def __init__(self, client, encoder, scr, checkpoint=lambda label: None):
         self.client = client
         self.encoder = encoder
-        self.display = display
-        # Tracks the last brightness percentage actually applied, so
-        # refresh() (called every ~250ms regardless of whether anything
-        # changed) only calls hal.set_brightness() when the BLE settings
-        # value itself changes, not every single cycle.
-        self._last_brightness = None
 
         self.tileview = lv.tileview(scr)
         self.tileview.set_size(lv.pct(100), lv.pct(100))
@@ -105,15 +112,15 @@ class App:
         self.tileview.remove_flag(lv.obj.FLAG.SCROLLABLE)
 
         # A + shaped grid around the main tile at (1,1): History above,
-        # Settings below, Temps to the left. Only placeholders for
-        # History/Settings/Temps for now. dir_=NONE on every tile (not
-        # DIR.TOP/BOTTOM/LEFT) -- on its own (see comment above) this
-        # doesn't stop drag-scrolling, but it's still correct to leave in
-        # place: it stops a completed swipe gesture from ever being treated
-        # as a valid snap-to-adjacent-tile target, belt-and-suspenders
-        # alongside removing SCROLLABLE. Each tile's *actual* swipe-out
-        # directions are declared via _wire_tile_swipe()'s `allowed`
-        # argument below instead.
+        # Settings below, Temps to the left, Info to the right. Only
+        # placeholders for History/Settings/Temps for now. dir_=NONE on
+        # every tile (not DIR.TOP/BOTTOM/LEFT) -- on its own (see comment
+        # above) this doesn't stop drag-scrolling, but it's still correct
+        # to leave in place: it stops a completed swipe gesture from ever
+        # being treated as a valid snap-to-adjacent-tile target, belt-and-
+        # suspenders alongside removing SCROLLABLE. Each tile's *actual*
+        # swipe-out directions are declared via _wire_tile_swipe()'s
+        # `allowed` argument below instead.
         #
         # Grid position (not gesture direction) is what's inverted from an
         # earlier version of this layout: History used to sit *below* Home
@@ -126,9 +133,26 @@ class App:
         # literal (up really does mean row-1, no separate inversion layer
         # to keep track of) while still landing on the gesture feel that
         # was actually wanted.
+        from .home import HomeTile
+
+        checkpoint("screens: imported home")
         self.home = HomeTile(client, encoder, self.tileview)
+
+        from .settings import SettingsTile
+
+        checkpoint("screens: imported settings")
         self.settings_tile = SettingsTile(client, encoder, self.tileview)
-        history_tile = _make_placeholder_tile(self.tileview, 1, 0, lv.DIR.NONE, "History")
+
+        from .info import InfoTile
+
+        checkpoint("screens: imported info")
+        self.info_tile = InfoTile(client, self.tileview)
+
+        from .history import HistoryTile
+
+        checkpoint("screens: imported history")
+        self.history_tile = HistoryTile(client, encoder, self.tileview)
+
         temps_tile = _make_placeholder_tile(self.tileview, 0, 1, lv.DIR.NONE, "Temps")
 
         # Directions here are the finger's actual motion (see
@@ -136,16 +160,18 @@ class App:
         # literally (up subtracts from row, left subtracts from col, etc.)
         # -- from Home: down-to-up reaches History (now above), up-to-down
         # reaches Settings (now below), right-to-left reaches Temps (now to
-        # the left). Each placeholder's own entry is simply the reverse
+        # the left), left-to-right reaches Info (to the right, the mirror
+        # of Temps). Each other tile's own entry is simply the reverse
         # gesture, back to Home. Settings' own entry also cancels any
         # in-progress ACTIVE edit on the way out -- see settings.
         # SettingsTile.cancel_active()'s docstring.
-        self._wire_tile_swipe(self.home.tile, 1, 1, ("up", "down", "left"))
-        self._wire_tile_swipe(history_tile, 1, 0, ("down",))
+        self._wire_tile_swipe(self.home.tile, 1, 1, ("up", "down", "left", "right"))
+        self._wire_tile_swipe(self.history_tile.tile, 1, 0, ("down",))
         self._wire_tile_swipe(
             self.settings_tile.tile, 1, 2, ("up",), on_leave=self.settings_tile.cancel_active
         )
         self._wire_tile_swipe(temps_tile, 0, 1, ("right",))
+        self._wire_tile_swipe(self.info_tile.tile, 2, 1, ("left",))
 
         # A tileview's initial scroll position is grid cell (0,0) regardless
         # of whether any tile was actually added there -- our + shaped grid
@@ -158,7 +184,14 @@ class App:
         # Connect/Disconnected are full-screen siblings of the tileview,
         # shown/hidden in its place -- see _show(). Not part of the
         # swipeable grid at all.
+        from .connect import ConnectTile
+
+        checkpoint("screens: imported connect")
         self.connect_tile = ConnectTile(client, scr)
+
+        from .disconnected import DisconnectedTile
+
+        checkpoint("screens: imported disconnected")
         self.disconnected_tile = DisconnectedTile(scr)
 
         self._screen = None  # "home" | "connect" | "disconnected" -- see _show()
@@ -281,8 +314,7 @@ class App:
         # self._screen == "home" only means the tileview (not Connect/
         # Disconnected) is the visible top-level screen -- still need
         # get_tile_active() to check *which* tile within it is active,
-        # since the knob should do nothing on the History/Temps
-        # placeholders.
+        # since the knob should do nothing on the Temps/Info placeholders.
         active_tile = self.tileview.get_tile_active() if self._screen == "home" else None
         if active_tile is self.home.tile:
             self.home.handle_knob(delta)
@@ -290,6 +322,10 @@ class App:
             self.settings_tile.handle_knob(delta)
             if btn_edge:
                 self.settings_tile.handle_button()
+        elif active_tile is self.history_tile.tile:
+            self.history_tile.handle_knob(delta)
+            if btn_edge:
+                self.history_tile.handle_button()
         elif self._screen == "connect":
             self.connect_tile.handle_knob(delta)
             if btn_edge:
@@ -300,41 +336,26 @@ class App:
 
     def refresh(self):
         s = self.client.state
-        self._apply_brightness(s)
         if s.connected:
             self._ever_connected = True
             self._show("home")
             self.home.refresh()
             self.settings_tile.refresh()
+            self.info_tile.refresh()
+            self.history_tile.refresh()
         elif self._screen == "home":
             # Connection dropped while Home was showing.
             self._show("disconnected")
 
-    def _apply_brightness(self, s):
-        """Follows the AC controller's BLE "brightness" setting (0-100,
-        see hardware/aircon-sim/ble_server.py's SETTINGS_WIRE_KEYS) live --
-        no-ops until that characteristic's been read at least once (state
-        .settings starts empty), and persists across a brief disconnect
-        since state.settings isn't cleared on disconnect, only a full
-        reconnect re-reads it.
-        """
-        sv = s.settings.get("brightness")
-        if not sv:
-            return
-        pct = sv["value"]
-        if pct == self._last_brightness:
-            return
-        self._last_brightness = pct
-        hal.set_brightness(self.display, pct)
 
-
-def build(client, encoder, scr, display):
+def build(client, encoder, scr, checkpoint=lambda label: None):
     """Returns the App. `encoder` is the raw encoder.Encoder object from
     hal.hal_init_input() -- polled directly by App.poll_input()/
     HomeTile.handle_knob(), not wired through an lv.indev/group (see
     ../hal.py's _init_encoder() docstring for why). `scr` is the active
-    screen (lv.screen_active()), and `display` the object hal.hal_init_
-    display() returned (used to follow the BLE "brightness" setting --
-    see App._apply_brightness()), both fetched by main.py.
+    screen (lv.screen_active()), fetched by main.py. `checkpoint`, if given,
+    is called (with a label) after each tile module is imported inside
+    App.__init__ -- main.py passes its own _checkpoint() so the watchdog
+    gets fed between them instead of only once before/after this whole call.
     """
-    return App(client, encoder, scr, display)
+    return App(client, encoder, scr, checkpoint=checkpoint)

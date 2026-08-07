@@ -20,7 +20,7 @@ import type { SelectOption } from '@/components/panel/PanelSelect.vue';
 
 void useWebSocket; // WS not used directly but needed for reactivity
 
-const { airConState, g3xState, airConHistory } = useDeviceState();
+const { airConState, axisState, airConHistory } = useDeviceState();
 
 const state = computed(() => airConState.value);
 const connected = computed(() => state.value?.connected ?? false);
@@ -102,7 +102,7 @@ const compLabel = computed(() => {
 });
 
 const oatLabel = computed(() => {
-  const oat = g3xState.value?.oatCelsius;
+  const oat = axisState.value?.oatCelsius;
   return oat != null ? ((oat * 9) / 5 + 32).toFixed(0) : '—';
 });
 
@@ -241,7 +241,7 @@ const sparkData = computed(() =>
       :model-value="fmt(state?.exhaustTemp)"
     />
 
-    <!-- Col 13–16, Row 4: Outside air temp (from G3X) -->
+    <!-- Col 13–16, Row 4: Outside air temp (from Axis) -->
     <PanelValue
       :col="13"
       :row="4"

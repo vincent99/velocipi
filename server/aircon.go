@@ -9,7 +9,7 @@ import (
 
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/aircon"
-	"github.com/vincent99/velocipi/server/hardware/g3x"
+	"github.com/vincent99/velocipi/server/hardware/axis"
 )
 
 // sendAirConState sends the current aircon state and history to a newly-connected client.
@@ -46,14 +46,14 @@ func (h *Hub) runAirConLoop(ctx context.Context) {
 		return
 	}
 
-	// Inject G3X OAT (°F) into each history sample.
+	// Inject Axis OAT (°F) into each history sample.
 	ac.SetOATProvider(func() *float64 {
-		g := hardware.G3X()
-		if g == nil {
+		a := hardware.Axis()
+		if a == nil {
 			return nil
 		}
-		s := g.State()
-		oatF := g3x.CelsiusToFahrenheit(s.OAT)
+		s := a.State()
+		oatF := axis.CelsiusToFahrenheit(s.OAT)
 		return &oatF
 	})
 

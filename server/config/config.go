@@ -200,6 +200,37 @@ type AirConConfig struct {
 	SampleIntervalSecs int `yaml:"sampleIntervalSecs" json:"sampleIntervalSecs"`
 }
 
+// AxisConfig holds settings for the Axis (formerly G3X) avionics module.
+// Currently unused by hardware/axis, which only generates mock data --
+// present here so the config key isn't silently swallowed once a real
+// serial/UDP/BT feed replaces the mock.
+type AxisConfig struct {
+	Device string `yaml:"device" json:"device"`
+}
+
+// BrightnessConfig holds settings for the ambient-light-driven brightness
+// engine (hardware/brightness), shared by every subscriber (LCD, knob, ...).
+type BrightnessConfig struct {
+	Delay  string  `yaml:"delay"  json:"delay"`  // debounce/average window, e.g. "2s"
+	Speed  string  `yaml:"speed"  json:"speed"`  // ramp duration when the target percentage changes, e.g. "2s"
+	MinLux float64 `yaml:"minLux" json:"minLux"` // lux at/below which brightness is 0%
+	MaxLux float64 `yaml:"maxLux" json:"maxLux"` // lux at/above which brightness is 100%
+}
+
+// LCDConfig holds settings for the Pi's own built-in LCD backlight.
+type LCDConfig struct {
+	Device        string `yaml:"device"        json:"device"`        // sysfs backlight device path; empty = hardware/lcd's own default
+	MinBrightness int    `yaml:"minBrightness" json:"minBrightness"` // raw device units, floor
+	MaxBrightness int    `yaml:"maxBrightness" json:"maxBrightness"` // raw device units; 0 = read from sysfs max_brightness
+}
+
+// KnobConfig holds settings for the AC control knob's serial connection.
+type KnobConfig struct {
+	Device        string `yaml:"device"        json:"device"`        // serial device path
+	MinBrightness int    `yaml:"minBrightness" json:"minBrightness"` // 0-100, floor
+	MaxBrightness int    `yaml:"maxBrightness" json:"maxBrightness"` // 0-100, ceiling
+}
+
 // Config holds all runtime configuration.
 type Config struct {
 	Addr         string `yaml:"addr"         json:"addr"`
@@ -208,18 +239,22 @@ type Config struct {
 	PingInterval string `yaml:"pingInterval" json:"pingInterval"`
 	ResetPin     int    `yaml:"resetPin"     json:"resetPin"`     // shared hardware reset GPIO pin; 0 = disabled
 
-	Storage     StorageConfig  `yaml:"storage"     json:"storage"`
-	AirSensor   SensorConfig   `yaml:"airSensor"   json:"airSensor"`
-	DVR         DVRConfig      `yaml:"dvr"         json:"dvr"`
-	Music       MusicConfig    `yaml:"music"       json:"music"`
-	Expander    ExpanderConfig `yaml:"expander"    json:"expander"`
-	LightSensor SensorConfig   `yaml:"lightSensor" json:"lightSensor"`
-	OLED        OLEDConfig     `yaml:"oled"        json:"oled"`
-	Screen      ScreenConfig   `yaml:"screen"      json:"screen"`
-	Tires       TireAddresses  `yaml:"tires"       json:"tires"`
-	UI          UIConfig       `yaml:"ui"          json:"ui"`
-	AirCon      AirConConfig   `yaml:"airCon"      json:"airCon"`
-	Thermal     ThermalConfig  `yaml:"thermal"     json:"thermal"`
+	Storage     StorageConfig    `yaml:"storage"     json:"storage"`
+	AirSensor   SensorConfig     `yaml:"airSensor"   json:"airSensor"`
+	DVR         DVRConfig        `yaml:"dvr"         json:"dvr"`
+	Music       MusicConfig      `yaml:"music"       json:"music"`
+	Expander    ExpanderConfig   `yaml:"expander"    json:"expander"`
+	LightSensor SensorConfig     `yaml:"lightSensor" json:"lightSensor"`
+	OLED        OLEDConfig       `yaml:"oled"        json:"oled"`
+	Screen      ScreenConfig     `yaml:"screen"      json:"screen"`
+	Tires       TireAddresses    `yaml:"tires"       json:"tires"`
+	UI          UIConfig         `yaml:"ui"          json:"ui"`
+	AirCon      AirConConfig     `yaml:"airCon"      json:"airCon"`
+	Thermal     ThermalConfig    `yaml:"thermal"     json:"thermal"`
+	Axis        AxisConfig       `yaml:"axis"        json:"axis"`
+	Brightness  BrightnessConfig `yaml:"brightness"  json:"brightness"`
+	LCD         LCDConfig        `yaml:"lcd"          json:"lcd"`
+	Knob        KnobConfig       `yaml:"knob"         json:"knob"`
 
 	// Parsed values — not serialized, populated by Load()
 	AppURL                 string           `yaml:"-" json:"-"` // http://localhost:<VELOCIPI_PORT>/panel/
@@ -229,6 +264,8 @@ type Config struct {
 	PingIntervalDur        time.Duration    `yaml:"-" json:"-"`
 	SplashDurationDur      time.Duration    `yaml:"-" json:"-"`
 	DVRDiskSpacePollDur    time.Duration    `yaml:"-" json:"-"`
+	BrightnessDelayDur     time.Duration    `yaml:"-" json:"-"`
+	BrightnessSpeedDur     time.Duration    `yaml:"-" json:"-"`
 	OLEDSPIFreq            physic.Frequency `yaml:"-" json:"-"`
 }
 
@@ -280,6 +317,8 @@ func parseDurations(cfg *Config) {
 	cfg.PingIntervalDur = parseDuration(cfg.PingInterval, "pingInterval")
 	cfg.SplashDurationDur = parseDuration(cfg.Screen.SplashDuration, "screen.splashDuration")
 	cfg.DVRDiskSpacePollDur = parseDuration(cfg.DVR.DiskSpacePoll, "dvr.diskSpacePoll")
+	cfg.BrightnessDelayDur = parseDuration(cfg.Brightness.Delay, "brightness.delay")
+	cfg.BrightnessSpeedDur = parseDuration(cfg.Brightness.Speed, "brightness.speed")
 
 	if err := cfg.OLEDSPIFreq.Set(cfg.OLED.SPISpeed); err != nil {
 		log.Fatalf("config: invalid oled.spiSpeed %q: %v", cfg.OLED.SPISpeed, err)

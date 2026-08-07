@@ -249,6 +249,11 @@ else:
         # Used by screens/settings.py's SettingsTile for the gap between a
         # cell's value and label (value on top, label below).
         check("obj.set_style_pad_row", lambda: obj.set_style_pad_row(4, 0), search_in=obj)
+        # Used by screens/history.py's HistoryTile for the gap between the
+        # setpoint/current_temp readout labels -- confirmed present in
+        # lvgl.pyi right next to set_style_pad_row above, same signature,
+        # but never actually run until this check does.
+        check("obj.set_style_pad_column", lambda: obj.set_style_pad_column(4, 0), search_in=obj, search_term="pad")
         # Used by screens/disconnected.py's label background padding.
         check("obj.set_style_pad_hor", lambda: obj.set_style_pad_hor(4, 0), search_in=obj, search_term="pad")
         check("obj.set_style_pad_ver", lambda: obj.set_style_pad_ver(4, 0), search_in=obj, search_term="pad")
@@ -278,6 +283,38 @@ else:
         # screens/widgets.py's _make_button_cell()/_set_visible()
         # (mode/recirc click targets, setpoint label show/hide).
         check("obj.set_style_radius", lambda: obj.set_style_radius(4, 0), search_in=obj, search_term="radius")
+        # Used by screens/history.py's HistoryTile for a one-shot geometry
+        # diagnostic (real content height/y-position vs. the hand-computed
+        # axis math's assumptions) while chasing a value-dependent y-axis
+        # scale mismatch that isn't explained by the formula itself.
+        check("obj.get_height", obj.get_height, search_in=obj, search_term="height")
+        check("obj.get_content_height", obj.get_content_height, search_in=obj, search_term="height")
+        check("obj.get_y", obj.get_y, search_in=obj, search_term="get_y")
+        # Used by screens/history.py's HistoryTile for the current_temp
+        # fade-to-transparent overlay (a plain lv.obj, not chart-specific --
+        # draw_series_bar() in lv_chart.c forces PART.ITEMS' own bg_grad off
+        # unconditionally, so a real gradient isn't achievable on the chart's
+        # bars themselves; this workaround needs the generic style props on
+        # an ordinary obj instead).
+        check("lv.GRAD_DIR.VER", lambda: lv.GRAD_DIR.VER, search_in=lv, search_term="grad_dir")
+        check(
+            "obj.set_style_bg_grad_color",
+            lambda: obj.set_style_bg_grad_color(lv.color_hex(0), 0),
+            search_in=obj,
+            search_term="grad",
+        )
+        check(
+            "obj.set_style_bg_grad_dir",
+            lambda: obj.set_style_bg_grad_dir(lv.GRAD_DIR.VER, 0),
+            search_in=obj,
+            search_term="grad",
+        )
+        check(
+            "obj.set_style_bg_grad_opa",
+            lambda: obj.set_style_bg_grad_opa(lv.OPA._60, 0),
+            search_in=obj,
+            search_term="grad",
+        )
         check(
             "obj.set_style_clip_corner",
             lambda: obj.set_style_clip_corner(True, 0),
@@ -293,6 +330,15 @@ else:
         check(
             "obj.remove_flag(HIDDEN)",
             lambda: obj.remove_flag(lv.obj.FLAG.HIDDEN),
+            search_in=obj,
+            search_term="flag",
+        )
+        # Used by screens/widgets.py's _transparent() so a press/release
+        # starting on any ordinary layout container/button cell still
+        # reaches App._wire_tile_swipe()'s tile-level handler.
+        check(
+            "obj.add_flag(EVENT_BUBBLE)",
+            lambda: obj.add_flag(lv.obj.FLAG.EVENT_BUBBLE),
             search_in=obj,
             search_term="flag",
         )
@@ -331,11 +377,35 @@ else:
         check("label.set_style_text_color", lambda: label.set_style_text_color(lv.color_hex(0), 0), search_in=label)
         check("label.center()", label.center, search_in=label)
         check("label.set_style_text_opa", lambda: label.set_style_text_opa(128, 0), search_in=label)
+        # Used by screens/info.py's InfoTile for the wrapped error text --
+        # fixed width so wrapping has something to wrap against, WRAP mode
+        # (LVGL's own default for a label, but set explicitly here so it
+        # doesn't silently depend on that default), and flex_grow(1) so it
+        # claims whatever vertical space is left under the title/version
+        # lines instead of shrink-wrapping to its own content height.
+        check("label.set_width(pct)", lambda: label.set_width(lv.pct(100)), search_in=label)
+        check(
+            "label.set_long_mode(WRAP)",
+            lambda: label.set_long_mode(lv.label.LONG_MODE.WRAP),
+            search_in=label,
+            search_term="long_mode",
+        )
+        check("label.set_flex_grow", lambda: label.set_flex_grow(1), search_in=label, search_term="flex")
+        # Used by screens/info.py's InfoTile to center every line of text
+        # (title/version lines and the wrapped error text alike) -- lv.TEXT_ALIGN
+        # is a top-level class (unlike LONG_MODE above, which is nested under
+        # lv.label), confirmed via lvgl.pyi.
+        check(
+            "label.set_style_text_align",
+            lambda: label.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0),
+            search_in=label,
+            search_term="align",
+        )
         # theme.py's FONT_TITLE/FONT_BUTTON_LABEL/FONT_BUTTON_ICON -- montserrat
         # 12-48 are only in this project's LVGL image as of the mode/recirc
         # button restyle, so confirm the specific sizes theme.py now loads
         # actually resolve (lv.font_montserrat_14 above predates that build).
-        for size in (18, 20, 32, 36):
+        for size in (12, 18, 20, 32, 36):
             check(
                 "lv.font_montserrat_%d" % size,
                 (lambda s=size: getattr(lv, "font_montserrat_%d" % s)),
@@ -373,6 +443,135 @@ else:
             search_term="opa",
         )
         check("arc.remove_flag(CLICKABLE)", lambda: arc.remove_flag(lv.obj.FLAG.CLICKABLE), search_in=arc, search_term="flag")
+
+    print("\n=== lv.chart (screens/history.py's HistoryTile graph) ===")
+    chart = check("lv.chart(parent)", lambda: lv.chart(tile_parent), search_in=lv, search_term="chart")
+    if chart is not None:
+        check("chart.set_size", lambda: chart.set_size(180, 150), search_in=chart)
+        check(
+            "chart.remove_flag(SCROLLABLE)",
+            lambda: chart.remove_flag(lv.obj.FLAG.SCROLLABLE),
+            search_in=chart,
+            search_term="flag",
+        )
+        # lv.chart.TYPE, not a module-level lv.CHART_TYPE -- same nested-
+        # under-the-widget-class pattern as lv.label.LONG_MODE, confirmed
+        # via lvgl.pyi this time instead of guessed after a crash.
+        check("chart.set_type(LINE)", lambda: chart.set_type(lv.chart.TYPE.LINE), search_in=chart, search_term="type")
+        # BAR -- screens/history.py's current_temp fill (see its module
+        # docstring for why: this build's LINE-type draw path never reads
+        # PART.ITEMS' bg_opa at all, confirmed by reading lv_chart.c, so
+        # the "area fill via bg_opa" check below doesn't actually produce
+        # a filled area -- kept only because the call itself is harmless
+        # and BAR needs its own type-switch verified).
+        check("chart.set_type(BAR)", lambda: chart.set_type(lv.chart.TYPE.BAR), search_in=chart, search_term="type")
+        check("chart.set_type(LINE) (restore)", lambda: chart.set_type(lv.chart.TYPE.LINE), search_in=chart)
+        check(
+            "chart.set_div_line_count",
+            lambda: chart.set_div_line_count(0, 0),
+            search_in=chart,
+            search_term="div_line",
+        )
+        # Point count == the graph's pixel width (1 point/pixel, see
+        # aircon_ble.py's _HISTORY_MAX_POINTS) -- despite the stub's own
+        # parameter name ("delay_ms"), which is a stub-generation artifact,
+        # not the real meaning (same kind of mislabeling set_point_count's
+        # neighboring set_hor/ver_div_line_count(delay_ms) methods show for
+        # an unrelated function -- the generator clearly reused one
+        # parameter name template across several C signatures it didn't
+        # individually describe).
+        check("chart.set_point_count", lambda: chart.set_point_count(180), search_in=chart, search_term="point_count")
+        check(
+            "chart.set_axis_range(PRIMARY_Y)",
+            lambda: chart.set_axis_range(lv.chart.AXIS.PRIMARY_Y, 0, 100),
+            search_in=chart,
+            search_term="axis_range",
+        )
+        temp_series = check(
+            "chart.add_series (current_temp)",
+            lambda: chart.add_series(lv.color_hex(0x0000FF), lv.chart.AXIS.PRIMARY_Y),
+            search_in=chart,
+            search_term="series",
+        )
+        if temp_series is not None:
+            check(
+                "chart.set_series_value_by_id",
+                lambda: chart.set_series_value_by_id(temp_series, 0, 50),
+                search_in=chart,
+                search_term="series_value",
+            )
+            check(
+                "lv.CHART_POINT_NONE",
+                lambda: chart.set_series_value_by_id(temp_series, 1, lv.CHART_POINT_NONE),
+                search_in=lv,
+                search_term="chart_point",
+            )
+            # NOT an area fill (see the BAR-type comment above) -- kept as a
+            # plain style-call smoke test, not a claim that this renders
+            # anything visible for a LINE-type series.
+            check(
+                "chart.set_style_bg_opa(ITEMS)",
+                lambda: chart.set_style_bg_opa(lv.OPA._30, lv.PART.ITEMS),
+                search_in=chart,
+                search_term="opa",
+            )
+            # screens/history.py's BAR-type fill needs block_gap (PART.MAIN's
+            # pad_column) forced to 0, and its LINE-type setpoint series
+            # needs a thinner-than-default PART.ITEMS line_width.
+            check(
+                "chart.set_style_pad_column(MAIN)",
+                lambda: chart.set_style_pad_column(0, lv.PART.MAIN),
+                search_in=chart,
+                search_term="pad",
+            )
+            check(
+                "chart.set_style_line_width(ITEMS)",
+                lambda: chart.set_style_line_width(1, lv.PART.ITEMS),
+                search_in=chart,
+                search_term="line_width",
+            )
+            check(
+                "chart.set_style_radius(ITEMS)",
+                lambda: chart.set_style_radius(0, lv.PART.ITEMS),
+                search_in=chart,
+                search_term="radius",
+            )
+        setpoint_series = check(
+            "chart.add_series (setpoint, 2nd series)",
+            lambda: chart.add_series(lv.color_hex(0xFF0000), lv.chart.AXIS.PRIMARY_Y),
+            search_in=chart,
+            search_term="series",
+        )
+        cursor = check(
+            "chart.add_cursor",
+            lambda: chart.add_cursor(lv.color_hex(0xFFFFFF), lv.DIR.VER),
+            search_in=chart,
+            search_term="cursor",
+        )
+        # screens/history.py hides the cursor by toggling PART.CURSOR's own
+        # opacity (found on real hardware to be more reliable than
+        # set_cursor_point(..., CHART_POINT_NONE), which lv_chart.c's
+        # draw_cursors() is supposed to special-case but didn't in practice).
+        check(
+            "chart.set_style_opa(CURSOR)",
+            lambda: chart.set_style_opa(lv.OPA.TRANSP, lv.PART.CURSOR),
+            search_in=chart,
+            search_term="opa",
+        )
+        if cursor is not None and temp_series is not None:
+            check(
+                "chart.set_cursor_point",
+                lambda: chart.set_cursor_point(cursor, temp_series, 0),
+                search_in=chart,
+                search_term="cursor",
+            )
+            check(
+                "chart.get_cursor_point",
+                lambda: chart.get_cursor_point(cursor),
+                search_in=chart,
+                search_term="cursor",
+            )
+        check("chart.refresh", chart.refresh, search_in=chart, search_term="refresh")
 
     roller = check("lv.roller(parent)", lambda: lv.roller(tile_parent))
     if roller is not None:

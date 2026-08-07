@@ -52,6 +52,24 @@ def _transparent(parent):
     # Doesn't affect the tileview's own swipe-driven scrolling, which
     # operates on the tileview widget itself, not these descendants.
     o.remove_flag(lv.obj.FLAG.SCROLLABLE)
+    # EVENT_BUBBLE: forwards this object's own PRESSED/RELEASED (among
+    # others) up to its parent chain, without changing how they fire
+    # locally on this object itself -- lets _wire_swipe()'s tile-level
+    # handler (see App._wire_tile_swipe()) see a press/release that started
+    # on any ordinary clickable-by-default lv.obj() built through this
+    # helper (a row, a grid cell, a button cell, ...), all the way up
+    # through however many of these containers are nested, instead of only
+    # a touch that happened to land on empty tile background no descendant
+    # covers. Was pointless while tileview's own native scroll-chain was
+    # still active (see App.__init__): a swipe starting on a clickable
+    # descendant would have been stolen by that instead. No longer a
+    # concern now that SCROLLABLE is removed everywhere, and a real swipe
+    # drag clears _SWIPE_THRESHOLD_* by enough that it's in no danger of
+    # being mistaken for a tap on whatever it started on -- confirmed on
+    # real hardware that swiping away from screens/info.py's Info screen
+    # didn't work at all before this, since its single full-tile-covering
+    # container intercepted every touch.
+    o.add_flag(lv.obj.FLAG.EVENT_BUBBLE)
     return o
 
 

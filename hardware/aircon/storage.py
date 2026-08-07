@@ -7,7 +7,7 @@ _KEYS = (
     'mode', 'fan', 'setpoint', 'circulation', 'delta',
     'fan_high_thresh', 'fan_med_thresh', 'fan_change_interval',
     'auto_loop_interval', 'temp_read_interval', 'ble_notify', 'ble_device_name',
-    'setpoint_min', 'setpoint_max', 'brightness',
+    'setpoint_min', 'setpoint_max',
 )
 
 

@@ -50,3 +50,4 @@ _autosave-*
 .venv
 ble_secrets.json
 __pycache__
+*.mpy

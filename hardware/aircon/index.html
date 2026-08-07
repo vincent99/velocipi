@@ -373,11 +373,6 @@
           onchange="setSetting('setpoint_max', this.value)" />
       </div>
       <div class="row">
-        <span class="lbl">Brightness (%)</span>
-        <input type="number" id="inp-brightness" step="1" min="0" max="100"
-          onchange="setSetting('brightness', this.value)" />
-      </div>
-      <div class="row">
         <span class="lbl"></span>
         <button id="btn-restart" onclick="restart()">Restart</button>
         <a id="btn-repl" href="#" onclick="openRepl(); return false;"><button>REPL</button></a>
@@ -518,7 +513,6 @@
         setInputIfUnfocused("inp-temp-read",   s.temp_read_interval);
         setInputIfUnfocused("inp-setpoint-min", s.setpoint_min);
         setInputIfUnfocused("inp-setpoint-max", s.setpoint_max);
-        setInputIfUnfocused("inp-brightness",   s.brightness);
       }
 
       function poll() {

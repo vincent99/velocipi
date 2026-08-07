@@ -287,7 +287,14 @@ class HomeTile:
         # edge-to-edge under the arc's ring rather than staying inside some
         # smaller inset. self.arc.move_foreground() (see __init__) keeps
         # those ring strokes rendering on top of this fill, not under it.
-        if s.compressor == "on":
+        # Error takes priority over the compressor-on highlight -- a
+        # controller-reported error is the more urgent thing to surface,
+        # and the full error text is one swipe away on the Info screen (see
+        # screens/info.py) if s.error is set.
+        if s.error:
+            self.row1.set_style_bg_opa(lv.OPA.COVER, 0)
+            self.row1.set_style_bg_color(theme.COLOR_DANGER, 0)
+        elif s.compressor == "on":
             self.row1.set_style_bg_opa(lv.OPA.COVER, 0)
             self.row1.set_style_bg_color(theme.COLOR_COMPRESSOR_ON, 0)
         else:

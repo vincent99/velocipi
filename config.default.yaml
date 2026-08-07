@@ -72,8 +72,23 @@ tires:
   left:
   right:
 
-g3x:
+axis:
   device: "/dev/ttyAMA0"
+
+brightness:
+  delay: "2s"
+  speed: "2s"
+  minLux: 4
+  maxLux: 100
+
+lcd:
+  minBrightness: 1
+  maxBrightness: 0
+
+knob:
+  device: "/dev/tty.usbserial0"
+  minBrightness: 1
+  maxBrightness: 100
 
 thermal:
   device: "/dev/ttyAMA4"

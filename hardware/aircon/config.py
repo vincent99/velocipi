@@ -1,3 +1,8 @@
+# Firmware version -- shown on the knob's Info screen (see
+# ../aircon-knob/screens/info.py), reported over BLE in get_state()/the
+# status characteristic's "ver" field. Bump by hand on release.
+VERSION = '1.0'
+
 # Pin assignments — change each pin in exactly one place here.
 
 # Relay outputs
@@ -52,7 +57,6 @@ DEFAULT_DELTA       = 2.0    # °F hysteresis around setpoint
 DEFAULT_BLE_NOTIFY  = True   # send GATT notifications to connected clients
 DEFAULT_SETPOINT_MIN = 60.0  # °F — minimum allowed setpoint
 DEFAULT_SETPOINT_MAX = 80.0  # °F — maximum allowed setpoint
-DEFAULT_BRIGHTNESS   = 100   # percent — display brightness
 
 # ── Auto-mode fan speed thresholds ───────────────────────────────────────────
 # |current - setpoint| or |panel - cabin| >= these values selects that speed.

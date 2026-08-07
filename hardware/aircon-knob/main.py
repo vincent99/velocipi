@@ -29,6 +29,17 @@ aircon_ble/aioble/bluetooth at all). That didn't reproduce with the current
 screens/ package -- real BLE and the desktop simulator (../aircon-sim/)
 both now work end-to-end -- but the splash-before-BLE ordering is worth
 keeping regardless, so the import stays deferred here.
+
+serial_link IS imported at module level (unlike theme/screens/aircon_ble
+above) -- it only touches machine/sys/select/json/asyncio plus hal
+(already proven safe to import this early, see the block above), no LVGL
+objects or aioble/bluetooth. It does NOT disable Ctrl-C on this connection
+(an earlier version did, via micropython.kbd_intr(-1) -- see its own
+docstring for why that turned out to be unnecessary) -- but see the
+_SAFE_MODE check below regardless: Ctrl-C alone still only reaches the
+`except KeyboardInterrupt: machine.soft_reset()` handler at the bottom of
+this file, which reboots straight back into this same app rather than
+leaving you at a lasting REPL prompt.
 """
 
 import asyncio
@@ -37,10 +48,34 @@ import machine
 import micropython
 import time
 
+# Physical safe-mode escape hatch: hold the knob's push-button (pin 41,
+# matching encoder.py's PIN_BTN -- read directly here rather than via
+# encoder.Encoder, since that isn't set up this early and this check needs
+# to happen before anything else that could plausibly be what's wedged)
+# while powering on/resetting, and this file skips running the app
+# entirely below, dropping straight to a normal, idle REPL prompt instead.
+# Checked immediately once `machine` is available, before lvgl/hal/
+# anything else.
+#
+# Ctrl-C alone doesn't cover this need: it works fine on its own now (see
+# serial_link.py's docstring for why micropython.kbd_intr(-1) is no longer
+# called at all), but it only reaches the `except KeyboardInterrupt:
+# machine.soft_reset()` handler at the very bottom of this file, which
+# just reboots straight back into this same app rather than leaving a
+# lasting REPL -- if the app itself is what's wedged (BLE hang, LVGL
+# crash-loop, etc.), that handler alone can't get you back to a working
+# prompt. This is the only way in short of racing the boot window or a
+# full reflash.
+_SAFE_MODE_PIN = 41
+_SAFE_MODE = machine.Pin(_SAFE_MODE_PIN, machine.Pin.IN, machine.Pin.PULL_UP).value() == 0
+if _SAFE_MODE:
+    print("main: knob button held at boot -- safe mode, skipping app entirely")
+
 import lvgl as lv
 
 import hal
 import panel_settings
+import serial_link
 
 _REFRESH_PERIOD_MS = 250
 _SPLASH_MS = 2000
@@ -215,6 +250,8 @@ async def main():
     client = aircon_ble.AirconClient(panel_settings.get_aircon_device_name())
     _checkpoint("client constructed")
 
+    link = serial_link.SerialLink(display, client)
+
     # The real screen construction (lv.tileview + widgets) was cleared of
     # suspicion via a hand-built minimal version of this same screen: the
     # actual cause of the original hard crash was theme.load_fonts()'s
@@ -229,8 +266,10 @@ async def main():
 
     import screens
 
+    _checkpoint("screens imported")
+
     scr = lv.screen_active()
-    app = screens.build(client, encoder, scr, display)
+    app = screens.build(client, encoder, scr, checkpoint=_checkpoint)
     _checkpoint("screens built")
     asyncio.create_task(client.run())
 
@@ -277,53 +316,66 @@ async def main():
             last_refresh_ms = now
             app.refresh()
 
+        # Non-blocking: drains+dispatches whatever the Pi has sent since the
+        # last tick, and pushes a state/settings message for whatever
+        # changed since the last one -- see serial_link.py.
+        link.poll()
+        if client.state_dirty.is_set():
+            client.state_dirty.clear()
+            link.send_state()
+        if client.settings_dirty.is_set():
+            client.settings_dirty.clear()
+            link.send_settings()
+
         await asyncio.sleep_ms(10)
 
 
-try:
-    asyncio.run(main())
-except KeyboardInterrupt:
-    # mpremote translates a terminal Ctrl-C into this. Hardware peripherals
-    # set up by hal.py (SPI/I2C host claims, framebuffers, etc.) have no
-    # explicit deinit calls anywhere in this codebase, so without this
-    # they're left in whatever state they were mid-run in -- the next
-    # `mpremote mount . run main.py` then fails trying to re-claim the same
-    # SPI/I2C hosts, previously only recoverable by unplugging the board.
-    # machine.soft_reset() is the standard MicroPython way to get back to a
-    # clean slate without a power cycle. NOT hardware-verified yet -- in
-    # particular, how this interacts with an active `mpremote mount .`
-    # session (soft reset re-runs boot.py/main.py from the device's own
-    # flash afterward, which may or may not respect the mount) is untested.
-    #
-    # NOT hardware-verified: whether ESP32's hardware watchdog timer itself
-    # (as opposed to the Python-level state _init_watchdog() sets up) keeps
-    # running across a soft_reset() -- a soft reset restarts the MicroPython
-    # VM and re-runs main.py (which calls _init_watchdog() again), but it's
-    # unconfirmed whether that's a true no-op for a WDT that was already
-    # armed, or whether the underlying timer peripheral keeps counting
-    # through it. If a `mpremote mount .` dev session ever sees an
-    # unexpected hard reset shortly after a Ctrl-C, check this first.
-    print("KeyboardInterrupt: soft-resetting for a clean slate")
-    machine.soft_reset()
-except Exception as e:
-    # Any other uncaught exception -- a real crash, not a dev-session
-    # Ctrl-C. Left alone, _wdt (see _init_watchdog()) would reset the board
-    # anyway once _WATCHDOG_TIMEOUT_MS elapses with nothing left running to
-    # feed it, but resetting immediately here recovers faster than waiting
-    # out that timeout. machine.reset() (a real hardware reset), not
-    # soft_reset() -- unlike the deliberate-Ctrl-C case above, there's no
-    # `mpremote mount` session to stay polite to here, and a crash may have
-    # left SPI/I2C hosts claimed in a broken state that only a hardware
-    # reset reliably clears (same reasoning as that case's own comment).
-    #
-    # sys.print_exception (MicroPython's traceback.print_exc equivalent --
-    # there's no `traceback` module in core MicroPython) logs the full
-    # traceback before resetting, not just the exception's bare args, since
-    # this is the one path here where the *cause* of the reset matters for
-    # debugging and would otherwise be lost the instant machine.reset()
-    # fires.
-    import sys
+if not _SAFE_MODE:
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # mpremote translates a terminal Ctrl-C into this. Deliberately NOT
+        # calling machine.soft_reset() (or any reset) here -- an earlier
+        # version did, to keep repeated `mpremote mount . run main.py`
+        # sessions from colliding over hal.py's un-deinit'd SPI/I2C host
+        # claims, but that workflow is gone now (dev flashes + `mpremote
+        # reset` instead, see ../Makefile). Worse, self-resetting on this
+        # exact Ctrl-C actively broke plain `mpremote cp` (used by `make
+        # sync`): mpremote's own raw-REPL entry handshake (transport_serial.
+        # py's enter_raw_repl()) sends this same Ctrl-C and then follows up
+        # with its own Ctrl-A/Ctrl-D reset sequence, reading specific
+        # "raw REPL"/"soft reboot" text back at each step -- resetting
+        # immediately here fired a second, earlier, differently-timed reset
+        # that raced the board's native USB CDC re-enumeration against
+        # mpremote's read, producing "OSError: [Errno 6] Device not
+        # configured" and aborting the copy. Letting Ctrl-C propagate
+        # normally (no reset at all) leaves the interpreter idle at the
+        # point mpremote's handshake expects, matching how any ordinary
+        # MicroPython program behaves under mpremote. No peripheral-
+        # collision risk either: mpremote's own soft-reset (its Ctrl-D)
+        # only re-runs boot.py, not main.py, so nothing re-claims hal.py's
+        # peripherals until a real reset (`make dev`/`make reset`) happens.
+        print("KeyboardInterrupt: returning to REPL")
+    except Exception as e:
+        # Any other uncaught exception -- a real crash, not a dev-session
+        # Ctrl-C. Left alone, _wdt (see _init_watchdog()) would reset the
+        # board anyway once _WATCHDOG_TIMEOUT_MS elapses with nothing left
+        # running to feed it, but resetting immediately here recovers
+        # faster than waiting out that timeout. machine.reset() (a real
+        # hardware reset), not soft_reset() -- unlike the deliberate-Ctrl-C
+        # case above, there's no `mpremote mount` session to stay polite to
+        # here, and a crash may have left SPI/I2C hosts claimed in a broken
+        # state that only a hardware reset reliably clears (same reasoning
+        # as that case's own comment).
+        #
+        # sys.print_exception (MicroPython's traceback.print_exc
+        # equivalent -- there's no `traceback` module in core MicroPython)
+        # logs the full traceback before resetting, not just the
+        # exception's bare args, since this is the one path here where the
+        # *cause* of the reset matters for debugging and would otherwise be
+        # lost the instant machine.reset() fires.
+        import sys
 
-    print("main: uncaught exception, rebooting:")
-    sys.print_exception(e)
-    machine.reset()
+        print("main: uncaught exception, rebooting:")
+        sys.print_exception(e)
+        machine.reset()

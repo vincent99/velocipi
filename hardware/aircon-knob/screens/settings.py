@@ -1,10 +1,8 @@
 """Settings: a knob-driven grid of BLE-backed tunables.
 
-8 of the 9 settings the "settings" characteristic reports (see aircon-sim/
-ble_server.py's SETTINGS_WIRE_KEYS for the full list and wire-key naming --
-"brightness" is the one left out, since that's applied automatically
-elsewhere instead of shown here, see screens/__init__.py's App.
-_apply_brightness()), laid out as 4 rows of 2 settings each.
+All 8 settings the "settings" characteristic reports (see aircon-sim/
+ble_server.py's SETTINGS_WIRE_KEYS for the full list and wire-key naming),
+laid out as 4 rows of 2 settings each.
 
 Entirely knob-driven, no touch needed at all -- see screens/__init__.py's
 App.poll_input(), which dispatches the knob's delta/button-edge here the

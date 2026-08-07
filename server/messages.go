@@ -64,8 +64,8 @@ type LocalCameraMsg struct {
 	Camera string `json:"camera"` // current panel camera name
 }
 
-type G3XStateMsg struct {
-	Type       string  `json:"type"` // always "g3xState"
+type AxisStateMsg struct {
+	Type       string  `json:"type"` // always "axisState"
 	Lat        float64 `json:"lat"`
 	Lon        float64 `json:"lon"`
 	AltFt      float64 `json:"altFt"`

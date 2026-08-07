@@ -20,11 +20,11 @@ web UI (`ui/`) — see `fonts/README.md`.
 
 PlatformIO does not support MicroPython (confirmed with a PlatformIO
 maintainer's own reply in their community forum — "We currently don't
-support MicroPython"). There is no `platformio.ini` here. Instead, `.vscode/`
-is set up around the **MicroPico** extension (`paulober.pico-w-go`, which
-despite the name has explicit experimental ESP32-S3 support) plus
-`mpremote`/`esptool` tasks for what MicroPico doesn't cover: building/flashing
-the custom MicroPython+LVGL firmware image itself, and installing `aioble`.
+support MicroPython"). There is no `platformio.ini` here. Instead, the
+`Makefile` wraps `mpremote`/`esptool`/`mpy-cross` directly for everything
+this project needs: syncing files, running/mounting, precompiling
+`screens/` (see "Build / run / debug loop" below), building/flashing the
+custom MicroPython+LVGL firmware image, and installing `aioble`.
 
 ## Getting MicroPython + LVGL onto the board
 
@@ -54,12 +54,11 @@ deletes in favor of these).
    not a standard peripheral), so that stays hand-written in `encoder.py`,
    wired up as a custom `lv.indev` in `hal.py`.
 3. **Flash the resulting `.bin`** (path depends on the build, typically
-   under `build/`): run the **"MicroPython+LVGL: Write custom firmware"**
-   task after editing the `.bin` path (and **"MicroPython: Erase flash"**
-   first if updating from a previous firmware).
+   under `build/`): `make flash FIRMWARE=path/to/that.bin` — erases the flash
+   first, then writes it.
 4. **Install `aioble`** (BLE central library — a custom LVGL build doesn't
-   change the BLE side, and `aioble` still isn't bundled): run the
-   **"MicroPython: Install aioble (mip)"** task.
+   change the BLE side, and `aioble` still isn't bundled): `make
+   install-aioble`.
 5. **AirCon identity**: `ble_config.py` already matches the real controller
    firmware's `../aircon/config.py` (and `../aircon-sim/config.py`, the
    desktop simulator — see that directory if you want to test the panel
@@ -67,39 +66,64 @@ deletes in favor of these).
    UUIDs on the real controller, update all three to match, plus the Pi's
    `.env` (`AirConConfig.DeviceName`/`ServiceUUID` in
    `server/config/config.go`) if it's connecting too.
-6. Run **"MicroPico: Configure project"** from the command palette once —
-   sets up MicroPython stubs/autocomplete in `.vscode/settings.json`
-   (intentionally not hand-written here so it doesn't fight that command;
-   this is also how you get `lvgl` autocomplete for the exact binding your
-   firmware build produced).
 
 ## Build / run / debug loop
 
-- **First, on a fresh firmware/wiring**: **"MicroPython: Check LVGL API
-  surface (run this first!)"** — see "Before running main.py" below.
-- **Fastest iteration**: **"MicroPython: Run main.py (mounted, no copy)"** —
-  uses `mpremote mount . run main.py` to execute straight off your computer's
-  filesystem over the serial link (fonts included, since `fonts/` is part of
-  the mounted tree), no copying to flash. Great for edit-run-repeat; Ctrl-C
-  to stop.
-- **Deploy for standalone/offline running**: **"MicroPython: Sync project
-  files to device"** copies the `.py` files and `fonts/` to flash so it runs
-  standalone on power-up (via `main.py`'s standard MicroPython auto-run
-  convention).
-- **REPL** (prints, tracebacks, poking at objects live): **"MicroPython:
-  REPL"**, or use MicroPico's own built-in REPL terminal/status-bar buttons —
-  that's the closest thing to a "debugger" here. Neither stock MicroPython
-  nor this LVGL build has a real source-level step-debugger; this project
-  doesn't pretend otherwise.
-- **"MicroPython: Soft reset"** restarts the board (re-running
-  `boot.py`/`main.py` if the files were synced to flash).
+All of this is `make` targets — see the `Makefile` (`make help` lists them
+all). `mpremote`, `esptool.py`, and `mpy-cross` (see "Precompiling screens/"
+below for why that last one matters) all need to be on `PATH`.
+
+- **First, on a fresh firmware/wiring**: `make check` — see "Before running
+  main.py" below.
+- **First, always**: `make install` — copies everything (`.py`/`.mpy` files,
+  `fonts/`, `images/`) to flash so it runs standalone on power-up (via
+  `main.py`'s standard MicroPython auto-run convention). Needed at least
+  once before `dev` below will have anything to reboot into.
+- **Fastest iteration after that**: `make dev` — syncs just `screens/` (see
+  below) to flash, then resets the board so it reruns `main.py` from flash
+  with the update. Run `make repl` separately (before or after) to watch the
+  output. Deliberately **not** `mpremote mount . run main.py` — confirmed on
+  real hardware that mounting and importing a `screens/` package this size
+  still hard-resets the board with no Python traceback, the same failure as
+  before precompiling to `.mpy` (see below), even with the `.mpy` files
+  present and current. `mount` implements a real filesystem, but one that
+  proxies every file operation back over the serial connection to the host
+  one round trip at a time — plausibly still too slow for `screens/`'s ~8
+  files even with on-device *compilation* skipped, since actual flash reads
+  don't pay that per-chunk round-trip cost. `mpremote mount . run <file>` is
+  still fine directly for anything that doesn't `import screens` (e.g.
+  `test/check_lvgl_api.py`, `test/test_brightness.py`).
+- **Precompiling `screens/`**: `make install`/`sync`/`dev` all depend on the
+  `mpy` target, which recompiles only whatever `screens/*.py` changed since
+  the last run (real Make dependency tracking, not a full rebuild every
+  time) — so this happens automatically, not a step you need to remember.
+  It matters because `import screens` alone hard-crashes the board with no
+  Python traceback at all once that package grows past some size (confirmed
+  on real hardware: the on-device compiler running out of stack parsing the
+  whole package in one `import screens`, not a bad LVGL call) — a
+  precompiled `screens/*.mpy` sitting next to the matching `.py` is loaded
+  instead of compiled on-device, sidestepping *that* crash. Run `make mpy`
+  directly if you want to precompile without also copying/running anything.
+- **`make sync`** copies just the (precompiled) `screens/` package to the
+  device — quick way to push a `screens/` change onto a board that's already
+  otherwise up to date, without a full `install`. `dev` (above) is this plus
+  a reset.
+- **REPL** (prints, tracebacks, poking at objects live): `make repl` — the
+  closest thing to a "debugger" here. Neither stock MicroPython nor this
+  LVGL build has a real source-level step-debugger; this project doesn't
+  pretend otherwise. If a flashed `main.py` won't let you back into a REPL at
+  all, see the safe-mode boot-button escape hatch in "If the board won't
+  boot" below.
+- `make reset` soft-resets the board (re-running `boot.py`/`main.py` if the
+  files were synced to flash).
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
 | `boot.py` / `main.py` | Boot-time setup, a startup splash shown before touch/encoder/BLE init, then the asyncio loop pumping `lv.timer_handler()` and periodically pushing BLE state into widgets. |
-| `check_lvgl_api.py` | Standalone LVGL API surface sanity check — run this before `main.py` on a fresh setup; see "Before running main.py" below. |
+| `test/check_lvgl_api.py` | Standalone LVGL API surface sanity check — run this before `main.py` on a fresh setup; see "Before running main.py" below. |
+| `Makefile` | `make help` for the full list — install/sync/dev/repl/reset/check, precompiling `screens/` to `.mpy`, flashing firmware, installing `aioble`. |
 | `ble_config.py` | AirCon service / characteristic UUIDs — edit this first. No longer has a device *name* constant — see "Connect / Disconnected screens" below. |
 | `aircon_ble.py` | `aioble`-based BLE GATT central; mirrors `server/hardware/aircon/aircon.go` and `../temp_knob/firmware/src/aircon_ble.cpp`. Unaffected by the LVGL switch — BLE and graphics are independent. `AirconClient` takes the device name to connect to (persisted by `panel_settings.py`) rather than a hardcoded constant, and can `scan_for_aircons()` for `screens.ConnectTile`'s picker. |
 | `panel_settings.py` | Persists the panel's own settings (currently just the picked AirCon device name) to flash — separate from the AirCon controller's own settings, which sync over BLE into `aircon_ble.AirconState.settings`. |
@@ -126,17 +150,26 @@ rather than at the top of the file, so nothing LVGL-related can run before
 `lv.init()` again.
 
 If you still hit a dead/non-enumerating board after that fix, the general
-recovery approach: get a **bare REPL first** (don't let `main.py` auto-run —
-temporarily rename it, or interrupt with Ctrl-C fast enough after a reset if
-the board does briefly enumerate), then paste `hal.py`'s and `screens/`'s
-logic in piece by piece over the REPL (`lv.init()`, then `hal.hal_init(...)`,
-then one screen at a time) to find exactly which call hard-crashes rather
-than raises — that boundary is almost always "something called before the
-subsystem it depends on was initialized," the same shape as this bug.
+recovery approach: get a **bare REPL first**. The reliable way now: hold the
+knob's push-button down while powering on or resetting the board — `main.py`
+checks that pin before doing anything else risky (before even importing
+`lvgl`) and, if held, skips running the app entirely, dropping straight to a
+normal idle REPL instead. (Ctrl-C alone doesn't get you this: it works fine
+on its own, but only reaches `main.py`'s own `except KeyboardInterrupt:
+machine.soft_reset()` handler, which just reboots straight back into the
+same app rather than leaving a lasting REPL — no help if the app itself is
+what's wedged.) Fall back to temporarily renaming `main.py` off the device,
+or racing Ctrl-C against a reset, only if the board is crashing somewhere
+*before* that safe-mode check itself can run (a firmware-level problem, not
+an application one). Then paste `hal.py`'s and `screens/`'s logic in piece by
+piece over the REPL (`lv.init()`, then `hal.hal_init(...)`, then one screen
+at a time) to find exactly which call hard-crashes rather than raises — that
+boundary is almost always "something called before the subsystem it depends
+on was initialized," the same shape as this bug.
 
 ## Before running main.py: check the LVGL API surface
 
-`check_lvgl_api.py` exists because of exactly the kind of bug described in
+`test/check_lvgl_api.py` exists because of exactly the kind of bug described in
 "Not hardware-verified" below turning up for real: `main.py` first ran
 successfully up through `lv.init()`, then hit
 `AttributeError: 'module' object has no attribute 'group_set_default'` --
@@ -146,10 +179,10 @@ successfully up through `lv.init()`, then hit
 Fixed in `main.py`. That's one AttributeError found and fixed by actually
 running it on hardware; there was no way to be sure it was the only one.
 
-Run **"MicroPython: Check LVGL API surface (run this first!)"** (`mpremote
-run check_lvgl_api.py`) before `main.py` — it builds one of every widget/indev/
-group call this project makes and prints OK/FAIL for each, all in one pass,
-instead of discovering them one flash-cycle at a time. If something FAILs,
+Run `make check` (`mpremote run test/check_lvgl_api.py`) before `main.py` —
+it builds one of every widget/indev/group call this project makes and prints
+OK/FAIL for each, all in one pass, instead of discovering them one
+flash-cycle at a time. If something FAILs,
 the fix is almost always one of:
 - swap `lv.foo_bar(x, ...)` for `x.bar(...)` (or the reverse) — this project's
   guess was "single existing-instance argument → method, everything else

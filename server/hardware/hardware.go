@@ -9,8 +9,11 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 	"github.com/vincent99/velocipi/server/hardware/aircon"
 	"github.com/vincent99/velocipi/server/hardware/airsensor"
+	"github.com/vincent99/velocipi/server/hardware/axis"
+	"github.com/vincent99/velocipi/server/hardware/brightness"
 	"github.com/vincent99/velocipi/server/hardware/expander"
-	"github.com/vincent99/velocipi/server/hardware/g3x"
+	"github.com/vincent99/velocipi/server/hardware/knob"
+	"github.com/vincent99/velocipi/server/hardware/lcd"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/lightsensor"
 	"github.com/vincent99/velocipi/server/hardware/thermalcam"
@@ -46,11 +49,20 @@ var (
 	ledYellowOnce sync.Once
 	ledYellowUnit *led.Controller
 
-	g3xOnce sync.Once
-	g3xUnit *g3x.G3X
+	axisOnce sync.Once
+	axisUnit *axis.Axis
 
 	thermalOnce sync.Once
 	thermalUnit *thermalcam.ThermalCam
+
+	lcdOnce sync.Once
+	lcdUnit *lcd.LCD
+
+	knobOnce sync.Once
+	knobUnit *knob.Knob
+
+	brightnessOnce sync.Once
+	brightnessUnit *brightness.Brightness
 )
 
 // resetLineInit opens the shared hardware reset GPIO line on first call.
@@ -173,12 +185,12 @@ func Expander() *expander.Expander {
 	return expanderUnit
 }
 
-// G3X returns the singleton G3X avionics state module.
-func G3X() *g3x.G3X {
-	g3xOnce.Do(func() {
-		g3xUnit = g3x.New()
+// Axis returns the singleton Axis avionics state module.
+func Axis() *axis.Axis {
+	axisOnce.Do(func() {
+		axisUnit = axis.New()
 	})
-	return g3xUnit
+	return axisUnit
 }
 
 // ThermalCam returns the singleton thermal camera serial interface, or nil if not configured.
@@ -234,4 +246,62 @@ func LEDYellow() *led.Controller {
 		ledYellowUnit = led.New(config.Load().Config.Expander.Bits.LEDY)
 	})
 	return ledYellowUnit
+}
+
+// LCD returns the singleton LCD backlight controller for the Pi's own
+// built-in display, or nil if the backlight device couldn't be opened.
+func LCD() *lcd.LCD {
+	lcdOnce.Do(func() {
+		cfg := config.Load().Config
+		l, err := lcd.New(lcd.Config{
+			Device:        cfg.LCD.Device,
+			MinBrightness: cfg.LCD.MinBrightness,
+			MaxBrightness: cfg.LCD.MaxBrightness,
+		})
+		if err != nil {
+			log.Println("hardware: lcd init error:", err)
+			return
+		}
+		lcdUnit = l
+	})
+	return lcdUnit
+}
+
+// Knob returns the singleton AC control knob serial connection, or nil if
+// not configured/unavailable.
+func Knob() *knob.Knob {
+	knobOnce.Do(func() {
+		cfg := config.Load().Config
+		if cfg.Knob.Device == "" {
+			return
+		}
+		k, err := knob.New(knob.Config{
+			Device:        cfg.Knob.Device,
+			MinBrightness: cfg.Knob.MinBrightness,
+			MaxBrightness: cfg.Knob.MaxBrightness,
+		})
+		if err != nil {
+			log.Println("hardware: knob init error:", err)
+			return
+		}
+		knobUnit = k
+	})
+	return knobUnit
+}
+
+// Brightness returns the singleton ambient-light-driven brightness engine.
+// Never nil -- with no light sensor available it just holds at 100% (see
+// hardware/brightness's own docs).
+func Brightness() *brightness.Brightness {
+	brightnessOnce.Do(func() {
+		cfg := config.Load().Config
+		brightnessUnit = brightness.New(brightness.Config{
+			Sensor: LightSensor(),
+			Delay:  cfg.BrightnessDelayDur,
+			Speed:  cfg.BrightnessSpeedDur,
+			MinLux: cfg.Brightness.MinLux,
+			MaxLux: cfg.Brightness.MaxLux,
+		})
+	})
+	return brightnessUnit
 }

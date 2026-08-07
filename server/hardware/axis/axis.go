@@ -1,7 +1,9 @@
-// Package g3x provides a G3X avionics state module.
+// Package axis provides avionics state for the panel-mounted Garmin Axis
+// displays (formerly referred to as "G3X" in this codebase, before the
+// switch to Axis screens).
 // Currently uses mock data; in the future this will be populated from live
-// avionics data (e.g. serial, UDP, or Bluetooth from a Garmin G3X Touch).
-package g3x
+// avionics data (e.g. serial, UDP, or Bluetooth from the real unit).
+package axis
 
 import (
 	"context"
@@ -26,8 +28,8 @@ type State struct {
 	OAT      float64 // outside air temperature, °C
 }
 
-// G3X tracks avionics state and broadcasts updates.
-type G3X struct {
+// Axis tracks avionics state and broadcasts updates.
+type Axis struct {
 	mu       sync.RWMutex
 	state    State
 	onChange func(State)
@@ -50,30 +52,30 @@ var initialState = State{
 // CelsiusToFahrenheit converts a temperature from °C to °F.
 func CelsiusToFahrenheit(c float64) float64 { return c*9/5 + 32 }
 
-// New creates a G3X module initialised with the mock starting state.
-func New() *G3X {
-	return &G3X{state: initialState}
+// New creates an Axis module initialised with the mock starting state.
+func New() *Axis {
+	return &Axis{state: initialState}
 }
 
 // State returns the current avionics state (safe for concurrent use).
-func (g *G3X) State() State {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.state
+func (a *Axis) State() State {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.state
 }
 
 // OnChange registers a callback invoked each time the state is updated.
 // Only one callback may be registered; a second call replaces the first.
-func (g *G3X) OnChange(fn func(State)) {
-	g.mu.Lock()
-	g.onChange = fn
-	g.mu.Unlock()
+func (a *Axis) OnChange(fn func(State)) {
+	a.mu.Lock()
+	a.onChange = fn
+	a.mu.Unlock()
 }
 
 // Run starts the mock update loop: updates position once per second using
 // simple dead-reckoning from heading and speed, then fires onChange.
 // Blocks until ctx is cancelled.
-func (g *G3X) Run(ctx context.Context) {
+func (a *Axis) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -81,15 +83,15 @@ func (g *G3X) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			g.tick()
+			a.tick()
 		}
 	}
 }
 
 // tick advances the mock position by one second of dead-reckoning travel.
-func (g *G3X) tick() {
-	g.mu.Lock()
-	s := g.state
+func (a *Axis) tick() {
+	a.mu.Lock()
+	s := a.state
 
 	// Degrees per second at given speed and heading.
 	// 1 knot ≈ 1 nautical mile/hr; 1 NM = 1/60 degree of latitude.
@@ -108,9 +110,9 @@ func (g *G3X) tick() {
 	s.OAT += (math.Round(randFloat()*2-1) * 0.1)
 	s.AltFt += (math.Round(randFloat()*2-1) * 10)
 
-	g.state = s
-	cb := g.onChange
-	g.mu.Unlock()
+	a.state = s
+	cb := a.onChange
+	a.mu.Unlock()
 
 	if cb != nil {
 		cb(s)

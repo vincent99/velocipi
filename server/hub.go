@@ -11,7 +11,7 @@ import (
 	"github.com/vincent99/velocipi/server/config"
 	"github.com/vincent99/velocipi/server/dvr"
 	"github.com/vincent99/velocipi/server/hardware"
-	"github.com/vincent99/velocipi/server/hardware/g3x"
+	"github.com/vincent99/velocipi/server/hardware/axis"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/oled"
 	"github.com/vincent99/velocipi/server/hardware/siyi"
@@ -262,11 +262,11 @@ func (h *Hub) setLocalCamera(name string) {
 	h.broadcastAll(LocalCameraMsg{Type: "localCamera", Camera: name})
 }
 
-// sendG3XState sends the current G3X state to a single newly-connected client.
-func (h *Hub) sendG3XState(c *client) {
-	s := hardware.G3X().State()
-	msg := G3XStateMsg{
-		Type: "g3xState", Lat: s.Lat, Lon: s.Lon, AltFt: s.AltFt,
+// sendAxisState sends the current Axis avionics state to a single newly-connected client.
+func (h *Hub) sendAxisState(c *client) {
+	s := hardware.Axis().State()
+	msg := AxisStateMsg{
+		Type: "axisState", Lat: s.Lat, Lon: s.Lon, AltFt: s.AltFt,
 		Heading: s.Heading, Roll: s.Roll, Pitch: s.Pitch, Yaw: s.Yaw, SpeedKts: s.SpeedKts,
 	}
 	data, err := json.Marshal(msg)
@@ -279,19 +279,19 @@ func (h *Hub) sendG3XState(c *client) {
 	}
 }
 
-// runG3XLoop runs the G3X mock avionics loop. It broadcasts state changes as
-// g3xState WS messages and feeds attitude/GPS to any Siyi gimbal managers at
-// 10 Hz (attitude) and 1 Hz (GPS).
-func (h *Hub) runG3XLoop(ctx context.Context) {
-	g := hardware.G3X()
-	g.OnChange(func(s g3x.State) {
-		msg := G3XStateMsg{
-			Type: "g3xState", Lat: s.Lat, Lon: s.Lon, AltFt: s.AltFt,
+// runAxisLoop runs the Axis mock avionics loop. It broadcasts state changes
+// as axisState WS messages and feeds attitude/GPS to any Siyi gimbal
+// managers at 10 Hz (attitude) and 1 Hz (GPS).
+func (h *Hub) runAxisLoop(ctx context.Context) {
+	a := hardware.Axis()
+	a.OnChange(func(s axis.State) {
+		msg := AxisStateMsg{
+			Type: "axisState", Lat: s.Lat, Lon: s.Lon, AltFt: s.AltFt,
 			Heading: s.Heading, Roll: s.Roll, Pitch: s.Pitch, Yaw: s.Yaw, SpeedKts: s.SpeedKts, OATCelsius: s.OAT,
 		}
 		h.broadcastAll(msg)
 	})
-	go g.Run(ctx)
+	go a.Run(ctx)
 
 	// Attitude injection at 10 Hz; GPS injection at 1 Hz.
 	attTicker := time.NewTicker(100 * time.Millisecond)
@@ -304,7 +304,7 @@ func (h *Hub) runG3XLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-attTicker.C:
-			s := g.State()
+			s := a.State()
 			h.mu.RLock()
 			mgrs := h.siyiManagers
 			h.mu.RUnlock()
@@ -312,7 +312,7 @@ func (h *Hub) runG3XLoop(ctx context.Context) {
 				go func(m *siyi.Manager) { _ = m.SendAttitude(s) }(mgr)
 			}
 		case <-gpsTicker.C:
-			s := g.State()
+			s := a.State()
 			h.mu.RLock()
 			mgrs := h.siyiManagers
 			h.mu.RUnlock()
@@ -323,9 +323,46 @@ func (h *Hub) runG3XLoop(ctx context.Context) {
 	}
 }
 
-// handleLEDMsg controls one LED channel from a websocket message.
-func (h *Hub) handleLEDMsg(channel, state string, rateMs int) {
-	log.Printf("led: channel=%q state=%q rate=%d", channel, state, rateMs)
+// runBrightnessLoop starts the ambient-light-driven brightness engine and
+// subscribes every hardware target that has its own brightness range to
+// scale to (see hardware/brightness's package doc) -- currently the Pi's
+// own LCD and the AC control knob, each skipped individually if not
+// available (no LCD backlight device, no knob configured/connected) rather
+// than skipping brightness entirely, since Brightness() itself always
+// works (falls back to holding 100% with no sensor).
+func (h *Hub) runBrightnessLoop(ctx context.Context) {
+	b := hardware.Brightness()
+
+	if l := hardware.LCD(); l != nil {
+		b.Subscribe(func(pct float64) {
+			if err := l.Set(pct); err != nil {
+				log.Println("brightness: lcd set error:", err)
+			}
+		})
+	}
+
+	if k := hardware.Knob(); k != nil {
+		b.Subscribe(func(pct float64) {
+			if err := k.SetBrightness(pct); err != nil {
+				log.Println("brightness: knob setBrightness error:", err)
+			}
+		})
+		// One-time clock sync on startup -- send() blocks for a response
+		// (or requestTimeout), so this runs in its own goroutine rather
+		// than delaying b.Run(ctx) below, same reasoning as hardware.go's
+		// ThermalCam() backgrounding its own startup ReadState() call.
+		go func() {
+			if err := k.SetClock(time.Now()); err != nil {
+				log.Println("knob: setClock error:", err)
+			}
+		}()
+	}
+
+	b.Run(ctx)
+}
+
+// handleLEDMsg controls the expander LED from a websocket message.
+func (h *Hub) handleLEDMsg(state string, rateMs int) {
 	e := hardware.Expander()
 	if e == nil {
 		log.Println("led: expander not available")

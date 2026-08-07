@@ -52,6 +52,7 @@ BUTTON_RADIUS = 12  # mode/recirc cells -- halved from an earlier, too-round 24 
 # which are cheap value-type constructors safe to call anytime), since
 # widget/font construction in general needs lv_init() to have already set up
 # LVGL's global state first.
+FONT_TINY = None
 FONT_BODY = None
 FONT_TITLE = None
 FONT_BUTTON_ICON = None
@@ -60,8 +61,13 @@ FONT_CURRENT_TEMP = None
 
 
 def load_fonts():
-    global FONT_BODY, FONT_TITLE, FONT_BUTTON_ICON, FONT_BUTTON_LABEL, FONT_CURRENT_TEMP
+    global FONT_TINY, FONT_BODY, FONT_TITLE, FONT_BUTTON_ICON, FONT_BUTTON_LABEL, FONT_CURRENT_TEMP
 
+    # screens/history.py's y-axis value labels -- the smallest size this
+    # build's LVGL image has (see check_lvgl_api.py's font_montserrat_%d
+    # loop, which now includes 12), used only where theme.FONT_BODY (14px)
+    # doesn't leave enough room.
+    FONT_TINY = lv.font_montserrat_12
     FONT_BODY = lv.font_montserrat_14
     FONT_TITLE = lv.font_montserrat_20
     # Mode/recirc button cells: bigger now that montserrat 12-48 are loaded

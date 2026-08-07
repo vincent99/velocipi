@@ -131,8 +131,8 @@ export interface LocalCameraMsg {
   camera: string;
 }
 
-export interface G3XStateMsg {
-  type: 'g3xState';
+export interface AxisStateMsg {
+  type: 'axisState';
   lat: number;
   lon: number;
   altFt: number;
@@ -199,7 +199,7 @@ export interface AirConTempSample {
   baggageTemp?: number;
   tailTemp?: number;
   panelTemp?: number;
-  oat?: number; // outside air temp °F from G3X
+  oat?: number; // outside air temp °F from Axis
 }
 
 export interface AirConStateMsg {
@@ -230,7 +230,7 @@ export type InboundWsMsg =
   | DVRStateMsg
   | DiskSpaceMsg
   | LocalCameraMsg
-  | G3XStateMsg
+  | AxisStateMsg
   | SiyiAttitudeMsg
   | MusicStateMsg
   | MusicQueueMsg

@@ -494,8 +494,9 @@ func main() {
 	go hub.runTpmsLoop(ctx)
 	go hub.runInputLoop(ctx)
 	go hub.runScreencastLoop(ctx)
-	go hub.runG3XLoop(ctx)
+	go hub.runAxisLoop(ctx)
 	go hub.runAirConLoop(ctx)
+	go hub.runBrightnessLoop(ctx)
 
 	// Start Siyi managers for cameras with driver: "siyi".
 	siyiManagers := make(map[string]*siyi.Manager)

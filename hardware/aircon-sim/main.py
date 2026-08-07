@@ -10,8 +10,10 @@ the panel's full UI without the physical AC hardware.
 
 Usage:
     python3 main.py
+    python3 main.py --error "This is a test"
 """
 
+import argparse
 import asyncio
 import logging
 import time
@@ -49,10 +51,19 @@ async def _status_printer(ctrl):
         await asyncio.sleep(5)
 
 
-async def main():
+async def main(args):
     loop = asyncio.get_running_loop()
 
     ctrl = SimController()
+    if args.error:
+        # Seeded once at startup, not re-applied afterward -- SimController
+        # already clears self.error on its own (a mode/fan change, or
+        # _auto_control() once a full auto-mode cycle finds a real temp
+        # reading -- see controller.py), same as the real firmware would,
+        # so this is only meant to get a knob-side error display (red
+        # current-temp background, Info screen's error text) up for testing
+        # without needing to fake an actual fault condition.
+        ctrl.error = args.error
     server = SimBLEServer(ctrl)
 
     logger.info("starting BLE GATT server %r (service %s)", config.BLE_DEVICE_NAME, config.BLE_SVC_UUID)
@@ -66,7 +77,10 @@ async def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--error", default="", help="Seed state.error with this message at startup (for testing the knob's error display)")
+    cli_args = parser.parse_args()
     try:
-        asyncio.run(main())
+        asyncio.run(main(cli_args))
     except KeyboardInterrupt:
         pass

@@ -13,8 +13,8 @@ Characteristics (all UTF-8 strings):
   0003  setpoint  rw  float as string, e.g. "72.50"
   0004  circ      rw  "recirc" | "fresh"
   0005  panel     rw  float as string (panel sensor temp, °F)
-  0006  settings  rw  JSON: delta, fan_high, fan_med, fan_change, auto_loop, temp_read, set_min, set_max, brightness (each a [value, default] pair)
-  0007  status    rn  JSON: temps, compressor state, error
+  0006  settings  rw  JSON: delta, fan_high, fan_med, fan_change, auto_loop, temp_read, set_min, set_max (each a [value, default] pair)
+  0007  status    rn  JSON: temps, compressor state, error, firmware version
 
 Writes are validated server-side; invalid values are silently ignored.
 """
@@ -43,8 +43,8 @@ def _dec_f(b: bytes) -> float:
 # controller attribute name. Controller attributes themselves stay verbose
 # (self.fan_high_thresh etc., unchanged) -- only the wire keys are terse,
 # to keep the settings JSON payload's size down (it's shared across many
-# fragments/reads at the default BLE ATT MTU). 'delta' and 'brightness'
-# aren't renamed; the rest drop "_thresh"/"_interval" and "setpoint" -> "set".
+# fragments/reads at the default BLE ATT MTU). 'delta' isn't renamed; the
+# rest drop "_thresh"/"_interval" and "setpoint" -> "set".
 _SETTINGS_WIRE_KEYS = {
     'delta':      'delta',
     'fan_high':   'fan_high_thresh',
@@ -54,7 +54,6 @@ _SETTINGS_WIRE_KEYS = {
     'temp_read':  'temp_read_interval',
     'set_min':    'setpoint_min',
     'set_max':    'setpoint_max',
-    'brightness': 'brightness',
 }
 
 # Compile-time defaults for the 0006 settings characteristic, keyed by wire
@@ -68,7 +67,6 @@ _SETTINGS_DEFAULTS = {
     'temp_read':  config.DEFAULT_TEMP_READ_INTERVAL,
     'set_min':    config.DEFAULT_SETPOINT_MIN,
     'set_max':    config.DEFAULT_SETPOINT_MAX,
-    'brightness': config.DEFAULT_BRIGHTNESS,
 }
 
 def _unwrap_settings(d):
@@ -189,6 +187,7 @@ class BLEServer:
             'baggage': self._fmt(s['baggage_temp']),
             'tail':    self._fmt(s['tail_temp']),
             'err':     s['error'],
+            'ver':     s['version'],
         }
         if not self._notify:
             return

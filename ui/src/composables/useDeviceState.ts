@@ -9,7 +9,7 @@ import type {
   DVRRecordingState,
   DiskSpaceMsg,
   Tire,
-  G3XStateMsg,
+  AxisStateMsg,
   SiyiAttitudeMsg,
   AirConState,
   AirConTempSample,
@@ -39,8 +39,8 @@ const destTimezone = ref<string>('America/New_York');
 const dvrState = ref<DVRRecordingState | null>(null);
 // diskSpace: most recent disk space reading from server
 const diskSpace = ref<DiskSpaceMsg | null>(null);
-// g3xState: most recent G3X avionics state
-const g3xState = ref<G3XStateMsg | null>(null);
+// axisState: most recent Axis avionics state
+const axisState = ref<AxisStateMsg | null>(null);
 // siyiAttitude: per-camera Siyi gimbal attitude (camera name → message)
 const siyiAttitude = reactive<Map<string, SiyiAttitudeMsg>>(new Map());
 // airConState: current aircon controller state
@@ -139,8 +139,8 @@ function init() {
       case 'musicQueue':
         musicQueue.value = msg;
         break;
-      case 'g3xState':
-        g3xState.value = msg;
+      case 'axisState':
+        axisState.value = msg;
         break;
       case 'siyiAttitude':
         siyiAttitude.set(msg.camera, msg);
@@ -179,7 +179,7 @@ export function useDeviceState() {
     musicQueue,
     dvrState,
     diskSpace,
-    g3xState,
+    axisState,
     siyiAttitude,
     airConState,
     airConHistory,

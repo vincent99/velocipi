@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/vincent99/velocipi/server/config"
-	"github.com/vincent99/velocipi/server/hardware/g3x"
+	"github.com/vincent99/velocipi/server/hardware/axis"
 )
 
 // FollowMode is the gimbal stabilisation mode.
@@ -230,14 +230,14 @@ func (m *Manager) ManualFocus(direction int8) error {
 // Payload: uint32 bootMs | float32 roll_rad | float32 pitch_rad | float32 yaw_rad |
 //
 //	float32 rollRate | float32 pitchRate | float32 yawRate  (28 bytes total)
-func (m *Manager) SendAttitude(state g3x.State) error {
+func (m *Manager) SendAttitude(state axis.State) error {
 	buf := make([]byte, 28)
 	binary.LittleEndian.PutUint32(buf[0:4], m.bootMs.Load())
 	toRad := func(deg float64) float32 { return float32(deg * math.Pi / 180.0) }
 	binary.LittleEndian.PutUint32(buf[4:8], math.Float32bits(toRad(state.Roll)))
 	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(toRad(state.Pitch)))
 	binary.LittleEndian.PutUint32(buf[12:16], math.Float32bits(toRad(state.Yaw)))
-	// Rates are zero for the mock G3X.
+	// Rates are zero for the mock Axis.
 	binary.LittleEndian.PutUint32(buf[16:20], math.Float32bits(0))
 	binary.LittleEndian.PutUint32(buf[20:24], math.Float32bits(0))
 	binary.LittleEndian.PutUint32(buf[24:28], math.Float32bits(0))
@@ -248,7 +248,7 @@ func (m *Manager) SendAttitude(state g3x.State) error {
 // Payload: uint32 bootMs | int32 lat×1e7 | int32 lon×1e7 | int32 altMSL_mm |
 //
 //	int32 altEllipsoid_mm | int32 velN_mms | int32 velE_mms | int32 velD_mms (32 bytes)
-func (m *Manager) SendGPS(state g3x.State) error {
+func (m *Manager) SendGPS(state axis.State) error {
 	buf := make([]byte, 32)
 	binary.LittleEndian.PutUint32(buf[0:4], m.bootMs.Load())
 

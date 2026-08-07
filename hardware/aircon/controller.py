@@ -42,7 +42,6 @@ class ACController:
         config.BLE_DEVICE_NAME   = self.ble_device_name  # keep module-level var in sync
         self.setpoint_min        = float(saved.get('setpoint_min',        config.DEFAULT_SETPOINT_MIN))
         self.setpoint_max        = float(saved.get('setpoint_max',        config.DEFAULT_SETPOINT_MAX))
-        self.brightness          = float(saved.get('brightness',          config.DEFAULT_BRIGHTNESS))
         self.setpoint            = min(max(self.setpoint, self.setpoint_min), self.setpoint_max)
 
         # panel_temp is never persisted; 0 means "not available".
@@ -202,11 +201,6 @@ class ACController:
                     self.setpoint_max = new_max
                     self.setpoint = min(max(self.setpoint, new_min), new_max)
                     changed.append(f'setpoint_min={new_min}  setpoint_max={new_max}')
-            if 'brightness' in settings:
-                v = float(settings['brightness'])
-                if 0 <= v <= 100:
-                    self.brightness = v
-                    changed.append(f'brightness={v}')
             if changed:
                 log.log(source, 'settings: ' + '  '.join(changed))
             self._save()
@@ -219,6 +213,7 @@ class ACController:
     def get_state(self):
         temps = self._sensors.get_all()
         return {
+            'version':      config.VERSION,
             'mode':         self.mode,
             'fan':          self.fan,
             'setpoint':     self.setpoint,
@@ -244,7 +239,6 @@ class ACController:
             'ble_notify':          self.ble_notify,
             'setpoint_min':        self.setpoint_min,
             'setpoint_max':        self.setpoint_max,
-            'brightness':          self.brightness,
         }
 
     # ── Async control loop ────────────────────────────────────────────────────

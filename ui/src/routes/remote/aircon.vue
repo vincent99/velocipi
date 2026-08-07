@@ -71,7 +71,7 @@ import LineGraph from '@/components/remote/LineGraph.vue';
 import RedX from '@/components/RedX.vue';
 import type { GraphSeries } from '@/components/remote/LineGraph.vue';
 
-const { airConState, g3xState, airConHistory } = useDeviceState();
+const { airConState, axisState, airConHistory } = useDeviceState();
 
 const busy = ref(false);
 const lastError = ref('');
@@ -149,7 +149,7 @@ function fmt(v: number | null | undefined, digits = 1): string {
 }
 
 const oatLabel = computed(() => {
-  const oat = g3xState.value?.oatCelsius;
+  const oat = axisState.value?.oatCelsius;
   return oat != null ? ((oat * 9) / 5 + 32).toFixed(0) + '°F' : '—';
 });
 
