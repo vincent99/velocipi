@@ -132,12 +132,6 @@ def _make_bare_tile(tileview, col, row, dir_):
     return tile
 
 
-def _make_placeholder_tile(tileview, col, row, dir_, text):
-    tile = _make_tile(tileview, col, row, dir_)
-    _label(tile, text, font=theme.FONT_TITLE)
-    return tile
-
-
 def _make_screen(scr):
     """A full-screen container for a top-level (non-tile) screen -- Connect
     and Disconnected aren't part of the swipeable + grid, just shown/hidden

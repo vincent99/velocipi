@@ -52,21 +52,21 @@ import lvgl as lv
 
 import hal
 import theme
-from .widgets import _make_placeholder_tile, _set_visible, _wire_swipe
+from .widgets import _set_visible, _wire_swipe
 
-# The other six tile modules (.connect, .disconnected, .history, .home,
-# .info, .settings) are deliberately NOT imported here at module level --
-# see App.__init__, which imports each one individually, interleaved with a
-# checkpoint() call. `import screens` always fully executes this file first
-# (Python import semantics: `import pkg.submodule` runs `pkg/__init__.py`
-# top to bottom before the submodule), so having all six here would still
-# pay their combined compile/transfer cost in one uninterrupted stretch --
-# exactly the same failure mode .mpy precompilation alone was fixing (see
-# ../Makefile's `mpy` target), just moved one level down. Deferring them
-# into __init__ instead gives the watchdog (and `mount`-mode's per-file
-# round-trip transfer, see ../Makefile's `dev` target comment) a checkpoint
-# between each one. .widgets stays here at module level because
-# _set_visible/_wire_swipe/_make_placeholder_tile are used from other App
+# The other seven tile modules (.connect, .disconnected, .history, .home,
+# .info, .settings, .temps) are deliberately NOT imported here at module
+# level -- see App.__init__, which imports each one individually,
+# interleaved with a checkpoint() call. `import screens` always fully
+# executes this file first (Python import semantics: `import pkg.submodule`
+# runs `pkg/__init__.py` top to bottom before the submodule), so having all
+# seven here would still pay their combined compile/transfer cost in one
+# uninterrupted stretch -- exactly the same failure mode .mpy precompilation
+# alone was fixing (see ../Makefile's `mpy` target), just moved one level
+# down. Deferring them into __init__ instead gives the watchdog (and
+# `mount`-mode's per-file round-trip transfer, see ../Makefile's `dev`
+# target comment) a checkpoint between each one. .widgets stays here at
+# module level because _set_visible/_wire_swipe are used from other App
 # methods too (_show, poll_input, etc.), not just __init__ -- a local import
 # inside __init__ wouldn't be visible there.
 
@@ -112,8 +112,7 @@ class App:
         self.tileview.remove_flag(lv.obj.FLAG.SCROLLABLE)
 
         # A + shaped grid around the main tile at (1,1): History above,
-        # Settings below, Temps to the left, Info to the right. Only
-        # placeholders for History/Settings/Temps for now. dir_=NONE on
+        # Settings below, Temps to the left, Info to the right. dir_=NONE on
         # every tile (not DIR.TOP/BOTTOM/LEFT) -- on its own (see comment
         # above) this doesn't stop drag-scrolling, but it's still correct
         # to leave in place: it stops a completed swipe gesture from ever
@@ -153,7 +152,10 @@ class App:
         checkpoint("screens: imported history")
         self.history_tile = HistoryTile(client, encoder, self.tileview)
 
-        temps_tile = _make_placeholder_tile(self.tileview, 0, 1, lv.DIR.NONE, "Temps")
+        from .temps import TempsTile
+
+        checkpoint("screens: imported temps")
+        self.temps_tile = TempsTile(client, self.tileview)
 
         # Directions here are the finger's actual motion (see
         # _classify_swipe()) and on_swipe() below applies them completely
@@ -170,7 +172,7 @@ class App:
         self._wire_tile_swipe(
             self.settings_tile.tile, 1, 2, ("up",), on_leave=self.settings_tile.cancel_active
         )
-        self._wire_tile_swipe(temps_tile, 0, 1, ("right",))
+        self._wire_tile_swipe(self.temps_tile.tile, 0, 1, ("right",))
         self._wire_tile_swipe(self.info_tile.tile, 2, 1, ("left",))
 
         # A tileview's initial scroll position is grid cell (0,0) regardless
@@ -343,6 +345,7 @@ class App:
             self.settings_tile.refresh()
             self.info_tile.refresh()
             self.history_tile.refresh()
+            self.temps_tile.refresh()
         elif self._screen == "home":
             # Connection dropped while Home was showing.
             self._show("disconnected")
