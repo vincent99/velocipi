@@ -3,12 +3,17 @@ entirely from the host via `mpremote fs ls`/`rm`
 
 Keeps panel_settings.json: the panel's own persisted BLE device pairing, unrelated to code and not something a full reinstall should force the user to redo.
 Keeps lib/: where `make install-aioble` (mpremote mip install) puts aioble -- not something `install` provisions itself, so erasing it would leave the device unable to import aioble until someone re-ran that separately.
+Keeps ble_secrets.json: aioble's own BLE bonding-key cache (see its security.py) -- not written by anything in this repo, just cached pairing state, so erasing it only costs a re-pair with the AirCon controller on next connect rather than anything actually broken.
 """
 
 import subprocess
 import sys
 
-_KEEP = {"panel_settings.json", "lib"}  # lib/ is where `make install-aioble` (mpremote mip install) puts aioble
+_KEEP = {
+    "panel_settings.json",
+    "lib",  # `make install-aioble` (mpremote mip install) puts aioble here
+    "ble_secrets.json",  # aioble's own BLE bonding-key cache
+}
 
 
 def main():

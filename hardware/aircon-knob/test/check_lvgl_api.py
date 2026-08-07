@@ -48,7 +48,7 @@ lv.init()
 
 print("\n=== module-level lv.* names ===")
 for name in (
-    "color_hex", "binfont_create", "obj", "label", "roller", "arc", "slider",
+    "color_hex", "obj", "label", "roller", "arc", "slider",
     "tileview", "pct", "SIZE_CONTENT", "screen_active", "group_create",
     "timer_handler", "indev_create", "display_create", "DIR", "EVENT",
     "PART", "OPA", "FLEX_FLOW", "FLEX_ALIGN", "SYMBOL", "SCROLLBAR_MODE",

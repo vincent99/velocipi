@@ -1,13 +1,12 @@
 """Visual constants -- colors mirror ../temp_knob/ui/globals.xml's design
 tokens (same palette as the other two prototypes in this repo).
 
-Fonts: the ../fonts/*.bin Nasalization binfonts (see ../fonts/README.md)
-turned out to be unreliable to load on real hardware -- lv.binfont_create()
-hung intermittently, sometimes succeeding and sometimes not with no code
-change in between, regardless of call depth or whether the .bin files were
-read from a `mount .` remote mount or the device's own flash. Using LVGL's
-built-in font instead for now, which has been solid throughout. Revisit the
-custom font separately, later -- see ../README.md.
+Fonts: LVGL's built-in fonts only, deliberately -- an earlier version
+loaded a custom Nasalization binfont (lv.binfont_create() against a
+converted .bin file) but that turned out unreliable on real hardware
+(hung intermittently, sometimes succeeding and sometimes not with no code
+change in between), and the custom font was dropped rather than chased
+further.
 """
 
 import lvgl as lv

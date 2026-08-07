@@ -12,9 +12,10 @@ about the Python version.
 
 **Nothing here depends on `../temp_knob/`'s LVGL Editor project or its
 component library/fonts/icons** — this is a from-scratch, self-contained
-implementation of just the AirCon control UI. Text uses the
-[Nasalization](../../ui/public/fonts/Nasalization.otf) font also used by the
-web UI (`ui/`) — see `fonts/README.md`.
+implementation of just the AirCon control UI. Text uses LVGL's built-in
+fonts (`lv.font_montserrat_*`) — an earlier version loaded a custom
+Nasalization binfont to match the web UI's typography, but that turned out
+unreliable on real hardware and was dropped; see `theme.py`'s docstring.
 
 ## Why not PlatformIO
 
@@ -76,7 +77,7 @@ below for why that last one matters) all need to be on `PATH`.
 - **First, on a fresh firmware/wiring**: `make check` — see "Before running
   main.py" below.
 - **First, always**: `make install` — copies everything (`.py`/`.mpy` files,
-  `fonts/`, `images/`) to flash so it runs standalone on power-up (via
+  `images/`) to flash so it runs standalone on power-up (via
   `main.py`'s standard MicroPython auto-run convention). Needed at least
   once before `dev` below will have anything to reboot into.
 - **Fastest iteration after that**: `make dev` — syncs just `screens/` (see
@@ -129,10 +130,9 @@ below for why that last one matters) all need to be on `PATH`.
 | `panel_settings.py` | Persists the panel's own settings (currently just the picked AirCon device name) to flash — separate from the AirCon controller's own settings, which sync over BLE into `aircon_ble.AirconState.settings`. |
 | `hal.py` | Display/touch setup via lvgl_micropython's built-in `gc9a01`/`cst816s` drivers. Touch self-registers as an LVGL pointer indev; the rotary encoder is returned as a plain `encoder.Encoder` object for the `screens/` package to poll directly, not wired through an `lv.indev`/`lv.group`. |
 | `encoder.py` | Rotary encoder quadrature decode + button (no built-in driver for this exists). |
-| `theme.py` | Colors (mirrors `../temp_knob/ui/globals.xml`'s tokens) and the Nasalization fonts, loaded via `lv.binfont_create()`. |
+| `theme.py` | Colors (mirrors `../temp_knob/ui/globals.xml`'s tokens) and LVGL's built-in fonts (`lv.font_montserrat_*`) — see its own docstring for why not a custom font. |
 | `screens/` | The panel's screens, built from real LVGL widgets (`lv.tileview`, `lv.arc`, `lv.roller`, `lv.line`). One module per screen — see "Screens" below and the table right after it. Diverged from a straight port of `../temp_knob/firmware/src/ui_app.cpp`. |
-| `fonts/` | The converted Nasalization `.bin` fonts; see `fonts/README.md`. |
-| `images/splash.bin` | Startup splash image, converted from `aircon.png` (240×240, matches the panel exactly) with LVGL's own `LVGLImage.py` converter into LVGL's native runtime-loadable binary image format — same reasoning as the fonts: doesn't depend on a PNG decoder being compiled into the firmware build. Regenerate with `python3 LVGLImage.py --ofmt BIN --cf RGB565 -o images aircon.png` then `mv images/aircon.bin images/splash.bin` (`--name` didn't actually rename the output in testing, despite the tool's own `--help` claiming it does for single-file input — hence the manual `mv`). `LVGLImage.py` lives in upstream LVGL's `scripts/` folder; needs `pip install pypng lz4`. Loaded via `lv.image_dsc_t` constructed from its raw pixel bytes, not via `img.set_src(path)` — see "Not hardware-verified" below for why. |
+| `images/splash.bin` | Startup splash image, converted from `aircon.png` (240×240, matches the panel exactly) with LVGL's own `LVGLImage.py` converter into LVGL's native runtime-loadable binary image format — doesn't depend on a PNG decoder being compiled into the firmware build. Regenerate with `python3 LVGLImage.py --ofmt BIN --cf RGB565 -o images aircon.png` then `mv images/aircon.bin images/splash.bin` (`--name` didn't actually rename the output in testing, despite the tool's own `--help` claiming it does for single-file input — hence the manual `mv`). `LVGLImage.py` lives in upstream LVGL's `scripts/` folder; needs `pip install pypng lz4`. Loaded via `lv.image_dsc_t` constructed from its raw pixel bytes, not via `img.set_src(path)` — see "Not hardware-verified" below for why. |
 
 ## If the board won't boot / never shows up as a USB serial device
 
@@ -329,11 +329,6 @@ actual hands-on debugging on real hardware afterward.
 2. **BLE single-central contention** — same accepted tradeoff as the C++
    version: if the AirCon controller only accepts one BLE central connection,
    this panel and the Pi's `aircon.Client` can't both be connected at once.
-3. **`theme.py`'s fonts** (`lv.binfont_create()`) — never independently
-   verified the way the splash image was. Not raising is no longer trusted
-   as proof of success on this build (see finding 7 above) — worth watching
-   for once the `screens/` package's actual text-bearing widgets are
-   reachable and visible on the panel.
 
 ## Screens
 

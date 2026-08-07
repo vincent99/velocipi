@@ -72,7 +72,7 @@ bump-version:
 	python3 tools/bump_version.py
 
 sync: mpy
-	$(MPREMOTE) cp boot.py main.py ble_config.py panel_settings.py serial_link.py theme.py hal.py encoder.py aircon_ble.py : + cp -r screens : + cp -r fonts : + cp -r images :
+	$(MPREMOTE) cp boot.py main.py ble_config.py panel_settings.py serial_link.py theme.py hal.py encoder.py aircon_ble.py : + cp -r screens : + cp -r images :
 
 # Deliberately not `install: bump-version mpy-all` -- Make doesn't
 # guarantee prerequisites of the same target run in listed order (only
@@ -83,7 +83,7 @@ install:
 	$(MAKE) bump-version
 	$(MAKE) mpy-all
 	python3 tools/erase_device.py $(MPREMOTE)
-	$(MPREMOTE) cp $(TOPLEVEL_MPY) : + cp -r screens : + cp -r fonts : + cp -r images :
+	$(MPREMOTE) cp $(TOPLEVEL_MPY) : + cp -r screens : + cp -r images :
 	$(MPREMOTE) soft-reset
 
 dev: sync
