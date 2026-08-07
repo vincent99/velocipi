@@ -63,8 +63,8 @@ screen:
   splashImage: "ui/public/img/logo.png"
 
 airCon:
-  deviceName: "AirCon"
-  serviceUUID: "aaaaaaaa-1111-cccc-00dd-000000000000"
+  # Transport is the knob's serial link (see the `knob:` section) -- no
+  # device/pairing config lives here anymore, the knob owns that.
   historyMinutes: 30
 
 tires:

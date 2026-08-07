@@ -187,13 +187,11 @@ type ThermalConfig struct {
 	Device string `yaml:"device" json:"device"`
 }
 
-// AirConConfig holds BLE client settings for the aircon controller.
+// AirConConfig holds settings for the aircon state/command relay
+// (hardware/aircon) -- transport is the knob's serial link (see
+// KnobConfig); the aircon subsystem is enabled/disabled by whether the
+// knob itself is configured, not by anything here.
 type AirConConfig struct {
-	// DeviceName is the BLE local name advertised by the AirCon controller
-	// (e.g. "AirCon"). If empty, the aircon subsystem is disabled.
-	DeviceName string `yaml:"deviceName" json:"deviceName"`
-	// ServiceUUID is the 128-bit custom GATT service UUID advertised by the controller.
-	ServiceUUID string `yaml:"serviceUUID" json:"serviceUUID"`
 	// HistoryMinutes is how many minutes of temperature data to keep in memory.
 	HistoryMinutes int `yaml:"historyMinutes" json:"historyMinutes"`
 	// SampleIntervalSecs is how often a temperature sample is recorded. Defaults to 10.

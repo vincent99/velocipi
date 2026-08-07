@@ -108,24 +108,20 @@ func Reset(dur time.Duration) {
 	}
 }
 
-// AirCon returns the singleton AirCon BLE client, or nil if not configured.
+// AirCon returns the singleton aircon state/command relay, or nil if the
+// knob (its only transport now -- see hardware/aircon's package doc) isn't
+// configured/available.
 func AirCon() *aircon.Client {
 	airConOnce.Do(func() {
-		cfg := config.Load().Config
-		if cfg.AirCon.DeviceName == "" {
+		k := Knob()
+		if k == nil {
 			return
 		}
-		c, err := aircon.New(aircon.Config{
-			DeviceName:         cfg.AirCon.DeviceName,
-			ServiceUUID:        cfg.AirCon.ServiceUUID,
+		cfg := config.Load().Config
+		airConUnit = aircon.New(aircon.Config{
 			HistoryMinutes:     cfg.AirCon.HistoryMinutes,
 			SampleIntervalSecs: cfg.AirCon.SampleIntervalSecs,
-		})
-		if err != nil {
-			log.Println("hardware: aircon init error:", err)
-			return
-		}
-		airConUnit = c
+		}, k)
 	})
 	return airConUnit
 }

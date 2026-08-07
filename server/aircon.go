@@ -38,7 +38,7 @@ func (h *Hub) sendAirConState(c *client) {
 	}
 }
 
-// runAirConLoop starts the BLE client and broadcasts state changes to all WS clients.
+// runAirConLoop subscribes to the knob relay and broadcasts state changes to all WS clients.
 func (h *Hub) runAirConLoop(ctx context.Context) {
 	ac := hardware.AirCon()
 	if ac == nil {

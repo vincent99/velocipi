@@ -14,6 +14,20 @@ Commands implemented, pi -> knob:
   {"id": N, "cmd": "setSettings", "settings": {...}}  -- same shape as the
     outbound "settings" push below (key -> {"value":.., "default":..}, or
     just key -> bare number)
+  {"id": N, "cmd": "setMode", "val": "off"|"fan"|"auto"|"cool"}
+  {"id": N, "cmd": "setFan", "val": "low"|"medium"|"high"}
+  {"id": N, "cmd": "setSetpoint", "val": <fahrenheit float>}
+  {"id": N, "cmd": "setCirculation", "val": "recirc"|"fresh"}
+  {"id": N, "cmd": "setPanelTemp", "val": <fahrenheit float>}  -- no knob UI
+    edits this; it exists for the Pi to push its own temperature reading
+    down to the controller (planned, not yet wired up on the Pi side)
+
+setMode/setFan/setSetpoint/setCirculation/setPanelTemp all relay straight
+to the matching AirconClient.set_*() method (see aircon_ble.py), which
+applies an optimistic local update and hands the real BLE write off to a
+600ms debounce -- so `{"success": true}` here means "queued", not "the
+controller confirmed it took", same as turning the knob itself already
+behaves.
 
 Pushed automatically, knob -> pi (no response expected):
   {"id": N, "cmd": "state", "state": {...}}      -- on client.state_dirty
@@ -174,6 +188,16 @@ class SerialLink:
             _write({"id": msg_id, "cmd": "pong"})
         elif cmd == "setSettings":
             asyncio.create_task(self._apply_settings(msg_id, msg.get("settings") or {}))
+        elif cmd == "setMode":
+            asyncio.create_task(self._cmd_aircon(msg_id, self._client.set_mode(msg.get("val"))))
+        elif cmd == "setFan":
+            asyncio.create_task(self._cmd_aircon(msg_id, self._client.set_fan(msg.get("val"))))
+        elif cmd == "setSetpoint":
+            asyncio.create_task(self._cmd_aircon(msg_id, self._client.set_setpoint(msg.get("val"))))
+        elif cmd == "setCirculation":
+            asyncio.create_task(self._cmd_aircon(msg_id, self._client.set_circulation(msg.get("val"))))
+        elif cmd == "setPanelTemp":
+            asyncio.create_task(self._cmd_aircon(msg_id, self._client.set_panel_temp(msg.get("val"))))
         else:
             print("serial_link: unknown cmd:", cmd)
             _write({"id": msg_id, "success": False, "error": "unknown cmd"})
@@ -196,6 +220,21 @@ class SerialLink:
             _write({"id": msg_id, "success": True})
         except Exception as e:
             print("serial_link: setClock failed:", e)
+            _write({"id": msg_id, "success": False, "error": str(e)})
+
+    async def _cmd_aircon(self, msg_id, coro):
+        """Shared body for setMode/setFan/setSetpoint/setCirculation/
+        setPanelTemp -- each just hands its own AirconClient.set_*() call
+        (already-constructed coroutine) through here. Runs as an orphaned
+        task like _apply_settings() below, same reasoning: an unhandled
+        exception would otherwise vanish silently and leave the Pi waiting
+        forever for a response that's never coming.
+        """
+        try:
+            await coro
+            _write({"id": msg_id, "success": True})
+        except Exception as e:
+            print("serial_link: aircon command failed:", e)
             _write({"id": msg_id, "success": False, "error": str(e)})
 
     async def _apply_settings(self, msg_id, settings):
