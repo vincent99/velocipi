@@ -10,6 +10,7 @@ import lvgl as lv
 import lcd_bus
 import gc9a01
 import cst816s
+import neopixel
 from machine import SPI, I2C, Pin
 
 from encoder import Encoder
@@ -34,6 +35,19 @@ _POWER_PIN_1 = 1
 _POWER_PIN_2 = 2
 _POWER_LIGHT_PIN = 40
 
+_LED_PIN = 48
+_LED_COUNT = 5
+
+# Public (no leading underscore): main.py's _led_rgb_for() also uses these
+# to scale its red/blue/white base colors -- full 0-255 RGB output measured
+# painfully bright in person, so each channel is capped at LED_MAX_PCT
+# instead, which conveniently also makes 100% brightness == rgb(100,100,100),
+# a direct 1:1 read against the brightness percentage itself.
+# LED_MIN_PCT keeps them from going fully dark at the lowest brightness
+# setting, same reasoning as _BACKLIGHT_MIN_PCT below.
+LED_MIN_PCT = 1
+LED_MAX_PCT = 100
+
 WIDTH = 240
 HEIGHT = 240
 
@@ -50,6 +64,22 @@ def init_board_power():
     heartbeat = Pin(_POWER_LIGHT_PIN, Pin.OUT)
     heartbeat.value(0)  # active-low: starts on
     return heartbeat
+
+
+def init_rgb_leds():
+    """5 WS2812 status LEDs on _LED_PIN, driven by MicroPython's built-in
+    `neopixel` module (frozen into this project's firmware build, per
+    ../README.md -- not a separate `mip install`). NOT hardware-verified
+    yet. Starts lit solid white at LED_MAX_PCT (not full 0-255 white -- see
+    that constant's own comment) -- main() updates the actual color once
+    real state is available (see its _led_rgb_for()), same
+    proof-of-life-before-real-data reasoning as init_board_power()'s
+    heartbeat light.
+    """
+    pixels = neopixel.NeoPixel(Pin(_LED_PIN), _LED_COUNT)
+    pixels.fill((LED_MAX_PCT, LED_MAX_PCT, LED_MAX_PCT))
+    pixels.write()
+    return pixels
 
 
 def hal_init_display():
@@ -118,10 +148,22 @@ def _init_touch():
 _BACKLIGHT_MIN_PCT = 1
 _BACKLIGHT_MAX_PCT = 100
 
+# Last percentage passed to set_brightness() -- main.py's _led_rgb_for()
+# scales the RGB status LEDs by this too (see get_brightness_pct()), so
+# they dim/brighten together with the backlight instead of staying at a
+# fixed, possibly painfully-bright level in a dark cabin.
+_brightness_pct = 100
+
 
 def set_brightness(display, pct):
+    global _brightness_pct
     pct = min(max(pct, _BACKLIGHT_MIN_PCT), _BACKLIGHT_MAX_PCT)
+    _brightness_pct = pct
     display.set_backlight(pct)
+
+
+def get_brightness_pct():
+    return _brightness_pct
 
 
 def hal_init_input():

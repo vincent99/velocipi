@@ -86,6 +86,22 @@ _SPLASH_IMAGE = "images/splash.bin"
 # docstring for why this blinks instead of just staying lit.
 _HEARTBEAT_PERIOD_MS = 500
 
+# The 5 status LEDs (see hal.init_rgb_leds()): red/blue/white, not the
+# theme's own COLOR_DANGER/COLOR_COMPRESSOR_ON hex values -- those were
+# tuned as a subtle translucent *background fill* behind text (home.py's
+# row1), not a standalone illuminated color, so COLOR_COMPRESSOR_ON in
+# particular (a near-black navy, 0x0B1F4D) would read as barely-lit rather
+# than "blue" here. Same priority order as row1's own fill logic (error
+# beats compressor-on beats neutral) -- see _led_rgb_for().
+#
+# Component values are capped at hal.LED_MAX_PCT (100), not the usual
+# 0-255 per channel -- see that constant's own comment for why (also used
+# by hal.init_rgb_leds()'s own initial startup color, so both places agree
+# on the same ceiling).
+_LED_RED = (hal.LED_MAX_PCT, 0, 0)
+_LED_BLUE = (0, 0, hal.LED_MAX_PCT)
+_LED_WHITE = (hal.LED_MAX_PCT, hal.LED_MAX_PCT, hal.LED_MAX_PCT)
+
 # Hold the knob's push-button continuously for this long, on any screen, and
 # main()'s loop reboots the panel -- a physical-only escape hatch for a
 # wedged UI that doesn't depend on BLE, touch, or anything else that might
@@ -208,11 +224,38 @@ def _show_splash():
         return None
 
 
+def _led_rgb_for(state, brightness_pct):
+    """Same priority as home.HomeTile.refresh()'s row1 fill logic (error,
+    then compressor-on, then neutral) -- except neutral is solid white
+    here rather than transparent/off, since these are physical always-lit
+    status LEDs, not a UI highlight that should disappear when there's
+    nothing to call out, and a lost BLE connection counts as an error too
+    (row1 doesn't need that case explicitly -- DisconnectedTile takes over
+    the whole display whenever state.connected is False, see
+    screens/__init__.py's App.refresh(), so row1 isn't even visible then;
+    the LEDs have no such "different screen" to fall back on). Scaled by
+    brightness_pct (clamped to hal.LED_MIN_PCT/hal.LED_MAX_PCT -- see
+    hal.get_brightness_pct()) so the LEDs track the same dimming the Pi
+    pushes down for the LCD backlight, not a fixed always-max brightness.
+    """
+    if not state.connected or state.error:
+        color = _LED_RED
+    elif state.compressor == "on":
+        color = _LED_BLUE
+    else:
+        color = _LED_WHITE
+    pct = min(max(brightness_pct, hal.LED_MIN_PCT), hal.LED_MAX_PCT)
+    return tuple(c * pct // 100 for c in color)
+
+
 async def main():
     _init_watchdog()
 
     heartbeat_pin = hal.init_board_power()
     _checkpoint("board power initialized")
+
+    rgb_leds = hal.init_rgb_leds()
+    _checkpoint("rgb leds initialized")
 
     lv.init()
     _checkpoint("lv.init()")
@@ -282,6 +325,7 @@ async def main():
     last_tick_ms = time.ticks_ms()
     last_heartbeat_ms = 0
     heartbeat_on = True  # matches init_board_power()'s initial state
+    last_led_rgb = None  # forces the first tick's LED write to actually happen
     btn_hold_start_ms = None
     while True:
         now = time.ticks_ms()
@@ -327,6 +371,16 @@ async def main():
             client.dirty.clear()
             last_refresh_ms = now
             app.refresh()
+
+        # Checked every tick (cheap -- pure computation, no hardware I/O
+        # unless it actually changed) rather than only on the screen's own
+        # refresh cadence above, so a brightness push takes effect on the
+        # LEDs immediately instead of waiting for the next state change.
+        led_rgb = _led_rgb_for(client.state, hal.get_brightness_pct())
+        if led_rgb != last_led_rgb:
+            last_led_rgb = led_rgb
+            rgb_leds.fill(led_rgb)
+            rgb_leds.write()
 
         # Non-blocking: drains+dispatches whatever the Pi has sent since the
         # last tick, and pushes a state/settings message for whatever
