@@ -44,7 +44,7 @@ def init_board_power():
     Pin(_POWER_LIGHT_PIN, Pin.OUT).value(0)  # active-low
 
 
-def _init_display():
+def hal_init_display():
     spi_bus = SPI.Bus(host=1, mosi=_LCD_MOSI, miso=-1, sck=_LCD_SCLK)
     display_bus = lcd_bus.SPIBus(
         spi_bus=spi_bus,
@@ -107,16 +107,9 @@ def _init_touch():
     return cst816s.CST816S(device, reset_pin=_TOUCH_RST)
 
 
-def _init_encoder():
-    return Encoder()
-
-
-def hal_init_display():
-    return _init_display()
-
-
 _BACKLIGHT_MIN_PCT = 1
 _BACKLIGHT_MAX_PCT = 100
+
 
 def set_brightness(display, pct):
     pct = min(max(pct, _BACKLIGHT_MIN_PCT), _BACKLIGHT_MAX_PCT)
@@ -129,4 +122,4 @@ def hal_init_input():
     except Exception as e:
         print("hal: touch init failed, continuing without it:", type(e), e.args)
 
-    return _init_encoder()
+    return Encoder()

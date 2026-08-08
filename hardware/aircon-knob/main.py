@@ -36,10 +36,10 @@ above) -- it only touches machine/sys/select/json/asyncio plus hal
 objects or aioble/bluetooth. It does NOT disable Ctrl-C on this connection
 (an earlier version did, via micropython.kbd_intr(-1) -- see its own
 docstring for why that turned out to be unnecessary) -- but see the
-_SAFE_MODE check below regardless: Ctrl-C alone still only reaches the
-`except KeyboardInterrupt: machine.soft_reset()` handler at the bottom of
-this file, which reboots straight back into this same app rather than
-leaving you at a lasting REPL prompt.
+_SAFE_MODE check below regardless: Ctrl-C only helps if the interpreter is
+cooperative enough to actually deliver the interrupt, and a genuinely
+wedged app (stuck in a blocking call, no await point reached) might never
+see it at all.
 """
 
 import asyncio
@@ -57,15 +57,15 @@ import time
 # Checked immediately once `machine` is available, before lvgl/hal/
 # anything else.
 #
-# Ctrl-C alone doesn't cover this need: it works fine on its own now (see
-# serial_link.py's docstring for why micropython.kbd_intr(-1) is no longer
-# called at all), but it only reaches the `except KeyboardInterrupt:
-# machine.soft_reset()` handler at the very bottom of this file, which
-# just reboots straight back into this same app rather than leaving a
-# lasting REPL -- if the app itself is what's wedged (BLE hang, LVGL
-# crash-loop, etc.), that handler alone can't get you back to a working
-# prompt. This is the only way in short of racing the boot window or a
-# full reflash.
+# Ctrl-C alone doesn't fully cover this need: it works fine when the app
+# is merely slow or misbehaving (see serial_link.py's docstring for why
+# micropython.kbd_intr(-1) is no longer called at all, and the `except
+# KeyboardInterrupt` clause at the bottom of this file, which just returns
+# to the REPL rather than resetting), but a genuinely wedged app -- stuck
+# in a blocking call with no cooperative await point for the interpreter
+# to deliver the interrupt at -- might never see a Ctrl-C at all. This is
+# the only way in for that case, short of racing the boot window or a full
+# reflash.
 _SAFE_MODE_PIN = 41
 _SAFE_MODE = machine.Pin(_SAFE_MODE_PIN, machine.Pin.IN, machine.Pin.PULL_UP).value() == 0
 if _SAFE_MODE:
@@ -335,26 +335,17 @@ if not _SAFE_MODE:
         asyncio.run(main())
     except KeyboardInterrupt:
         # mpremote translates a terminal Ctrl-C into this. Deliberately NOT
-        # calling machine.soft_reset() (or any reset) here -- an earlier
-        # version did, to keep repeated `mpremote mount . run main.py`
-        # sessions from colliding over hal.py's un-deinit'd SPI/I2C host
-        # claims, but that workflow is gone now (dev flashes + `mpremote
-        # reset` instead, see ../Makefile). Worse, self-resetting on this
-        # exact Ctrl-C actively broke plain `mpremote cp` (used by `make
-        # sync`): mpremote's own raw-REPL entry handshake (transport_serial.
-        # py's enter_raw_repl()) sends this same Ctrl-C and then follows up
-        # with its own Ctrl-A/Ctrl-D reset sequence, reading specific
-        # "raw REPL"/"soft reboot" text back at each step -- resetting
-        # immediately here fired a second, earlier, differently-timed reset
-        # that raced the board's native USB CDC re-enumeration against
-        # mpremote's read, producing "OSError: [Errno 6] Device not
+        # calling machine.soft_reset() (or any reset) here: mpremote's own
+        # raw-REPL entry (used by `mpremote cp`/`make sync`) sends this same
+        # Ctrl-C and then does its own Ctrl-A/Ctrl-D reset handshake --
+        # resetting again here raced that handshake against the board's USB
+        # CDC re-enumeration, producing "OSError: [Errno 6] Device not
         # configured" and aborting the copy. Letting Ctrl-C propagate
-        # normally (no reset at all) leaves the interpreter idle at the
-        # point mpremote's handshake expects, matching how any ordinary
-        # MicroPython program behaves under mpremote. No peripheral-
-        # collision risk either: mpremote's own soft-reset (its Ctrl-D)
-        # only re-runs boot.py, not main.py, so nothing re-claims hal.py's
-        # peripherals until a real reset (`make dev`/`make reset`) happens.
+        # normally instead leaves the interpreter idle where mpremote
+        # expects it. No peripheral-collision risk either: mpremote's own
+        # soft-reset (its Ctrl-D) only re-runs boot.py, not main.py, so
+        # nothing re-claims hal.py's peripherals until a real reset
+        # (`make dev`/`make reset`) happens.
         print("KeyboardInterrupt: returning to REPL")
     except Exception as e:
         # Any other uncaught exception -- a real crash, not a dev-session
@@ -362,11 +353,10 @@ if not _SAFE_MODE:
         # board anyway once _WATCHDOG_TIMEOUT_MS elapses with nothing left
         # running to feed it, but resetting immediately here recovers
         # faster than waiting out that timeout. machine.reset() (a real
-        # hardware reset), not soft_reset() -- unlike the deliberate-Ctrl-C
-        # case above, there's no `mpremote mount` session to stay polite to
-        # here, and a crash may have left SPI/I2C hosts claimed in a broken
-        # state that only a hardware reset reliably clears (same reasoning
-        # as that case's own comment).
+        # hardware reset), not soft_reset() -- unlike the Ctrl-C case above,
+        # there's no mpremote handshake to stay in step with here, and a
+        # crash may have left SPI/I2C hosts claimed in a broken state that
+        # only a hardware reset reliably clears.
         #
         # sys.print_exception (MicroPython's traceback.print_exc
         # equivalent -- there's no `traceback` module in core MicroPython)

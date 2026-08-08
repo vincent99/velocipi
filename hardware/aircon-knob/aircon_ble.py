@@ -449,36 +449,24 @@ class AirconClient:
         # kwarg at all ("unexpected keyword argument 'mtu'").
         connection = await device.connect(timeout_ms=5000)
         async with connection:
-            # THE fix for the settings/status JSON truncation, per
-            # MicroPython's own bluetooth module docs (checked directly
-            # against upstream source/docs, not guessed from memory this
-            # time): aioble.config(mtu=256) alone only sets the *preferred*
-            # MTU -- "ATT MTU exchange will not happen automatically
-            # (unless the remote device initiates it), and must be
-            # manually initiated with gattc_exchange_mtu". aioble itself
-            # never calls that anywhere (confirmed empty in both its
-            # central.py and client.py), so nothing was ever going to
-            # trigger the exchange through the aioble layer alone --
-            # config() by itself was a real no-op here, matching what was
-            # observed.
+            # The fix for the settings/status JSON truncation (see
+            # aioble.config(mtu=256) above): that call alone only sets the
+            # *preferred* MTU, per MicroPython's bluetooth module docs --
+            # the exchange itself must be actively triggered, and aioble
+            # never does that on its own (central.py/client.py have no
+            # gattc_exchange_mtu call anywhere), so it's done manually here.
+            # bluetooth.BLE() is a singleton, so constructing it again just
+            # returns aioble's own radio object. connection._conn_handle is
+            # private (no public accessor), used because aioble's own
+            # central.py._connect() relies on that same attribute name
+            # internally.
             #
-            # bluetooth.BLE() is a singleton -- constructing it again here
-            # returns aioble's own underlying radio object, not a second
-            # one -- so this is safe to call directly rather than needing
-            # aioble to expose it. connection._conn_handle is a private
-            # attribute (aioble has no public accessor for it), used
-            # because central.py's own _connect() uses that exact name
-            # internally, confirmed against aioble's real source.
-            #
-            # No IRQ handler registered here to await the
-            # _IRQ_MTU_EXCHANGED completion event: bluetooth.BLE.irq() only
-            # supports a single global callback, and aioble already owns
-            # that slot for its own connect/read/write/notify dispatch --
-            # registering another would silently break everything else.
-            # The fixed sleep below is a cruder stand-in: MTU exchange is a
-            # single fast round-trip on an already-established connection,
-            # and the service/characteristic discovery immediately after
-            # this adds further real time before the first actual read.
+            # No IRQ handler awaits the _IRQ_MTU_EXCHANGED completion event
+            # -- bluetooth.BLE.irq() only supports one global callback, and
+            # aioble already owns that slot for its own dispatch, so a
+            # fixed sleep stands in for it instead (the exchange is one
+            # fast round-trip, and service/characteristic discovery right
+            # after this adds further real time before the first read).
             try:
                 bluetooth.BLE().gattc_exchange_mtu(connection._conn_handle)
                 await asyncio.sleep_ms(200)

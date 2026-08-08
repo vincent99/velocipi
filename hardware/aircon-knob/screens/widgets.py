@@ -97,8 +97,8 @@ def _set_visible(obj, visible):
 
 
 def _make_tile(tileview, col, row, dir_):
-    """A tile with centered flex content -- used for the placeholder
-    screens, which are just a single centered label.
+    """A tile with centered flex content -- used by History, whose title/
+    graph/readout stack wants to sit centered as a group.
     """
     tile = tileview.add_tile(col, row, dir_)
     tile.set_style_bg_color(theme.COLOR_BG, 0)

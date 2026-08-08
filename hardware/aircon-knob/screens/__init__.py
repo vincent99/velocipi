@@ -5,14 +5,15 @@ screen), connect.py, disconnected.py -- with LVGL widget-construction
 helpers shared across them factored into widgets.py.
 
 Interaction model (deliberately different from a typical LVGL encoder+group
-setup -- see ../hal.py's _init_encoder() docstring for why):
+setup, which moves focus between widgets -- there's no "focused widget"
+concept here at all, just a single fixed "current" control per screen):
   - Turning the knob adjusts whichever control is "current" on the active
     screen (fan speed/power on the main screen when mode is off/fan/cool,
     setpoint when mode is auto) -- see home.HomeTile.handle_knob(). It cycles
     which tunable is selected (or adjusts it, mid-edit) on the Settings tile
     -- see settings.SettingsTile -- scrubs the graph's cursor on History --
-    see history.HistoryTile.handle_knob() -- does nothing on the Temps
-    placeholder or the Info tile, and moves the highlighted device on
+    see history.HistoryTile.handle_knob() -- does nothing on Temps or Info
+    (both are plain read-outs), and moves the highlighted device on
     Connect -- see connect.ConnectTile.handle_knob().
   - A touch tap alone never triggers anything by itself.
   - A "click" on Home's mode/recirc cells requires a touch point on that
@@ -121,17 +122,12 @@ class App:
         # swipe-out directions are declared via _wire_tile_swipe()'s
         # `allowed` argument below instead.
         #
-        # Grid position (not gesture direction) is what's inverted from an
-        # earlier version of this layout: History used to sit *below* Home
-        # with an up-to-down gesture reaching it, which read backwards on
-        # real hardware -- swiping down-to-up felt like it should reveal
-        # whatever's below, the way dragging a page down reveals content
-        # further down it (same convention as this file's on_swipe()
-        # comment describes). Moving History above/Settings below/Temps
-        # left keeps on_swipe()'s dx/dy-to-row/col arithmetic completely
-        # literal (up really does mean row-1, no separate inversion layer
-        # to keep track of) while still landing on the gesture feel that
-        # was actually wanted.
+        # History above/Settings below/Temps left (not some other
+        # arrangement): chosen so on_swipe()'s dx/dy-to-row/col arithmetic
+        # stays completely literal (up really does mean row-1, no separate
+        # inversion layer to track) while still matching the intuitive feel
+        # that swiping down-to-up reveals whatever's "above" -- the same
+        # way dragging a page down reveals content further down it.
         from .home import HomeTile
 
         checkpoint("screens: imported home")
@@ -297,8 +293,9 @@ class App:
         """Called every main-loop tick (not just on the slower BLE-driven
         refresh cadence) so the knob feels responsive. Drains the encoder's
         delta every call regardless of which screen is active, so turning
-        it on a placeholder screen doesn't build up a jump that applies all
-        at once after swiping back to the main screen.
+        it on a screen that ignores the knob (Temps, Info) doesn't build up
+        a jump that applies all at once after swiping back to the main
+        screen.
 
         The knob's push-button is edge-detected here (fires once per
         physical press, not once per poll while held) for the Connect,
@@ -316,7 +313,7 @@ class App:
         # self._screen == "home" only means the tileview (not Connect/
         # Disconnected) is the visible top-level screen -- still need
         # get_tile_active() to check *which* tile within it is active,
-        # since the knob should do nothing on the Temps/Info placeholders.
+        # since the knob should do nothing on Temps/Info (plain read-outs).
         active_tile = self.tileview.get_tile_active() if self._screen == "home" else None
         if active_tile is self.home.tile:
             self.home.handle_knob(delta)
@@ -354,11 +351,12 @@ class App:
 def build(client, encoder, scr, checkpoint=lambda label: None):
     """Returns the App. `encoder` is the raw encoder.Encoder object from
     hal.hal_init_input() -- polled directly by App.poll_input()/
-    HomeTile.handle_knob(), not wired through an lv.indev/group (see
-    ../hal.py's _init_encoder() docstring for why). `scr` is the active
-    screen (lv.screen_active()), fetched by main.py. `checkpoint`, if given,
-    is called (with a label) after each tile module is imported inside
-    App.__init__ -- main.py passes its own _checkpoint() so the watchdog
-    gets fed between them instead of only once before/after this whole call.
+    HomeTile.handle_knob(), not wired through an lv.indev/group (see this
+    module's own docstring for the interaction-model reasoning). `scr` is
+    the active screen (lv.screen_active()), fetched by main.py.
+    `checkpoint`, if given, is called (with a label) after each tile module
+    is imported inside App.__init__ -- main.py passes its own _checkpoint()
+    so the watchdog gets fed between them instead of only once before/after
+    this whole call.
     """
     return App(client, encoder, scr, checkpoint=checkpoint)

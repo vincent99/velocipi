@@ -28,8 +28,8 @@ class InfoTile:
         col.set_size(lv.pct(100), lv.pct(100))
         col.set_style_pad_all(theme.SPACE_LG, 0)
         col.set_flex_flow(lv.FLEX_FLOW.COLUMN)
-        # main_place=START (not CENTER, used by widgets._make_tile's
-        # placeholder screens): the error label below needs the title/
+        # main_place=START (not CENTER, used by widgets._make_tile's other
+        # caller, History): the error label below needs the title/
         # version lines packed at the top so its flex_grow(1) can actually
         # claim whatever's left of the tile underneath them, not share
         # space in a centered block with them. cross_place=CENTER is what
