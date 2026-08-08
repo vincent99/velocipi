@@ -81,6 +81,11 @@ _REFRESH_PERIOD_MS = 250
 _SPLASH_MS = 2000
 _SPLASH_IMAGE = "images/splash.bin"
 
+# Half-period, not full -- toggling every _HEARTBEAT_PERIOD_MS gives a full
+# on/off cycle of 2x this, i.e. 1Hz at 500ms. See hal.init_board_power()'s
+# docstring for why this blinks instead of just staying lit.
+_HEARTBEAT_PERIOD_MS = 500
+
 # Hold the knob's push-button continuously for this long, on any screen, and
 # main()'s loop reboots the panel -- a physical-only escape hatch for a
 # wedged UI that doesn't depend on BLE, touch, or anything else that might
@@ -206,7 +211,7 @@ def _show_splash():
 async def main():
     _init_watchdog()
 
-    hal.init_board_power()
+    heartbeat_pin = hal.init_board_power()
     _checkpoint("board power initialized")
 
     lv.init()
@@ -275,6 +280,8 @@ async def main():
 
     last_refresh_ms = 0
     last_tick_ms = time.ticks_ms()
+    last_heartbeat_ms = 0
+    heartbeat_on = True  # matches init_board_power()'s initial state
     btn_hold_start_ms = None
     while True:
         now = time.ticks_ms()
@@ -289,6 +296,11 @@ async def main():
         last_tick_ms = now
 
         lv.timer_handler()
+
+        if time.ticks_diff(now, last_heartbeat_ms) >= _HEARTBEAT_PERIOD_MS:
+            last_heartbeat_ms = now
+            heartbeat_on = not heartbeat_on
+            heartbeat_pin.value(0 if heartbeat_on else 1)  # active-low
 
         # Long-press-to-reboot: see _REBOOT_HOLD_MS's comment above. A
         # plain continuous read of button_pressed() (not an edge-detected

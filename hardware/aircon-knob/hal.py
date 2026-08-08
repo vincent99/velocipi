@@ -39,9 +39,17 @@ HEIGHT = 240
 
 
 def init_board_power():
+    """Returns the power-light Pin, left ON (active-low) -- main()'s own
+    loop blinks it at 1Hz from there (see _HEARTBEAT_PERIOD_MS) rather
+    than this just leaving it solidly lit: a steady blink is a much more
+    useful "is the main loop still actually running" signal than a light
+    that looks identical whether the app's fine or the main loop has hung.
+    """
     Pin(_POWER_PIN_1, Pin.OUT).value(1)
     Pin(_POWER_PIN_2, Pin.OUT).value(1)
-    Pin(_POWER_LIGHT_PIN, Pin.OUT).value(0)  # active-low
+    heartbeat = Pin(_POWER_LIGHT_PIN, Pin.OUT)
+    heartbeat.value(0)  # active-low: starts on
+    return heartbeat
 
 
 def hal_init_display():
