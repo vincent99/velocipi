@@ -1,0 +1,18 @@
+# Build output
+/intercom-stt
+/tmp/
+
+# Local config overrides (defaults live in config.default.yaml)
+/config.yaml
+
+# Recorded data / transcripts
+/data/
+
+# Python sidecar venv + caches
+.venv
+__pycache__
+
+# Editor / OS cruft
+*~
+*.swp
+.DS_Store

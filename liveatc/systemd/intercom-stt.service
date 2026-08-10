@@ -1,0 +1,42 @@
+# Sample systemd unit for the liveatc intercom STT service.
+#
+# Install:
+#   sudo cp intercom-stt /usr/local/bin/
+#   sudo cp -r config.default.yaml config.yaml sidecar /etc/liveatc/   # WorkingDirectory
+#   sudo cp systemd/intercom-stt.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now intercom-stt
+#
+# Logs (structured JSON on stdout) go to the journal:
+#   journalctl -u intercom-stt -f
+
+[Unit]
+Description=liveatc cockpit intercom STT service
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as a non-root user that is a member of the 'audio' and 'gpio' groups.
+User=pi
+Group=pi
+SupplementaryGroups=audio gpio
+
+# WorkingDirectory must contain config.default.yaml (+ optional config.yaml) and
+# the sidecar/ dir. The USB SSD mount is referenced by storage.liveatc in config.
+WorkingDirectory=/etc/liveatc
+ExecStart=/usr/local/bin/intercom-stt --config /etc/liveatc
+
+# Graceful stop: the service flushes the in-progress segment and finishes queued
+# STT jobs on SIGTERM. Give it time before SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+Restart=on-failure
+RestartSec=3
+
+# Hardening (relax if it interferes with device access).
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
