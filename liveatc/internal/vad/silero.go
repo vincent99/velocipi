@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -41,12 +42,19 @@ type SileroScorer struct {
 
 // NewSileroScorer starts the sidecar. It returns an error if the process can't
 // be launched; the caller may then fall back to the energy scorer.
-func NewSileroScorer(ctx context.Context, python, script string, sampleRate, frameSamples int, threshold float64, log *slog.Logger) (*SileroScorer, error) {
+//
+// onnxPath, when non-empty, is injected into the child's environment as
+// SILERO_ONNX so the sidecar selects its onnxruntime backend without the value
+// having to be set in the outer environment.
+func NewSileroScorer(ctx context.Context, python, script, onnxPath string, sampleRate, frameSamples int, threshold float64, log *slog.Logger) (*SileroScorer, error) {
 	cmd := exec.CommandContext(ctx, python, script,
 		"--sample-rate", strconv.Itoa(sampleRate),
 		"--frame-samples", strconv.Itoa(frameSamples),
 		"--threshold", strconv.FormatFloat(threshold, 'f', -1, 64),
 	)
+	if onnxPath != "" {
+		cmd.Env = append(os.Environ(), "SILERO_ONNX="+onnxPath)
+	}
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

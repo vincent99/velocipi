@@ -32,10 +32,11 @@ const frameSamples = 512 // Silero's fixed window at 16 kHz
 
 func main() {
 	var (
-		configDir = flag.String("config", ".", "directory holding config.default.yaml / config.yaml")
+		configDir = flag.String("config", "..", "directory holding the shared velocipi config.default.yaml / config.yaml (defaults to the repo root, one level up from liveatc/)")
 		streamURL = flag.String("stream", "", "capture from a network stream (e.g. liveatc.net) instead of ALSA, for testing")
 		filePath  = flag.String("file", "", "capture from a local audio file instead of ALSA, for testing")
 		device    = flag.String("device", "", "override the ALSA capture device (else config/AUDIO_DEVICE)")
+		fast      = flag.Bool("fast", false, "with --file: replay as fast as the CPU allows instead of at real time (segment wall-clock timestamps/durations will be compressed; audio + transcripts are unaffected)")
 	)
 	flag.Parse()
 
@@ -47,11 +48,20 @@ func main() {
 		cfg.LiveATC.Audio.AudioDevice = *device
 	}
 
-	log := newLogger(cfg.LogLevel)
+	log := newLogger(cfg.LiveATC.LogLevel)
 
-	// Session + manifest.
+	// Session + manifest. Record the *actual* capture source: the ALSA device by
+	// default, or the --stream URL / --file path when those override it, so the
+	// manifest reflects what was really captured rather than the config default.
 	modelPath := cfg.LiveATC.Whisper.ModelPath()
-	sess := session.New(cfg.Storage.LiveATC, cfg.Aircraft, cfg.LiveATC.Audio.AudioDevice, modelPath)
+	source := cfg.LiveATC.Audio.AudioDevice
+	switch {
+	case *filePath != "":
+		source = *filePath
+	case *streamURL != "":
+		source = *streamURL
+	}
+	sess := session.New(cfg.Storage.LiveATC, cfg.TailNumber, source, modelPath)
 	if err := sess.WriteManifest(); err != nil {
 		log.Error("write session manifest", "err", err)
 	}
@@ -85,6 +95,7 @@ func main() {
 	switch {
 	case *filePath != "":
 		capParams.Mode, capParams.FilePath = audio.ModeFile, *filePath
+		capParams.FastReplay = *fast
 	case *streamURL != "":
 		capParams.Mode, capParams.StreamURL = audio.ModeStream, *streamURL
 	}
@@ -96,6 +107,7 @@ func main() {
 		Engine:       cfg.LiveATC.VAD.Engine,
 		SileroPython: cfg.LiveATC.VAD.SileroPython,
 		SileroScript: cfg.LiveATC.VAD.SileroScript,
+		SileroOnnx:   cfg.LiveATC.VAD.SileroOnnx,
 		SampleRate:   cfg.LiveATC.Audio.SampleRate,
 		FrameSamples: frameSamples,
 		Threshold:    cfg.LiveATC.VAD.Threshold,
@@ -110,7 +122,7 @@ func main() {
 	defer pttMon.Close()
 
 	// API server.
-	apiSrv := api.New(cfg.Addr, store, gpsStore, sess, log)
+	apiSrv := api.New(cfg.LiveATC.Addr, store, gpsStore, sess, log)
 	go func() {
 		if err := apiSrv.Start(); err != nil {
 			log.Error("api server", "err", err)
@@ -129,6 +141,9 @@ func main() {
 		Writer:      writer,
 		GPS:         gpsStore,
 		PTT:         pttMon,
+		// A file source is bounded, so block on a full STT queue (backpressure)
+		// instead of dropping segments; live sources drop to avoid wedging.
+		LiveSource: *filePath == "",
 	})
 
 	if err := p.Run(ctx); err != nil {

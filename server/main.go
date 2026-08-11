@@ -46,14 +46,14 @@ func main() {
 	// Initialise the OLED display. Non-fatal if the hardware isn't present.
 	var display oled.Display
 	oledCfg := oled.Config{
-		SPIPort:   cfg.SPIDevice,
+		SPIPort:   cfg.Hardware.SPIDevice,
 		SPISpeed:  cfg.OLEDSPIFreq,
-		GPIOChip:  cfg.OLED.GPIOChip,
-		StatusPin: cfg.OLED.StatusPin,
-		ResetPin:  cfg.OLED.ResetPin,
-		Flip:      cfg.OLED.Flip,
+		GPIOChip:  cfg.Hardware.OLED.GPIOChip,
+		StatusPin: cfg.Hardware.OLED.StatusPin,
+		ResetPin:  cfg.Hardware.OLED.ResetPin,
+		Flip:      cfg.Hardware.OLED.Flip,
 	}
-	switch cfg.OLED.Driver {
+	switch cfg.Hardware.OLED.Driver {
 	case "ge256x64b":
 		if o, err := oled.NewGE256X64B(oledCfg, cfg.UI.Panel.Width, cfg.UI.Panel.Height); err != nil {
 			log.Println("oled: init error (continuing without display):", err)
@@ -89,7 +89,10 @@ func main() {
 					Defaults *config.Config `json:"defaults"`
 				}{cfg, defaults})
 			} else {
-				data, err = json.Marshal(cfg.UI)
+				data, err = json.Marshal(struct {
+					config.UIConfig
+					TailNumber string `json:"tailNumber"`
+				}{cfg.UI, cfg.TailNumber})
 			}
 			if err != nil {
 				http.Error(w, "config marshal error", http.StatusInternalServerError)

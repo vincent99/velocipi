@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -39,16 +40,35 @@ func New(root, aircraft, device, model string) *Session {
 // transcript paths across the whole session.
 func (s *Session) startDate() string { return s.StartTime.UTC().Format("2006-01-02") }
 
-// AudioPath returns the WAV path for a transmission at time t. callsignHint may
-// be empty (filled in post-STT); it is sanitized for the filesystem.
-func (s *Session) AudioPath(t time.Time, callsignHint string) string {
+// AudioPath returns the WAV path for a transmission at time t. id disambiguates
+// segments so sub-second (and --fast replay, where wall-clock time barely
+// advances) transmissions never collide. callsignHint may be empty (filled in
+// post-STT); it is sanitized for the filesystem.
+func (s *Session) AudioPath(t time.Time, id, callsignHint string) string {
 	date := t.UTC().Format("2006-01-02")
-	stamp := t.UTC().Format("2006-01-02_15-04-05")
+	// Millisecond precision keeps names readable and ordered; the id suffix
+	// guarantees uniqueness even when timestamps coincide.
+	stamp := t.UTC().Format("2006-01-02_15-04-05.000")
 	name := stamp
 	if h := sanitize(callsignHint); h != "" {
 		name += "_" + h
 	}
+	if short := shortID(id); short != "" {
+		name += "_" + short
+	}
 	return filepath.Join(s.Root, "audio", date, name+".wav")
+}
+
+// shortID returns the first hyphen-delimited group of a UUID (8 hex chars),
+// enough to disambiguate segments within a session.
+func shortID(id string) string {
+	if i := strings.IndexByte(id, '-'); i > 0 {
+		return id[:i]
+	}
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 // JSONLPath returns the rolling transcript JSONL path for this session.

@@ -183,7 +183,7 @@ func (h *Hub) handleChange(ch expander.Change, config *cfg.Config, inner, outer,
 	// Joystick directions: center bit drives press/release.
 	// keydown fires when center is pressed, for each direction bit currently held.
 	// keyup fires when center is released, for each direction bit that was held.
-	bits := config.Expander.Bits
+	bits := config.Hardware.Expander.Bits
 	dirs := []struct {
 		bit     uint
 		logical string

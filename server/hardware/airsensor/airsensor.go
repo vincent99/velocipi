@@ -114,8 +114,8 @@ type Config struct {
 func NewAirSensor() (*AirSensor, error) {
 	cfg := config.Load().Config
 	return NewAirSensorWithOptions(&Config{
-		Address:            cfg.AirSensor.Address,
-		Device:             cfg.I2CDevice,
+		Address:            cfg.Hardware.AirSensor.Address,
+		Device:             cfg.Hardware.I2CDevice,
 		Mode:               NORMAL,
 		Standby:            SB_1,
 		Filter:             FILTER_2,

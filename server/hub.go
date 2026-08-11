@@ -362,7 +362,7 @@ func (h *Hub) runBrightnessLoop(ctx context.Context) {
 }
 
 // handleLEDMsg controls the expander LED from a websocket message.
-func (h *Hub) handleLEDMsg(state string, rateMs int) {
+func (h *Hub) handleLEDMsg(channel string, state string, rateMs int) {
 	e := hardware.Expander()
 	if e == nil {
 		log.Println("led: expander not available")

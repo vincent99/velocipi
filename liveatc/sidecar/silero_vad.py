@@ -63,15 +63,23 @@ class OnnxVAD:
         opts.intra_op_num_threads = 1
         self.sess = ort.InferenceSession(onnx_path, sess_options=opts,
                                          providers=["CPUExecutionProvider"])
-        # Silero onnx keeps recurrent state between calls.
+        # Silero v5 keeps recurrent state between calls AND expects each chunk to
+        # be prefixed with a context window (the tail of the previous chunk), so
+        # the model input is context+frame samples. The model's input dim is
+        # dynamic, so feeding a bare frame does NOT error -- it just returns
+        # meaningless (~0) scores. Context is 64 samples @16k, 32 @8k.
+        self._context_size = 64 if sample_rate == 16000 else 32
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
+        self._context = np.zeros((1, self._context_size), dtype=np.float32)
         self._sr = np.array(sample_rate, dtype=np.int64)
 
     def score(self, int16_frame):
-        x = (int16_frame.astype(self.np.float32) / 32768.0).reshape(1, -1)
+        frame = (int16_frame.astype(self.np.float32) / 32768.0).reshape(1, -1)
+        x = self.np.concatenate([self._context, frame], axis=1)
         out, self._state = self.sess.run(
             None, {"input": x, "state": self._state, "sr": self._sr}
         )
+        self._context = x[:, -self._context_size:]
         return float(out.reshape(-1)[0])
 
 

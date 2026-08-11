@@ -226,22 +226,22 @@ const keyMapFields = [
 ];
 
 const expanderBitFields = [
-  { key: 'expander.bits.knobCenter', label: 'Knob center' },
-  { key: 'expander.bits.knobInnerA', label: 'Knob inner A' },
-  { key: 'expander.bits.knobInnerB', label: 'Knob inner B' },
-  { key: 'expander.bits.knobOuterA', label: 'Knob outer A' },
-  { key: 'expander.bits.knobOuterB', label: 'Knob outer B' },
-  { key: 'expander.bits.ledR', label: 'LED Red' },
-  { key: 'expander.bits.ledW', label: 'LED White' },
-  { key: 'expander.bits.ledB', label: 'LED Blue' },
-  { key: 'expander.bits.ledY', label: 'LED Yellow' },
-  { key: 'expander.bits.joyCenter', label: 'Joy center' },
-  { key: 'expander.bits.joyDown', label: 'Joy down' },
-  { key: 'expander.bits.joyUp', label: 'Joy up' },
-  { key: 'expander.bits.joyRight', label: 'Joy right' },
-  { key: 'expander.bits.joyLeft', label: 'Joy left' },
-  { key: 'expander.bits.joyKnobA', label: 'Joy knob A' },
-  { key: 'expander.bits.joyKnobB', label: 'Joy knob B' },
+  { key: 'hardware.expander.bits.knobCenter', label: 'Knob center' },
+  { key: 'hardware.expander.bits.knobInnerA', label: 'Knob inner A' },
+  { key: 'hardware.expander.bits.knobInnerB', label: 'Knob inner B' },
+  { key: 'hardware.expander.bits.knobOuterA', label: 'Knob outer A' },
+  { key: 'hardware.expander.bits.knobOuterB', label: 'Knob outer B' },
+  { key: 'hardware.expander.bits.ledR', label: 'LED Red' },
+  { key: 'hardware.expander.bits.ledW', label: 'LED White' },
+  { key: 'hardware.expander.bits.ledB', label: 'LED Blue' },
+  { key: 'hardware.expander.bits.ledY', label: 'LED Yellow' },
+  { key: 'hardware.expander.bits.joyCenter', label: 'Joy center' },
+  { key: 'hardware.expander.bits.joyDown', label: 'Joy down' },
+  { key: 'hardware.expander.bits.joyUp', label: 'Joy up' },
+  { key: 'hardware.expander.bits.joyRight', label: 'Joy right' },
+  { key: 'hardware.expander.bits.joyLeft', label: 'Joy left' },
+  { key: 'hardware.expander.bits.joyKnobA', label: 'Joy knob A' },
+  { key: 'hardware.expander.bits.joyKnobB', label: 'Joy knob B' },
 ];
 
 const sections = [
@@ -319,17 +319,17 @@ const sections = [
           />
           <SettingsField
             label="I²C device"
-            path="i2cDevice"
+            path="hardware.i2cDevice"
             placeholder="/dev/i2c-1"
           />
           <SettingsField
             label="SPI device"
-            path="spiDevice"
+            path="hardware.spiDevice"
             placeholder="/dev/spidev0.0"
           />
           <SettingsField
             label="SPI speed"
-            path="oled.spiSpeed"
+            path="hardware.oled.spiSpeed"
             placeholder="2.40MHz"
           />
           <SettingsField
@@ -350,7 +350,7 @@ const sections = [
             />
             <SettingsField
               label="Tail number"
-              path="ui.tail"
+              path="tailNumber"
               placeholder="N711ME"
             />
             <SettingsField
@@ -367,12 +367,12 @@ const sections = [
             />
             <SettingsField
               label="Splash image"
-              path="screen.splashImage"
+              path="hardware.screen.splashImage"
               placeholder="ui/public/img/logo.png"
             />
             <SettingsField
               label="Splash duration"
-              path="screen.splashDuration"
+              path="hardware.screen.splashDuration"
               placeholder="2s"
             />
             <SettingsField
@@ -457,29 +457,29 @@ const sections = [
           <SettingsGroup title="OLED display">
             <SettingsField
               label="Driver"
-              path="oled.driver"
+              path="hardware.oled.driver"
               placeholder="ssd1327"
             />
             <SettingsField
               label="GPIO chip"
-              path="oled.gpioChip"
+              path="hardware.oled.gpioChip"
               placeholder="gpiochip0"
             />
             <SettingsField
               label="Status pin"
-              path="oled.statusPin"
+              path="hardware.oled.statusPin"
               type="number"
               :min="0"
             />
             <SettingsField
               label="Reset pin"
-              path="oled.resetPin"
+              path="hardware.oled.resetPin"
               type="number"
               :min="0"
             />
             <SettingsField
               label="Flip display 180°"
-              path="oled.flip"
+              path="hardware.oled.flip"
               type="checkbox"
             />
             <SettingsField
@@ -496,7 +496,7 @@ const sections = [
             />
             <SettingsField
               label="FPS"
-              path="screen.fps"
+              path="hardware.screen.fps"
               type="number"
               :min="1"
               :max="60"
@@ -505,14 +505,14 @@ const sections = [
           <SettingsGroup title="Expander (SX1509)">
             <div
               class="sf-row"
-              :class="{ modified: isModified('expander.address') }"
+              :class="{ modified: isModified('hardware.expander.address') }"
             >
               <button
-                v-if="isModified('expander.address')"
+                v-if="isModified('hardware.expander.address')"
                 type="button"
                 class="sf-reset"
                 title="Reset to default"
-                @click="reset('expander.address')"
+                @click="reset('hardware.expander.address')"
               >
                 <i class="fi-sr-rotate-left" />
               </button>
@@ -520,11 +520,11 @@ const sections = [
               <label class="sf-label">I²C address</label>
               <input
                 class="sf-input"
-                :value="getHex('expander.address')"
+                :value="getHex('hardware.expander.address')"
                 placeholder="0x20"
                 @change="
                   setHex(
-                    'expander.address',
+                    'hardware.expander.address',
                     ($event.target as HTMLInputElement).value
                   )
                 "
@@ -532,7 +532,7 @@ const sections = [
             </div>
             <SettingsField
               label="Poll interval"
-              path="expander.interval"
+              path="hardware.expander.interval"
               placeholder="2ms"
             />
             <SettingsGroup title="Pin assignments">
@@ -574,14 +574,14 @@ const sections = [
           <SettingsGroup title="Air sensor (BME280)">
             <div
               class="sf-row"
-              :class="{ modified: isModified('airSensor.address') }"
+              :class="{ modified: isModified('hardware.airSensor.address') }"
             >
               <button
-                v-if="isModified('airSensor.address')"
+                v-if="isModified('hardware.airSensor.address')"
                 type="button"
                 class="sf-reset"
                 title="Reset to default"
-                @click="reset('airSensor.address')"
+                @click="reset('hardware.airSensor.address')"
               >
                 <i class="fi-sr-rotate-left" />
               </button>
@@ -589,11 +589,11 @@ const sections = [
               <label class="sf-label">I²C address</label>
               <input
                 class="sf-input"
-                :value="getHex('airSensor.address')"
+                :value="getHex('hardware.airSensor.address')"
                 placeholder="0x77"
                 @change="
                   setHex(
-                    'airSensor.address',
+                    'hardware.airSensor.address',
                     ($event.target as HTMLInputElement).value
                   )
                 "
@@ -601,21 +601,21 @@ const sections = [
             </div>
             <SettingsField
               label="Poll interval"
-              path="airSensor.interval"
+              path="hardware.airSensor.interval"
               placeholder="1s"
             />
           </SettingsGroup>
           <SettingsGroup title="Light sensor (VEML6030)">
             <div
               class="sf-row"
-              :class="{ modified: isModified('lightSensor.address') }"
+              :class="{ modified: isModified('hardware.lightSensor.address') }"
             >
               <button
-                v-if="isModified('lightSensor.address')"
+                v-if="isModified('hardware.lightSensor.address')"
                 type="button"
                 class="sf-reset"
                 title="Reset to default"
-                @click="reset('lightSensor.address')"
+                @click="reset('hardware.lightSensor.address')"
               >
                 <i class="fi-sr-rotate-left" />
               </button>
@@ -623,11 +623,11 @@ const sections = [
               <label class="sf-label">I²C address</label>
               <input
                 class="sf-input"
-                :value="getHex('lightSensor.address')"
+                :value="getHex('hardware.lightSensor.address')"
                 placeholder="0x48"
                 @change="
                   setHex(
-                    'lightSensor.address',
+                    'hardware.lightSensor.address',
                     ($event.target as HTMLInputElement).value
                   )
                 "
@@ -635,7 +635,7 @@ const sections = [
             </div>
             <SettingsField
               label="Poll interval"
-              path="lightSensor.interval"
+              path="hardware.lightSensor.interval"
               placeholder="1s"
             />
           </SettingsGroup>

@@ -19,12 +19,20 @@ type VADConfig struct {
 	Engine       string  `yaml:"engine"       json:"engine"`
 	SileroPython string  `yaml:"sileroPython" json:"sileroPython"`
 	SileroScript string  `yaml:"sileroScript" json:"sileroScript"`
+	SileroOnnx   string  `yaml:"sileroOnnx"   json:"sileroOnnx"` // path to the Silero ONNX model; passed to the sidecar as SILERO_ONNX. Empty = torch.hub backend.
 	Threshold    float64 `yaml:"threshold"    json:"threshold"`
 
 	MinSpeechMs  int `yaml:"min_speech_ms"  json:"min_speech_ms"`
 	MinSilenceMs int `yaml:"min_silence_ms" json:"min_silence_ms"`
 	MaxSegmentMs int `yaml:"max_segment_ms" json:"max_segment_ms"`
 	PreRollMs    int `yaml:"pre_roll_ms"    json:"pre_roll_ms"`
+
+	// Carrier gate: bound transmissions by the radio carrier (frame energy)
+	// instead of speech pauses. CarrierFloor is the RMS (0..32767) above which
+	// the channel is "keyed"; CarrierHangoverMs is how long it must stay below
+	// that to close the transmission. CarrierFloor 0 disables carrier gating.
+	CarrierFloor      float64 `yaml:"carrier_floor"       json:"carrier_floor"`
+	CarrierHangoverMs int     `yaml:"carrier_hangover_ms" json:"carrier_hangover_ms"`
 }
 
 // WhisperConfig holds whisper.cpp CLI integration settings.
@@ -52,6 +60,11 @@ func (w WhisperConfig) ModelPath() string {
 
 // LiveATCConfig groups all liveatc-specific subsystems.
 type LiveATCConfig struct {
+	// Addr is the internal transcript API / websocket server listen address.
+	Addr string `yaml:"addr" json:"addr"`
+	// LogLevel is the slog level: debug | info | warn | error.
+	LogLevel string `yaml:"logLevel" json:"logLevel"`
+
 	Audio   AudioConfig   `yaml:"audio"   json:"audio"`
 	VAD     VADConfig     `yaml:"vad"     json:"vad"`
 	Whisper WhisperConfig `yaml:"whisper" json:"whisper"`
@@ -67,31 +80,35 @@ type StorageConfig struct {
 	LiveATC string `yaml:"liveatc" json:"liveatc"`
 }
 
-// Config is the full liveatc configuration document.
+// Config is the subset of the shared velocipi configuration document that the
+// intercom-stt process cares about. It reads the same config.default.yaml /
+// config.yaml as the main velocipi backend; unrelated keys are ignored.
 type Config struct {
-	Addr     string        `yaml:"addr"     json:"addr"`
-	Aircraft string        `yaml:"aircraft" json:"aircraft"`
-	LogLevel string        `yaml:"logLevel" json:"logLevel"`
-	LiveATC  LiveATCConfig `yaml:"liveatc"  json:"liveatc"`
-	Storage  StorageConfig `yaml:"storage"  json:"storage"`
+	// TailNumber is the aircraft identifier (shared with velocipi), recorded in
+	// the session manifest.
+	TailNumber string        `yaml:"tailNumber" json:"tailNumber"`
+	LiveATC    LiveATCConfig `yaml:"liveatc"    json:"liveatc"`
+	Storage    StorageConfig `yaml:"storage"    json:"storage"`
 }
 
 // Derived, non-serialized durations populated by Load().
 type Durations struct {
-	MinSpeech  time.Duration
-	MinSilence time.Duration
-	MaxSegment time.Duration
-	PreRoll    time.Duration
+	MinSpeech       time.Duration
+	MinSilence      time.Duration
+	MaxSegment      time.Duration
+	PreRoll         time.Duration
+	CarrierHangover time.Duration
 }
 
 // VADDurations converts the millisecond VAD fields into time.Durations.
 func (c *Config) VADDurations() Durations {
 	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
 	return Durations{
-		MinSpeech:  ms(c.LiveATC.VAD.MinSpeechMs),
-		MinSilence: ms(c.LiveATC.VAD.MinSilenceMs),
-		MaxSegment: ms(c.LiveATC.VAD.MaxSegmentMs),
-		PreRoll:    ms(c.LiveATC.VAD.PreRollMs),
+		MinSpeech:       ms(c.LiveATC.VAD.MinSpeechMs),
+		MinSilence:      ms(c.LiveATC.VAD.MinSilenceMs),
+		MaxSegment:      ms(c.LiveATC.VAD.MaxSegmentMs),
+		PreRoll:         ms(c.LiveATC.VAD.PreRollMs),
+		CarrierHangover: ms(c.LiveATC.VAD.CarrierHangoverMs),
 	}
 }
 

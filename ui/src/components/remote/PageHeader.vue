@@ -36,7 +36,7 @@ const headerColor = computed(() => {
   }
   return config.value?.headerColor ?? '#b91c1c';
 });
-const tail = computed(() => config.value?.tail ?? '');
+const tail = computed(() => config.value?.tailNumber ?? '');
 
 // Keep document title in sync with the tail number.
 watch(

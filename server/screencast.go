@@ -61,7 +61,7 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 		}
 	}
 
-	minInterval := time.Second / time.Duration(h.cfg.Screen.FPS)
+	minInterval := time.Second / time.Duration(h.cfg.Hardware.Screen.FPS)
 	var lastFrame time.Time
 
 	// splashDone is set to true once the splash screen has finished displaying.
@@ -130,7 +130,7 @@ func (h *Hub) runScreencastLoop(ctx context.Context) {
 	// the live screencast and turn the LED off.
 	go func() {
 		if h.oled != nil {
-			if img, err := pngToImage(h.cfg.Screen.SplashImage); err != nil {
+			if img, err := pngToImage(h.cfg.Hardware.Screen.SplashImage); err != nil {
 				log.Println("splash: load error:", err)
 			} else {
 				h.oled.Blit(img)

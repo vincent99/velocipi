@@ -41,10 +41,11 @@ type MusicConfig struct {
 
 // StorageConfig holds filesystem directory paths for all subsystems.
 type StorageConfig struct {
-	DVR    string `yaml:"dvr"    json:"dvr"`    // recordings directory; default "recordings"
-	Music  string `yaml:"music"  json:"music"`  // music library root; default "music"
-	Backup string `yaml:"backup" json:"backup"` // database backup directory; default "backup"
-	Snaps  string `yaml:"snaps"  json:"snaps"`  // downloaded camera snaps/photos; default "snaps"
+	DVR     string `yaml:"dvr"     json:"dvr"`     // recordings directory; default "recordings"
+	Music   string `yaml:"music"   json:"music"`   // music library root; default "music"
+	Backup  string `yaml:"backup"  json:"backup"`  // database backup directory; default "backup"
+	Snaps   string `yaml:"snaps"   json:"snaps"`   // downloaded camera snaps/photos; default "snaps"
+	LiveATC string `yaml:"liveatc" json:"liveatc"` // liveatc audio/transcripts root (used by the intercom-stt process)
 }
 
 // DVRConfig holds settings for the DVR recording subsystem.
@@ -99,7 +100,6 @@ type PanelConfig struct {
 
 // UIConfig holds the subset of config sent to the browser UI via /config.
 type UIConfig struct {
-	Tail             string        `yaml:"tail"             json:"tail"`
 	HeaderColor      string        `yaml:"headerColor"      json:"headerColor"`
 	AdminHeaderColor string        `yaml:"adminHeaderColor" json:"adminHeaderColor"`
 	Antialiasing     bool          `yaml:"antialiasing"     json:"antialiasing"`
@@ -229,30 +229,37 @@ type KnobConfig struct {
 	MaxBrightness int    `yaml:"maxBrightness" json:"maxBrightness"` // 0-100, ceiling
 }
 
+// HardwareConfig groups all the physical-hardware wiring config: bus devices,
+// the shared reset pin, and each attached peripheral.
+type HardwareConfig struct {
+	I2CDevice   string         `yaml:"i2cDevice"   json:"i2cDevice"`
+	SPIDevice   string         `yaml:"spiDevice"   json:"spiDevice"`
+	ResetPin    int            `yaml:"resetPin"    json:"resetPin"` // shared hardware reset GPIO pin; 0 = disabled
+	AirSensor   SensorConfig   `yaml:"airSensor"   json:"airSensor"`
+	Expander    ExpanderConfig `yaml:"expander"    json:"expander"`
+	LightSensor SensorConfig   `yaml:"lightSensor" json:"lightSensor"`
+	OLED        OLEDConfig     `yaml:"oled"        json:"oled"`
+	Screen      ScreenConfig   `yaml:"screen"      json:"screen"`
+	Axis        AxisConfig     `yaml:"axis"        json:"axis"`
+	LCD         LCDConfig      `yaml:"lcd"         json:"lcd"`
+	Knob        KnobConfig     `yaml:"knob"        json:"knob"`
+	Thermal     ThermalConfig  `yaml:"thermal"     json:"thermal"`
+}
+
 // Config holds all runtime configuration.
 type Config struct {
 	Addr         string `yaml:"addr"         json:"addr"`
-	I2CDevice    string `yaml:"i2cDevice"    json:"i2cDevice"`
-	SPIDevice    string `yaml:"spiDevice"    json:"spiDevice"`
+	TailNumber   string `yaml:"tailNumber"   json:"tailNumber"`
 	PingInterval string `yaml:"pingInterval" json:"pingInterval"`
-	ResetPin     int    `yaml:"resetPin"     json:"resetPin"`     // shared hardware reset GPIO pin; 0 = disabled
 
-	Storage     StorageConfig    `yaml:"storage"     json:"storage"`
-	AirSensor   SensorConfig     `yaml:"airSensor"   json:"airSensor"`
-	DVR         DVRConfig        `yaml:"dvr"         json:"dvr"`
-	Music       MusicConfig      `yaml:"music"       json:"music"`
-	Expander    ExpanderConfig   `yaml:"expander"    json:"expander"`
-	LightSensor SensorConfig     `yaml:"lightSensor" json:"lightSensor"`
-	OLED        OLEDConfig       `yaml:"oled"        json:"oled"`
-	Screen      ScreenConfig     `yaml:"screen"      json:"screen"`
-	Tires       TireAddresses    `yaml:"tires"       json:"tires"`
-	UI          UIConfig         `yaml:"ui"          json:"ui"`
-	AirCon      AirConConfig     `yaml:"airCon"      json:"airCon"`
-	Thermal     ThermalConfig    `yaml:"thermal"     json:"thermal"`
-	Axis        AxisConfig       `yaml:"axis"        json:"axis"`
-	Brightness  BrightnessConfig `yaml:"brightness"  json:"brightness"`
-	LCD         LCDConfig        `yaml:"lcd"          json:"lcd"`
-	Knob        KnobConfig       `yaml:"knob"         json:"knob"`
+	Hardware   HardwareConfig   `yaml:"hardware"    json:"hardware"`
+	Storage    StorageConfig    `yaml:"storage"     json:"storage"`
+	DVR        DVRConfig        `yaml:"dvr"         json:"dvr"`
+	Music      MusicConfig      `yaml:"music"       json:"music"`
+	Tires      TireAddresses    `yaml:"tires"       json:"tires"`
+	UI         UIConfig         `yaml:"ui"          json:"ui"`
+	AirCon     AirConConfig     `yaml:"airCon"      json:"airCon"`
+	Brightness BrightnessConfig `yaml:"brightness"  json:"brightness"`
 
 	// Parsed values — not serialized, populated by Load()
 	AppURL                 string           `yaml:"-" json:"-"` // http://localhost:<VELOCIPI_PORT>/panel/
@@ -309,17 +316,17 @@ func Load() *LoadResult {
 }
 
 func parseDurations(cfg *Config) {
-	cfg.ExpanderIntervalDur = parseDuration(cfg.Expander.Interval, "expander.interval")
-	cfg.AirSensorIntervalDur = parseDuration(cfg.AirSensor.Interval, "airSensor.interval")
-	cfg.LightSensorIntervalDur = parseDuration(cfg.LightSensor.Interval, "lightSensor.interval")
+	cfg.ExpanderIntervalDur = parseDuration(cfg.Hardware.Expander.Interval, "hardware.expander.interval")
+	cfg.AirSensorIntervalDur = parseDuration(cfg.Hardware.AirSensor.Interval, "hardware.airSensor.interval")
+	cfg.LightSensorIntervalDur = parseDuration(cfg.Hardware.LightSensor.Interval, "hardware.lightSensor.interval")
 	cfg.PingIntervalDur = parseDuration(cfg.PingInterval, "pingInterval")
-	cfg.SplashDurationDur = parseDuration(cfg.Screen.SplashDuration, "screen.splashDuration")
+	cfg.SplashDurationDur = parseDuration(cfg.Hardware.Screen.SplashDuration, "hardware.screen.splashDuration")
 	cfg.DVRDiskSpacePollDur = parseDuration(cfg.DVR.DiskSpacePoll, "dvr.diskSpacePoll")
 	cfg.BrightnessDelayDur = parseDuration(cfg.Brightness.Delay, "brightness.delay")
 	cfg.BrightnessSpeedDur = parseDuration(cfg.Brightness.Speed, "brightness.speed")
 
-	if err := cfg.OLEDSPIFreq.Set(cfg.OLED.SPISpeed); err != nil {
-		log.Fatalf("config: invalid oled.spiSpeed %q: %v", cfg.OLED.SPISpeed, err)
+	if err := cfg.OLEDSPIFreq.Set(cfg.Hardware.OLED.SPISpeed); err != nil {
+		log.Fatalf("config: invalid hardware.oled.spiSpeed %q: %v", cfg.Hardware.OLED.SPISpeed, err)
 	}
 }
 

@@ -34,6 +34,11 @@ type Deps struct {
 	Writer      *transcript.Writer
 	GPS         *gps.Store
 	PTT         ptt.Monitor
+	// LiveSource is true for unbounded live capture (ALSA / network stream),
+	// where a full STT queue must be dropped rather than block capture. For a
+	// bounded file source it is false, so onSegment applies backpressure and no
+	// segment is lost (the run just paces to STT throughput).
+	LiveSource bool
 }
 
 // Pipeline owns the runtime loops.
@@ -42,6 +47,11 @@ type Pipeline struct {
 	seg  *vad.Segmenter
 	jobs chan sttJob
 	wg   sync.WaitGroup
+
+	// runCtx is the Run context; it lets onSegment's blocking (bounded-source)
+	// enqueue bail out on shutdown instead of deadlocking on a full queue once
+	// the STT workers have stopped pulling.
+	runCtx context.Context
 
 	// pendingGPSStart is captured at transmission start and consumed when the
 	// segment ends. The segmenter is single-goroutine so no lock is needed.
@@ -70,31 +80,45 @@ func New(d Deps) *Pipeline {
 		jobs: make(chan sttJob, 32),
 	}
 	p.seg = vad.NewSegmenter(vad.Params{
-		SampleRate:   d.Config.LiveATC.Audio.SampleRate,
-		FrameSamples: 512,
-		Threshold:    d.Config.LiveATC.VAD.Threshold,
-		MinSpeech:    vd.MinSpeech,
-		MinSilence:   vd.MinSilence,
-		MaxSegment:   vd.MaxSegment,
-		PreRoll:      vd.PreRoll,
+		SampleRate:      d.Config.LiveATC.Audio.SampleRate,
+		FrameSamples:    512,
+		Threshold:       d.Config.LiveATC.VAD.Threshold,
+		MinSpeech:       vd.MinSpeech,
+		MinSilence:      vd.MinSilence,
+		MaxSegment:      vd.MaxSegment,
+		PreRoll:         vd.PreRoll,
+		CarrierFloor:    d.Config.LiveATC.VAD.CarrierFloor,
+		CarrierHangover: vd.CarrierHangover,
 	}, time.Now)
 	p.seg.OnSpeechStart = p.onSpeechStart
 	p.seg.OnSegment = p.onSegment
 	return p
 }
 
-// Run blocks until ctx is cancelled, then flushes the in-progress segment and
-// drains queued STT jobs before returning.
+// sttShutdownGrace bounds how long shutdown waits for an in-flight
+// transcription to finish before cancelling it. Segments still queued (not yet
+// started) at shutdown are dropped -- their WAVs are already on disk and
+// self-contained, so they can be reprocessed later.
+const sttShutdownGrace = 5 * time.Second
+
+// Run blocks until ctx is cancelled (or capture ends), then flushes the
+// in-progress segment and stops the STT workers before returning.
 func (p *Pipeline) Run(ctx context.Context) error {
-	// STT worker pool. Workers use context.Background so queued jobs still
-	// finish after ctx (SIGTERM) is cancelled.
+	p.runCtx = ctx
+
+	// sttCtx cancels in-flight whisper-cli runs. On shutdown the workers stop
+	// pulling new jobs immediately (see sttWorker); this only bounds how long we
+	// wait for a transcription already running.
+	sttCtx, sttCancel := context.WithCancel(context.Background())
+	defer sttCancel()
+
 	workers := p.Config.LiveATC.Whisper.Workers
 	if workers <= 0 {
 		workers = 2
 	}
 	for i := 0; i < workers; i++ {
 		p.wg.Add(1)
-		go p.sttWorker(i)
+		go p.sttWorker(i, ctx, sttCtx)
 	}
 
 	// Capture runs in its own goroutine; we consume its frames here.
@@ -104,10 +128,27 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	p.log().Info("pipeline running", "session", p.Session.ID)
 	p.consume(ctx)
 
-	// Cleanup: flush any held transmission, then stop STT workers once drained.
+	// Cleanup: flush any held transmission, then wait for the STT workers.
 	p.seg.Flush()
 	close(p.jobs)
-	p.wg.Wait()
+
+	drained := make(chan struct{})
+	go func() { p.wg.Wait(); close(drained) }()
+	if ctx.Err() != nil {
+		// Shutdown: workers already stopped pulling new jobs; give an in-flight
+		// transcription a short grace window, then cancel it so Ctrl-C returns
+		// promptly instead of draining the whole backlog.
+		select {
+		case <-drained:
+		case <-time.After(sttShutdownGrace):
+			p.log().Warn("STT busy at shutdown; cancelling in-flight transcription and dropping queued segments")
+			sttCancel()
+			<-drained
+		}
+	} else {
+		// Clean end-of-input (file mode): let the queue drain fully.
+		<-drained
+	}
 
 	<-captureErr // let capture unwind
 	return nil
@@ -156,7 +197,7 @@ func (p *Pipeline) onSegment(seg vad.Segment) {
 	sampleRate := p.Config.LiveATC.Audio.SampleRate
 
 	// callsign hint is filled in by a later post-processing pass; empty for now.
-	wavPath := p.Session.AudioPath(seg.StartTime, "")
+	wavPath := p.Session.AudioPath(seg.StartTime, id, "")
 
 	info := audio.INFO{
 		ICRD: seg.StartTime.UTC().Format(time.RFC3339),
@@ -183,12 +224,24 @@ func (p *Pipeline) onSegment(seg vad.Segment) {
 	p.log().Info("segment captured",
 		"id", id, "dur_ms", job.end.Sub(job.start).Milliseconds(), "dir", job.dir, "file", job.relPath)
 
+	if p.LiveSource {
+		select {
+		case p.jobs <- job:
+		default:
+			// Queue full on a live source: STT is falling behind and we can't
+			// pause the stream. Drop the STT step but keep the WAV (still
+			// self-contained on disk) rather than blocking capture.
+			p.log().Warn("STT queue full, segment saved without transcript", "id", id, "file", job.relPath)
+		}
+		return
+	}
+	// Bounded source (file replay): block so no segment is lost; this paces
+	// capture to STT throughput instead of dropping transcripts (e.g. --fast).
+	// Bail on shutdown so a full queue with no workers pulling can't deadlock.
 	select {
 	case p.jobs <- job:
-	default:
-		// Queue full: STT is falling behind. Drop the STT step but keep the WAV
-		// (still self-contained on disk) rather than blocking capture.
-		p.log().Warn("STT queue full, segment saved without transcript", "id", id, "file", job.relPath)
+	case <-p.runCtx.Done():
+		p.log().Warn("shutting down, segment saved without transcript", "id", id, "file", job.relPath)
 	}
 }
 
@@ -211,14 +264,37 @@ func (p *Pipeline) direction(seg vad.Segment, start time.Time) string {
 }
 
 // sttWorker transcribes queued segments, writes the transcript back into the
-// WAV, and publishes the completed record.
-func (p *Pipeline) sttWorker(n int) {
+// WAV, and publishes the completed record. ctx is the shutdown signal (stop
+// pulling new jobs); sttCtx cancels an in-flight transcription at the end of the
+// shutdown grace window.
+func (p *Pipeline) sttWorker(n int, ctx, sttCtx context.Context) {
 	defer p.wg.Done()
 	log := p.log().With("worker", n)
-	for job := range p.jobs {
-		// Background context: a queued job must finish even during shutdown.
-		res, err := p.Transcriber.Transcribe(context.Background(), job.wavPath)
+	for {
+		// Stop pulling new work as soon as shutdown begins; the queued backlog is
+		// dropped (WAVs are on disk, self-contained). A job already running below
+		// is bounded by the grace window in Run.
+		var job sttJob
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case j, ok := <-p.jobs:
+			if !ok {
+				return // channel closed and drained (clean end-of-input)
+			}
+			job = j
+		}
+
+		res, err := p.Transcriber.Transcribe(sttCtx, job.wavPath)
 		if err != nil {
+			if sttCtx.Err() != nil {
+				return // cancelled at shutdown; WAV is on disk, skip the error record
+			}
 			log.Error("transcription failed", "id", job.id, "err", err)
 			// Still publish a record (empty transcript) so the segment is tracked.
 			res = stt.Result{Model: "error"}

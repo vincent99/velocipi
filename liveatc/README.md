@@ -7,9 +7,11 @@ plus a structured transcript to disk — while exposing the transcript data over
 an internal HTTP/websocket API for later frontend integration.
 
 It runs as its **own process**, separate from the main velocipi backend, with
-its own `go.mod` so it can move to a dedicated repo later. It intentionally
-mirrors velocipi's patterns (layered `config.default.yaml` + `config.yaml`) but
-shares no code.
+its own `go.mod` so it can move to a dedicated repo later. It shares no code
+with velocipi, but it now reads the **same** `config.default.yaml` /
+`config.yaml` as the main backend (the parent repo root by default): its
+settings live under the `liveatc:` key, and the aircraft/tail identifier comes
+from the top-level `tailNumber`.
 
 ## Data flow
 
@@ -63,17 +65,20 @@ GOOS=linux GOARCH=arm64 go build ./cmd/intercom-stt   # cross-compile for a Pi 5
 ./intercom-stt --stream https://example.liveatc.net/somefeed.mp3
 ./intercom-stt --file testdata/clip.wav
 ./intercom-stt --device hw:2,0            # override ALSA device
-./intercom-stt --config /etc/liveatc      # where config.default.yaml lives
+./intercom-stt --config /path/to/velocipi # dir holding the shared config.default.yaml (defaults to `..`)
 ```
 
 Run `go test ./...` for the VAD segmenter unit tests.
 
 ## Configuration
 
-`config.default.yaml` is the baseline and is always read first; create a sibling
-`config.yaml` to override only the keys you want to change (it is git-ignored).
-`AUDIO_DEVICE` overrides the capture device. See `config.default.yaml` for the
-full annotated schema.
+liveatc reads the shared velocipi `config.default.yaml` (baseline, always read
+first) and an optional sibling `config.yaml` override — by default from the
+parent repo root (`--config ..`). All liveatc settings live under the
+`liveatc:` key; the aircraft/tail identifier is the top-level `tailNumber`; the
+audio/transcript output root is `storage.liveatc`. `AUDIO_DEVICE` overrides the
+capture device. See the parent `config.default.yaml` for the full annotated
+schema.
 
 ## Dependencies on the Pi
 

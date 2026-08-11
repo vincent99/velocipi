@@ -1,11 +1,80 @@
 addr: "0.0.0.0:8080"
-spiDevice: "/dev/spidev0.0"
+
+# Free-form aircraft identifier (tail number). Shown in the UI and recorded in
+# liveatc session manifests.
+tailNumber: "N12345"
+
+pingInterval: "1s"
+
+# Physical hardware wiring: bus devices, the shared reset pin, and each
+# attached peripheral (sensors, expander, OLED, knob, LCD, etc.).
+hardware:
+  spiDevice: "/dev/spidev0.0"
+  i2cDevice: "/dev/i2c-1"
+  resetPin: 5
+
+  airSensor:
+    address: 0x77
+    interval: "1s"
+
+  expander:
+    address: 0x27
+    interval: "2ms"
+    bits:
+      knobInnerA: 0
+      knobOuterA: 1
+      knobInnerB: 2
+      knobOuterB: 3
+      knobCenter: 4
+      ledR: 5
+      ledW: 6
+      ledB: 7
+      ledY: 8
+      joyCenter: 9
+      joyUp: 10
+      joyLeft: 11
+      joyDown: 12
+      joyRight: 13
+      joyKnobA: 14
+      joyKnobB: 15
+
+  lightSensor:
+    address: 0x10
+    interval: "1s"
+
+  oled:
+    driver: "ssd1327"
+    statusPin: 4
+    flip: false
+    gpioChip: "gpiochip0"
+    spiSpeed: "2.40MHz"
+
+  screen:
+    fps: 30
+    splashDuration: "2s"
+    splashImage: "ui/public/img/logo.png"
+
+  axis:
+    device: "/dev/ttyAMA0"
+
+  lcd:
+    minBrightness: 1
+    maxBrightness: 0
+
+  knob:
+    device: "/dev/tty.usbserial0"
+    minBrightness: 1
+    maxBrightness: 100
+
+  thermal:
+    device: "/dev/ttyAMA4"
 
 storage:
   dvr: "data/recordings"
   music: "data/music"
   backup: "data/backup"
   snaps: "data/snaps"
+  liveatc: "data/liveatc"
 
 dvr:
   segmentDuration: 600
@@ -16,54 +85,8 @@ dvr:
   diskSpacePoll: "1m"
   cameras: []
 
-i2cDevice: "/dev/i2c-1"
-pingInterval: "1s"
-
-airSensor:
-  address: 0x77
-  interval: "1s"
-
-expander:
-  address: 0x27
-  interval: "2ms"
-  bits:
-    knobInnerA: 0
-    knobOuterA: 1
-    knobInnerB: 2
-    knobOuterB: 3
-    knobCenter: 4
-    ledR: 5
-    ledW: 6
-    ledB: 7
-    ledY: 8
-    joyCenter: 9
-    joyUp: 10
-    joyLeft: 11
-    joyDown: 12
-    joyRight: 13
-    joyKnobA: 14
-    joyKnobB: 15
-
-lightSensor:
-  address: 0x10
-  interval: "1s"
-
-oled:
-  driver: "ssd1327"
-  statusPin: 4
-  flip: false
-  gpioChip: "gpiochip0"
-  spiSpeed: "2.40MHz"
-
-resetPin: 5
-
-screen:
-  fps: 30
-  splashDuration: "2s"
-  splashImage: "ui/public/img/logo.png"
-
 airCon:
-  # Transport is the knob's serial link (see the `knob:` section) -- no
+  # Transport is the knob's serial link (see the `hardware.knob:` section) -- no
   # device/pairing config lives here anymore, the knob owns that.
   historyMinutes: 30
 
@@ -72,26 +95,11 @@ tires:
   left:
   right:
 
-axis:
-  device: "/dev/ttyAMA0"
-
 brightness:
   delay: "2s"
   speed: "2s"
   minLux: 4
   maxLux: 100
-
-lcd:
-  minBrightness: 1
-  maxBrightness: 0
-
-knob:
-  device: "/dev/tty.usbserial0"
-  minBrightness: 1
-  maxBrightness: 100
-
-thermal:
-  device: "/dev/ttyAMA4"
 
 music:
   acoustidKey: ""
@@ -105,7 +113,6 @@ music:
   volume: 100
 
 ui:
-  tail: "N12345"
   headerColor: "#3b82f6"
   adminHeaderColor: "#dc2626"
   panel:
@@ -138,3 +145,82 @@ ui:
     innerRight: "'"
     outerLeft: "["
     outerRight: "]"
+
+# liveatc: cockpit-intercom capture / VAD / whisper transcription, run by the
+# standalone intercom-stt process. It reads this same file; the aircraft/tail
+# identifier comes from the top-level `tailNumber` above.
+liveatc:
+  # Address the internal transcript API / websocket server listens on.
+  addr: "0.0.0.0:8090"
+
+  # slog level: debug | info | warn | error
+  logLevel: "info"
+
+  audio:
+    # ALSA capture device. Override via config.yaml or the AUDIO_DEVICE env var.
+    audioDevice: "hw:1,0"
+    # Whisper's native input rate. Capturing at 16k avoids a resample step.
+    sampleRate: 16000
+    # arecord binary (used for live hardware capture).
+    arecordBin: "arecord"
+    # ffmpeg binary (used for --stream / --file test sources).
+    ffmpegBin: "ffmpeg"
+
+  vad:
+    # Which frame scorer to use: "silero" (python sidecar, preferred) or
+    # "energy" (pure-Go RMS gate, no dependencies -- handy for dev/testing).
+    # If "silero" is selected but the sidecar fails to start, we log a
+    # warning and fall back to "energy" so the pipeline still runs.
+    engine: "silero"
+    # Path to the python interpreter and sidecar script for the silero engine.
+    sileroPython: "python3"
+    sileroScript: "sidecar/silero_vad.py"
+    # Path to the Silero ONNX model file. When set, it is passed to the sidecar
+    # as the SILERO_ONNX env var, selecting the lighter onnxruntime backend
+    # (numpy + onnxruntime) instead of torch.hub. Empty = use the torch.hub
+    # backend (which downloads/caches the model on first run).
+    sileroOnnx: ""
+    # Speech-probability threshold [0..1] above which a frame counts as speech.
+    threshold: 0.5
+
+    min_speech_ms: 300 # filters PTT blips / clicks
+    min_silence_ms: 800 # trailing silence that ends a transmission (carrier gate OFF)
+    max_segment_ms: 60000 # hard cap; split + flush if exceeded
+    pre_roll_ms: 200 # audio kept before the VAD trigger (clipped starts)
+
+    # Carrier gate: separate transmissions by the radio carrier (mic un-key /
+    # squelch), not by pauses in speech -- so a tower instruction and its pilot
+    # read-back become separate segments even when they're back-to-back, while a
+    # mid-sentence pause never splits one transmission. carrier_floor is the RMS
+    # (0..32767) above which the channel is "keyed"; the transmission ends once
+    # the carrier stays below it for carrier_hangover_ms. Silero still confirms a
+    # keyed run holds speech (drops squelch-tail noise bursts).
+    # Set carrier_floor: 0 to disable and fall back to min_silence_ms (for feeds
+    # that don't squelch to near-silence between transmissions).
+    carrier_floor: 250
+    carrier_hangover_ms: 100
+
+  whisper:
+    binary: "/usr/local/bin/whisper-cli"
+    model: "/opt/models/ggml-base.en.bin"
+    # Optional dir holding a fine-tuned ATC model; if a *.bin exists here and
+    # `atcModel` names it, it is used in place of `model`.
+    modelDir: "/opt/models"
+    atcModel: "" # filename within modelDir, e.g. "ggml-atc.bin"; "" = disabled
+    language: "en"
+    threads: 4 # RPi 5 has 4 performance cores
+    workers: 2 # STT worker goroutines
+
+  # TX vs RX detection.
+  #  - pttPin: GPIO line (name or offset) wired to the PTT line. When set, a
+  #    high level during a transmission marks it "tx" definitively (else "rx").
+  #    Empty = GPIO monitor disabled.
+  #  - pttChip: gpiochip device for the PTT line.
+  #  - pttActiveLow: true if the PTT line is asserted low.
+  #  - txRmsThreshold: audio-level heuristic used only when pttPin is empty.
+  #    Mean segment RMS (0..32767) above this marks "tx"; otherwise "unknown".
+  #    0 disables the heuristic (everything is "unknown" without GPIO).
+  pttPin: ""
+  pttChip: "gpiochip0"
+  pttActiveLow: false
+  txRmsThreshold: 0

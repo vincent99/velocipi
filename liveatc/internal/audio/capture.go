@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,7 @@ type Params struct {
 	FrameSamples int // samples per emitted frame (512 for Silero @ 16k)
 	ArecordBin   string
 	FFmpegBin    string
+	FastReplay   bool // ModeFile only: drop ffmpeg -re so the file plays as fast as possible
 }
 
 // Capture reads a raw s16le mono stream from its source, chops it into
@@ -148,27 +150,45 @@ func (c *Capture) command(ctx context.Context) *exec.Cmd {
 			"-q",
 		)
 	case ModeStream:
+		// Live HTTP feeds (e.g. liveatc.net) routinely deliver a few seconds of
+		// buffer and then stall -- the connection stays open but no more bytes
+		// arrive. Without these options ffmpeg blocks on the read forever (no
+		// EOF, no error), which silently wedges the whole pipeline. Auto-reconnect
+		// on EOF / network errors, and bound socket reads with -rw_timeout so a
+		// wedged connection errors out and Run() restarts us instead of hanging.
 		return exec.CommandContext(ctx, c.p.FFmpegBin,
 			"-hide_banner", "-loglevel", "error",
+			"-reconnect", "1",
+			"-reconnect_streamed", "1",
+			"-reconnect_on_network_error", "1",
+			"-reconnect_delay_max", "2",
+			"-rw_timeout", "15000000", // 15s (microseconds): abort a stalled read
 			"-i", c.p.StreamURL,
 			"-ac", "1", "-ar", rate,
 			"-f", "s16le", "-",
 		)
 	default: // ModeFile
-		return exec.CommandContext(ctx, c.p.FFmpegBin,
-			"-hide_banner", "-loglevel", "error",
-			"-re",
-			"-i", c.p.FilePath,
-			"-ac", "1", "-ar", rate,
-			"-f", "s16le", "-",
-		)
+		// -re paces playback at real time so wall-clock segment timestamps stay
+		// realistic during testing. --fast drops it to replay as quickly as the
+		// CPU allows (handy for soak-testing a long recording).
+		args := []string{"-hide_banner", "-loglevel", "error"}
+		if !c.p.FastReplay {
+			args = append(args, "-re")
+		}
+		args = append(args, "-i", c.p.FilePath, "-ac", "1", "-ar", rate, "-f", "s16le", "-")
+		return exec.CommandContext(ctx, c.p.FFmpegBin, args...)
 	}
 }
 
-// logWriter forwards subprocess stderr lines to the structured logger.
+// logWriter forwards subprocess stderr lines to the structured logger. The
+// source binaries run with error-only logging (ffmpeg -loglevel error, arecord
+// -q), so anything that reaches here is worth surfacing at warn level -- a
+// stalled/refused stream would otherwise be invisible.
 type logWriter struct{ log *slog.Logger }
 
 func (w *logWriter) Write(p []byte) (int, error) {
-	w.log.Debug("audio source stderr", "msg", string(p))
+	if msg := strings.TrimSpace(string(p)); msg != "" {
+		w.log.Warn("audio source stderr", "msg", msg)
+	}
 	return len(p), nil
 }

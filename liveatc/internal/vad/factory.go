@@ -10,6 +10,7 @@ type EngineParams struct {
 	Engine       string // "silero" or "energy"
 	SileroPython string
 	SileroScript string
+	SileroOnnx   string // optional; passed to the sidecar as SILERO_ONNX
 	SampleRate   int
 	FrameSamples int
 	Threshold    float64
@@ -19,8 +20,10 @@ type EngineParams struct {
 // sidecar fails to start, it logs a warning and transparently falls back to the
 // energy scorer so the pipeline still runs.
 func NewScorer(ctx context.Context, p EngineParams, log *slog.Logger) Scorer {
+	log.Info("VAD engine: startup", "engine", p.Engine, "sileroPython", p.SileroPython, "sileroScript", p.SileroScript, "sileroOnnx", p.SileroOnnx)
+
 	if p.Engine == "silero" {
-		s, err := NewSileroScorer(ctx, p.SileroPython, p.SileroScript, p.SampleRate, p.FrameSamples, p.Threshold, log)
+		s, err := NewSileroScorer(ctx, p.SileroPython, p.SileroScript, p.SileroOnnx, p.SampleRate, p.FrameSamples, p.Threshold, log)
 		if err == nil {
 			log.Info("VAD engine: silero sidecar", "python", p.SileroPython, "script", p.SileroScript)
 			return s

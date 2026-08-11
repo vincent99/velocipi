@@ -36,9 +36,10 @@ export interface KeyMapConfig {
   outerRight: string;
 }
 
-// UIConfig — subset served by GET /config (no ?full=true)
+// UIConfig — subset served by GET /config (no ?full=true).
+// tailNumber is a top-level config key surfaced alongside the UI subset here.
 export interface Config {
-  tail: string;
+  tailNumber: string;
   headerColor: string;
   adminHeaderColor: string;
   antialiasing: boolean;
@@ -146,19 +147,27 @@ export interface AirConConfig {
   historyMinutes: number;
 }
 
-export interface FullConfig {
-  addr: string;
-  appUrl: string;
+// HardwareConfig — physical hardware wiring (bus devices, reset pin, and each
+// attached peripheral). Mirrors the Go HardwareConfig struct.
+export interface HardwareConfig {
   i2cDevice: string;
   spiDevice: string;
-  pingInterval: string;
-  storage: StorageConfig;
+  resetPin: number;
   airSensor: SensorConfig;
-  dvr: DVRConfig;
   expander: ExpanderConfig;
   lightSensor: SensorConfig;
   oled: OLEDConfig;
   screen: ScreenConfig;
+}
+
+export interface FullConfig {
+  addr: string;
+  appUrl: string;
+  tailNumber: string;
+  pingInterval: string;
+  hardware: HardwareConfig;
+  storage: StorageConfig;
+  dvr: DVRConfig;
   tires: TireAddresses;
   ui: Config;
   music: MusicConfig;

@@ -39,12 +39,12 @@ type Change struct {
 
 func New() (*Expander, error) {
 	cfg := config.Load().Config
-	address := cfg.Expander.Address
+	address := cfg.Hardware.Expander.Address
 	if address == 0 {
 		address = DEFAULT_ADDRESS
 	}
 
-	iface, err := i2c.New(cfg.I2CDevice, address)
+	iface, err := i2c.New(cfg.Hardware.I2CDevice, address)
 	if err != nil {
 		return nil, err
 	}

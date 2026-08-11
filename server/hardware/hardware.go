@@ -70,22 +70,22 @@ var (
 func resetLineInit() *gpiocdev.Line {
 	resetOnce.Do(func() {
 		cfg := config.Load().Config
-		if cfg.ResetPin == 0 {
+		if cfg.Hardware.ResetPin == 0 {
 			return
 		}
-		chip := cfg.OLED.GPIOChip
+		chip := cfg.Hardware.OLED.GPIOChip
 		if chip == "" {
 			chip = "gpiochip0"
 		}
-		l, err := gpiocdev.RequestLine(chip, cfg.ResetPin,
+		l, err := gpiocdev.RequestLine(chip, cfg.Hardware.ResetPin,
 			gpiocdev.AsOutput(1),
 			gpiocdev.WithPullUp,
 		)
 		if err != nil {
-			log.Printf("hardware: reset pin %d open error: %v", cfg.ResetPin, err)
+			log.Printf("hardware: reset pin %d open error: %v", cfg.Hardware.ResetPin, err)
 			return
 		}
-		log.Printf("hardware: reset pin %d ready", cfg.ResetPin)
+		log.Printf("hardware: reset pin %d ready", cfg.Hardware.ResetPin)
 		resetLine = l
 	})
 	return resetLine
@@ -169,7 +169,7 @@ func Expander() *expander.Expander {
 			return
 		}
 		// All pins are inputs except the LED pin.
-		outputs := uint16((1 << cfg.Expander.Bits.LEDR) | (1 << cfg.Expander.Bits.LEDW) | (1 << cfg.Expander.Bits.LEDB) | (1 << cfg.Expander.Bits.LEDY))
+		outputs := uint16((1 << cfg.Hardware.Expander.Bits.LEDR) | (1 << cfg.Hardware.Expander.Bits.LEDW) | (1 << cfg.Hardware.Expander.Bits.LEDB) | (1 << cfg.Hardware.Expander.Bits.LEDY))
 		inputs := uint16(0xFFFF) &^ outputs
 
 		if err := e.Init(inputs); err != nil {
@@ -193,10 +193,10 @@ func Axis() *axis.Axis {
 func ThermalCam() *thermalcam.ThermalCam {
 	thermalOnce.Do(func() {
 		cfg := config.Load().Config
-		if cfg.Thermal.Device == "" {
+		if cfg.Hardware.Thermal.Device == "" {
 			return
 		}
-		c, err := thermalcam.New(cfg.Thermal.Device)
+		c, err := thermalcam.New(cfg.Hardware.Thermal.Device)
 		if err != nil {
 			log.Println("hardware: thermalcam init error:", err)
 			return
@@ -218,28 +218,28 @@ func ThermalCam() *thermalcam.ThermalCam {
 
 func LEDRed() *led.Controller {
 	ledRedOnce.Do(func() {
-		ledRedUnit = led.New(config.Load().Config.Expander.Bits.LEDR)
+		ledRedUnit = led.New(config.Load().Config.Hardware.Expander.Bits.LEDR)
 	})
 	return ledRedUnit
 }
 
 func LEDWhite() *led.Controller {
 	ledWhiteOnce.Do(func() {
-		ledWhiteUnit = led.New(config.Load().Config.Expander.Bits.LEDW)
+		ledWhiteUnit = led.New(config.Load().Config.Hardware.Expander.Bits.LEDW)
 	})
 	return ledWhiteUnit
 }
 
 func LEDBlue() *led.Controller {
 	ledBlueOnce.Do(func() {
-		ledBlueUnit = led.New(config.Load().Config.Expander.Bits.LEDB)
+		ledBlueUnit = led.New(config.Load().Config.Hardware.Expander.Bits.LEDB)
 	})
 	return ledBlueUnit
 }
 
 func LEDYellow() *led.Controller {
 	ledYellowOnce.Do(func() {
-		ledYellowUnit = led.New(config.Load().Config.Expander.Bits.LEDY)
+		ledYellowUnit = led.New(config.Load().Config.Hardware.Expander.Bits.LEDY)
 	})
 	return ledYellowUnit
 }
@@ -250,9 +250,9 @@ func LCD() *lcd.LCD {
 	lcdOnce.Do(func() {
 		cfg := config.Load().Config
 		l, err := lcd.New(lcd.Config{
-			Device:        cfg.LCD.Device,
-			MinBrightness: cfg.LCD.MinBrightness,
-			MaxBrightness: cfg.LCD.MaxBrightness,
+			Device:        cfg.Hardware.LCD.Device,
+			MinBrightness: cfg.Hardware.LCD.MinBrightness,
+			MaxBrightness: cfg.Hardware.LCD.MaxBrightness,
 		})
 		if err != nil {
 			log.Println("hardware: lcd init error:", err)
@@ -268,13 +268,13 @@ func LCD() *lcd.LCD {
 func Knob() *knob.Knob {
 	knobOnce.Do(func() {
 		cfg := config.Load().Config
-		if cfg.Knob.Device == "" {
+		if cfg.Hardware.Knob.Device == "" {
 			return
 		}
 		k, err := knob.New(knob.Config{
-			Device:        cfg.Knob.Device,
-			MinBrightness: cfg.Knob.MinBrightness,
-			MaxBrightness: cfg.Knob.MaxBrightness,
+			Device:        cfg.Hardware.Knob.Device,
+			MinBrightness: cfg.Hardware.Knob.MinBrightness,
+			MaxBrightness: cfg.Hardware.Knob.MaxBrightness,
 		})
 		if err != nil {
 			log.Println("hardware: knob init error:", err)

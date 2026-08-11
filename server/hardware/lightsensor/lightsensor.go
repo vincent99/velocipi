@@ -78,8 +78,8 @@ type Config struct {
 func NewLightSensor() (*LightSensor, error) {
 	cfg := config.Load().Config
 	return NewLightSensorWithOptions(&Config{
-		Address: cfg.LightSensor.Address,
-		Device:  cfg.I2CDevice,
+		Address: cfg.Hardware.LightSensor.Address,
+		Device:  cfg.Hardware.I2CDevice,
 	})
 }
 

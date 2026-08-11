@@ -4,7 +4,10 @@
 // pre-roll) to decide where one radio transmission starts and ends.
 package vad
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Segment is one detected transmission: contiguous PCM samples plus the
 // wall-clock window they cover.
@@ -24,6 +27,16 @@ type Params struct {
 	MinSilence   time.Duration
 	MaxSegment   time.Duration
 	PreRoll      time.Duration
+
+	// CarrierFloor, when > 0, enables carrier-gated segmentation: a transmission
+	// is bounded by the radio carrier (frame RMS) crossing this floor -- i.e. the
+	// mic un-key / squelch close -- rather than by pauses in speech. This keeps a
+	// whole transmission together through mid-sentence pauses and splits
+	// back-to-back transmissions (tower vs read-back). Silero is then used only
+	// to confirm a run holds real speech. 0 disables it (pure speech-silence
+	// segmentation on MinSilence).
+	CarrierFloor    float64
+	CarrierHangover time.Duration // how long the carrier must stay below the floor to end a transmission
 }
 
 // Segmenter is fed one (frame, score) pair at a time via Feed. It is not
@@ -69,13 +82,26 @@ func NewSegmenter(p Params, clock func() time.Time) *Segmenter {
 	}
 }
 
-// Feed processes one frame and its speech score.
+// Feed processes one frame and its speech score. It dispatches to carrier-gated
+// segmentation when CarrierFloor is configured, else to speech-silence
+// segmentation.
 func (s *Segmenter) Feed(frame []int16, score float64) {
+	if s.p.CarrierFloor > 0 {
+		s.feedCarrier(frame, score)
+		return
+	}
+	s.feedSilence(frame, score)
+}
+
+// feedSilence bounds a transmission by pauses in speech (silero below threshold
+// for >= MinSilence). Simpler, but merges nothing/over-splits on feeds where
+// distinct transmissions are separated only by a brief carrier drop.
+func (s *Segmenter) feedSilence(frame []int16, score float64) {
 	speech := score >= s.p.Threshold
 
 	if !s.collecting {
 		if speech {
-			s.begin(frame)
+			s.begin(frame, true)
 		} else {
 			s.pushPreRoll(frame)
 		}
@@ -110,8 +136,62 @@ func (s *Segmenter) Feed(frame []int16, score float64) {
 	}
 }
 
-// begin seeds a new (unconfirmed) segment with the pre-roll history + this frame.
-func (s *Segmenter) begin(frame []int16) {
+// feedCarrier bounds a transmission by the radio carrier: a run starts when the
+// frame energy rises above CarrierFloor (mic keyed) and ends once it stays below
+// it for CarrierHangover (mic un-keyed / squelch closed). Speech pauses within a
+// keyed transmission keep the carrier up, so they don't split it; the brief
+// carrier drop between two back-to-back transmissions does. Silero (score) only
+// confirms the run holds real speech, so pure squelch-tail noise bursts are
+// dropped.
+func (s *Segmenter) feedCarrier(frame []int16, score float64) {
+	carrier := frameRMS(frame) >= s.p.CarrierFloor
+	speech := score >= s.p.Threshold
+
+	if !s.collecting {
+		if carrier {
+			s.begin(frame, speech)
+		} else {
+			s.pushPreRoll(frame)
+		}
+		return
+	}
+
+	s.seg = append(s.seg, frame...)
+	s.segDur += s.frameDur
+
+	// Silero confirms the keyed run actually contains speech.
+	if speech {
+		s.speechAcc += s.frameDur
+		if !s.confirmed && s.speechAcc >= s.p.MinSpeech {
+			s.confirmed = true
+			if s.OnSpeechStart != nil {
+				s.OnSpeechStart(s.startTime)
+			}
+		}
+	}
+
+	// Carrier presence (not speech) drives the boundary. Hangover rides the
+	// squelch tail and momentary energy dips within a single transmission.
+	if carrier {
+		s.silenceAcc = 0
+	} else {
+		s.silenceAcc += s.frameDur
+		if s.silenceAcc >= s.p.CarrierHangover {
+			s.end()
+			return
+		}
+	}
+
+	if s.segDur >= s.p.MaxSegment {
+		s.end()
+	}
+}
+
+// begin seeds a new (unconfirmed) segment with the pre-roll history + this
+// frame. speech reports whether the seeding frame already counts as speech (the
+// silence path always begins on speech; the carrier path may begin on a keyed
+// but not-yet-speech frame).
+func (s *Segmenter) begin(frame []int16, speech bool) {
 	s.collecting = true
 	s.confirmed = false
 	s.seg = make([]int16, 0, len(s.preRoll)+len(frame))
@@ -120,19 +200,42 @@ func (s *Segmenter) begin(frame []int16) {
 	// StartTime accounts for the pre-roll audio that precedes "now".
 	preRollDur := time.Duration(len(s.preRoll)) * time.Second / time.Duration(s.p.SampleRate)
 	s.startTime = s.now().Add(-preRollDur)
-	s.speechAcc = s.frameDur
+	if speech {
+		s.speechAcc = s.frameDur
+	} else {
+		s.speechAcc = 0
+	}
 	s.silenceAcc = 0
 	s.segDur = time.Duration(len(s.seg)) * time.Second / time.Duration(s.p.SampleRate)
+}
+
+// frameRMS is the root-mean-square amplitude of a frame, used as the carrier
+// (received-signal) energy estimate for carrier-gated segmentation.
+func frameRMS(frame []int16) float64 {
+	if len(frame) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, v := range frame {
+		f := float64(v)
+		sum += f * f
+	}
+	return math.Sqrt(sum / float64(len(frame)))
 }
 
 // end finalizes the current segment. Confirmed transmissions are emitted;
 // unconfirmed ones (PTT blips shorter than MinSpeech) are discarded.
 func (s *Segmenter) end() {
 	if s.confirmed && s.OnSegment != nil {
+		// Derive EndTime from the captured audio length rather than the wall
+		// clock, so the duration equals the real audio span regardless of
+		// capture pacing (under --fast file replay, wall-clock time is
+		// compressed and would report absurdly short durations).
+		audioDur := time.Duration(len(s.seg)) * time.Second / time.Duration(s.p.SampleRate)
 		s.OnSegment(Segment{
 			Samples:   s.seg,
 			StartTime: s.startTime,
-			EndTime:   s.now(),
+			EndTime:   s.startTime.Add(audioDur),
 		})
 	}
 	s.collecting = false

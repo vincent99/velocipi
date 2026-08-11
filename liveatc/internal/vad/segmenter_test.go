@@ -21,6 +21,32 @@ func feedFrames(s *Segmenter, count int, score float64) {
 	}
 }
 
+// feedAmp pushes count frames with an explicit amplitude (carrier energy) and
+// score, so carrier-gate behaviour can be exercised independently of speech.
+func feedAmp(s *Segmenter, count int, score float64, amp int16) {
+	for i := 0; i < count; i++ {
+		s.Feed(makeFrame(s.p.FrameSamples, amp), score)
+	}
+}
+
+func newCarrierSegmenter() (*Segmenter, *[]Segment) {
+	p := Params{
+		SampleRate:      16000,
+		FrameSamples:    512,
+		Threshold:       0.5,
+		MinSpeech:       300 * time.Millisecond, // ~10 frames
+		MinSilence:      800 * time.Millisecond, // ~25 frames (used only if carrier off)
+		MaxSegment:      60000 * time.Millisecond,
+		PreRoll:         200 * time.Millisecond,
+		CarrierFloor:    300,                    // amp 1000 => RMS 1000 (keyed); amp 0 => idle
+		CarrierHangover: 200 * time.Millisecond, // ~7 frames
+	}
+	s := NewSegmenter(p, nil)
+	var got []Segment
+	s.OnSegment = func(seg Segment) { got = append(got, seg) }
+	return s, &got
+}
+
 func newTestSegmenter(clock func() time.Time) (*Segmenter, *[]Segment) {
 	// 16k, 512-sample frames = 32ms/frame.
 	p := Params{
@@ -78,6 +104,41 @@ func TestSegmenterSpeechStartFires(t *testing.T) {
 
 	if fired != 1 {
 		t.Fatalf("expected OnSpeechStart once, got %d", fired)
+	}
+}
+
+func TestCarrierSplitsBackToBack(t *testing.T) {
+	s, got := newCarrierSegmenter()
+	feedAmp(s, 20, 0.9, 1000) // transmission 1 (keyed, speech)
+	feedAmp(s, 10, 0.0, 0)    // carrier drop ~320ms > hangover, < min_silence(800)
+	feedAmp(s, 20, 0.9, 1000) // transmission 2 (keyed, speech)
+	feedAmp(s, 10, 0.0, 0)    // carrier drop -> flush #2
+
+	if len(*got) != 2 {
+		t.Fatalf("carrier gate should split into 2 transmissions, got %d", len(*got))
+	}
+}
+
+func TestCarrierBridgesSpeechPause(t *testing.T) {
+	s, got := newCarrierSegmenter()
+	feedAmp(s, 15, 0.9, 1000) // speech
+	feedAmp(s, 30, 0.0, 1000) // ~960ms speech PAUSE but carrier still keyed (> min_silence)
+	feedAmp(s, 15, 0.9, 1000) // speech resumes
+	feedAmp(s, 10, 0.0, 0)    // carrier drop -> end
+
+	if len(*got) != 1 {
+		t.Fatalf("a speech pause under an open carrier must stay one segment, got %d", len(*got))
+	}
+}
+
+func TestCarrierDropsNoiseBurst(t *testing.T) {
+	s, got := newCarrierSegmenter()
+	feedAmp(s, 5, 0.0, 0)    // idle
+	feedAmp(s, 5, 0.0, 1000) // carrier keyed (~160ms) but no speech -> squelch-tail noise
+	feedAmp(s, 10, 0.0, 0)   // carrier drop
+
+	if len(*got) != 0 {
+		t.Fatalf("keyed run without confirmed speech should be dropped, got %d", len(*got))
 	}
 }
 
