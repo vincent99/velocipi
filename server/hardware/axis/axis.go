@@ -26,6 +26,12 @@ type State struct {
 	Yaw      float64 // degrees true, same as Heading for fixed-wing
 	SpeedKts float64 // knots ground speed
 	OAT      float64 // outside air temperature, °C
+	Origin   string  // ICAO airport code of the origin airport
+	Dest     string  // ICAO airport code of the destination airport
+	Com1     float64 // COM1 frequency, Hz
+	Com2     float64 // COM2 frequency, Hz
+	Nav1     float64 // NAV1 frequency, Hz
+	Nav2     float64 // NAV2 frequency, Hz
 }
 
 // Axis tracks avionics state and broadcasts updates.
@@ -41,12 +47,18 @@ var initialState = State{
 	Lat:      33.3062,
 	Lon:      -111.8413,
 	AltFt:    10000,
-	Heading:  45,
+	Heading:  93,
 	Roll:     0,
 	Pitch:    0,
-	Yaw:      45,
+	Yaw:      93,
 	SpeedKts: 200,
 	OAT:      40,
+	Origin:   "KCHD",
+	Dest:     "X26",
+	Com1:     126.1,
+	Com2:     124.4,
+	Nav1:     114.8,
+	Nav2:     110.6,
 }
 
 // CelsiusToFahrenheit converts a temperature from °C to °F.

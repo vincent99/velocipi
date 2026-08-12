@@ -24,20 +24,42 @@ type Result struct {
 	Model      string
 }
 
+// PromptTokenLimit is whisper's initial-prompt cap: the decoder text context is
+// n_text_ctx = 448 for every model size (tiny .. large-v3-turbo) and whisper.cpp
+// uses at most half of it for the prompt. Over-limit prompts aren't an error --
+// they're silently truncated to their last tokens (the front is dropped).
+const PromptTokenLimit = 448 / 2
+
+// EstimatePromptTokens is a rough token count for a prompt. whisper's exact BPE
+// vocab isn't available here, so we approximate at ~4 characters per token
+// (English). It's only used to warn when a prompt is likely over the limit.
+func EstimatePromptTokens(prompt string) int {
+	n := len([]rune(strings.TrimSpace(prompt)))
+	return (n + 3) / 4
+}
+
 // Transcriber runs whisper-cli against WAV files.
 type Transcriber struct {
 	binary   string
 	model    string
 	language string
 	threads  int
+	prompt   string // whisper --prompt: biases decoding vocabulary/formatting
 }
 
 // New builds a Transcriber. modelPath is already resolved (base vs ATC model).
-func New(binary, modelPath, language string, threads int) *Transcriber {
+// prompt is passed to whisper as its initial prompt (empty = none).
+func New(binary, modelPath, language string, threads int, prompt string) *Transcriber {
 	if threads <= 0 {
 		threads = 4
 	}
-	return &Transcriber{binary: binary, model: modelPath, language: language, threads: threads}
+	return &Transcriber{
+		binary:   binary,
+		model:    modelPath,
+		language: language,
+		threads:  threads,
+		prompt:   prompt,
+	}
 }
 
 // Transcribe runs whisper-cli on wavPath and returns the parsed result.
@@ -48,6 +70,7 @@ func New(binary, modelPath, language string, threads int) *Transcriber {
 //     merge back into whole words below.
 //   - -oj / -ojf : write JSON (full, with per-token offsets + probabilities)
 //   - -np        : no prints (the spec's --no-prints), suppresses progress
+//   - --prompt   : initial prompt biasing decoding (ATC phraseology/callsigns)
 func (t *Transcriber) Transcribe(ctx context.Context, wavPath string) (Result, error) {
 	tmpDir, err := os.MkdirTemp("", "liveatc-stt-")
 	if err != nil {
@@ -56,15 +79,20 @@ func (t *Transcriber) Transcribe(ctx context.Context, wavPath string) (Result, e
 	defer os.RemoveAll(tmpDir)
 	outBase := filepath.Join(tmpDir, "out")
 
-	cmd := exec.CommandContext(ctx, t.binary,
+	args := []string{
 		"--model", t.model,
 		"--language", t.language,
 		"--threads", strconv.Itoa(t.threads),
 		"--output-json-full",
 		"--output-file", outBase,
 		"--no-prints",
-		"--file", wavPath,
-	)
+	}
+	if t.prompt != "" {
+		args = append(args, "--prompt", t.prompt)
+	}
+	args = append(args, "--file", wavPath)
+
+	cmd := exec.CommandContext(ctx, t.binary, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return Result{}, fmt.Errorf("whisper-cli: %w: %s", err, strings.TrimSpace(string(out)))
 	}

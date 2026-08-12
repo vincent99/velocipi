@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"time"
 )
 
@@ -44,6 +46,9 @@ type WhisperConfig struct {
 	Language string `yaml:"language" json:"language"`
 	Threads  int    `yaml:"threads"  json:"threads"`
 	Workers  int    `yaml:"workers"  json:"workers"`
+	// Prompt is whisper's initial prompt, biasing decoding toward ATC
+	// phraseology, callsigns, and digit formatting. Empty = none.
+	Prompt string `yaml:"prompt" json:"prompt"`
 }
 
 // ModelPath returns the effective model file: the ATC model in ModelDir if
@@ -64,6 +69,9 @@ type LiveATCConfig struct {
 	Addr string `yaml:"addr" json:"addr"`
 	// LogLevel is the slog level: debug | info | warn | error.
 	LogLevel string `yaml:"logLevel" json:"logLevel"`
+	// UIDir is the built Vue SPA directory served at "/"; empty disables UI
+	// serving. A relative path is resolved against the process working directory.
+	UIDir string `yaml:"uiDir" json:"uiDir"`
 
 	Audio   AudioConfig   `yaml:"audio"   json:"audio"`
 	VAD     VADConfig     `yaml:"vad"     json:"vad"`
@@ -86,9 +94,12 @@ type StorageConfig struct {
 type Config struct {
 	// TailNumber is the aircraft identifier (shared with velocipi), recorded in
 	// the session manifest.
-	TailNumber string        `yaml:"tailNumber" json:"tailNumber"`
-	LiveATC    LiveATCConfig `yaml:"liveatc"    json:"liveatc"`
-	Storage    StorageConfig `yaml:"storage"    json:"storage"`
+	TailNumber string `yaml:"tailNumber" json:"tailNumber"`
+	// TailType is the aircraft make/model (shared with velocipi); usable in the
+	// whisper prompt via ${tailType}.
+	TailType string        `yaml:"tailType" json:"tailType"`
+	LiveATC  LiveATCConfig `yaml:"liveatc"  json:"liveatc"`
+	Storage  StorageConfig `yaml:"storage"  json:"storage"`
 }
 
 // Derived, non-serialized durations populated by Load().
@@ -129,5 +140,87 @@ func Load(dir string) (*Config, error) {
 		cfg.LiveATC.Audio.AudioDevice = dev
 	}
 
+	// Storage roots are interpreted relative to the config file's directory (made
+	// absolute) so the data tree travels with the config regardless of the
+	// process working directory. This must run before resolvePaths(), which
+	// anchors the whisper/silero model paths under storage.liveatc.
+	cfgDir, err := filepath.Abs(dir)
+	if err != nil {
+		cfgDir = dir
+	}
+	cfg.resolveStoragePaths(cfgDir)
+
+	cfg.resolvePaths()
+	cfg.expandPrompt()
+
 	return cfg, nil
+}
+
+// expandPrompt substitutes ${tailNumber} / ${tailType} placeholders in the
+// whisper prompt with the configured aircraft identity. Unknown placeholders are
+// left untouched.
+func (c *Config) expandPrompt() {
+	c.LiveATC.Whisper.Prompt = strings.NewReplacer(
+		"${tailNumber}", c.TailNumber,
+		"${tailType}", c.TailType,
+	).Replace(c.LiveATC.Whisper.Prompt)
+}
+
+// resolveStoragePaths makes every path in the storage section absolute relative
+// to cfgDir (the config file's directory) when it is given as a relative path.
+// Reflection is used so all storage keys -- current and any added later -- are
+// covered uniformly.
+func (c *Config) resolveStoragePaths(cfgDir string) {
+	v := reflect.ValueOf(&c.Storage).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		if f.Kind() == reflect.String && f.CanSet() {
+			f.SetString(resolveUnder(cfgDir, f.String()))
+		}
+	}
+}
+
+// resolvePaths rewrites relative path settings to absolute, with two different
+// bases depending on what the path points at:
+//
+//   - Model/data files (whisper model + dir, silero ONNX) live on the storage
+//     SSD, so a relative path is resolved under storage.liveatc.
+//   - The VAD sidecar interpreter + script ship with the deployment, so a
+//     relative path is resolved against the process working directory. A bare
+//     command name (no path separator, e.g. "python3") is left untouched so it
+//     still resolves via $PATH.
+//
+// Absolute paths and empty values are always left as-is.
+func (c *Config) resolvePaths() {
+	root := c.Storage.LiveATC
+	c.LiveATC.Whisper.Model = resolveUnder(root, c.LiveATC.Whisper.Model)
+	c.LiveATC.Whisper.ModelDir = resolveUnder(root, c.LiveATC.Whisper.ModelDir)
+	c.LiveATC.VAD.SileroOnnx = resolveUnder(root, c.LiveATC.VAD.SileroOnnx)
+
+	c.LiveATC.VAD.SileroPython = resolveUnderCwd(c.LiveATC.VAD.SileroPython)
+	c.LiveATC.VAD.SileroScript = resolveUnderCwd(c.LiveATC.VAD.SileroScript)
+
+	// The SPA dir ships with the deployment, so resolve it against the cwd too.
+	c.LiveATC.UIDir = resolveUnderCwd(c.LiveATC.UIDir)
+}
+
+// resolveUnder joins a relative path under base; absolute/empty paths pass through.
+func resolveUnder(base, p string) string {
+	if p == "" || filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(base, p)
+}
+
+// resolveUnderCwd joins a relative *path* under the working directory. A bare
+// command name (no separator) is returned unchanged so $PATH lookup still works.
+func resolveUnderCwd(p string) string {
+	if p == "" || filepath.IsAbs(p) || !strings.ContainsRune(p, filepath.Separator) {
+		return p
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return p
+	}
+	return filepath.Join(cwd, p)
 }

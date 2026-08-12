@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"log"
 	"math"
 	"net"
@@ -26,6 +27,10 @@ import (
 )
 
 func main() {
+	configDir := flag.String("config", ".", "directory containing config.default.yaml / config.yaml")
+	flag.Parse()
+	config.SetDir(*configDir)
+
 	result := config.Load()
 	cfg := result.Config
 	defaults := result.Defaults
@@ -84,10 +89,14 @@ func main() {
 				err  error
 			)
 			if r.URL.Query().Get("full") == "true" {
+				// Present storage paths relative to the config dir (they are
+				// absolute internally); POST re-resolves them via ResolveStorage.
+				relCfg := config.RelativizeStorage(*cfg)
+				relDefaults := config.RelativizeStorage(*defaults)
 				data, err = json.Marshal(struct {
 					Config   *config.Config `json:"config"`
 					Defaults *config.Config `json:"defaults"`
-				}{cfg, defaults})
+				}{&relCfg, &relDefaults})
 			} else {
 				data, err = json.Marshal(struct {
 					config.UIConfig
@@ -106,6 +115,9 @@ func main() {
 				http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 				return
 			}
+			// The UI sees storage relative to the config dir; resolve back to
+			// absolute so internal use and the SaveOverrides diff stay consistent.
+			config.ResolveStorage(&updated)
 			if err := config.SaveOverrides(updated, *defaults); err != nil {
 				http.Error(w, "save error: "+err.Error(), http.StatusInternalServerError)
 				return

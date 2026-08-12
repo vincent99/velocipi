@@ -34,11 +34,33 @@ func (s *Store) Add(r TransmissionRecord) {
 	if len(s.records) > s.max {
 		s.records = s.records[len(s.records)-s.max:]
 	}
+	s.mu.Unlock()
+	s.notify(r)
+}
+
+// Update replaces the cached copy of a record (matched by ID) if present and
+// notifies subscribers either way, so live viewers see edits (e.g. corrections)
+// immediately. Records from past sessions not in the cache are only broadcast.
+func (s *Store) Update(r TransmissionRecord) {
+	s.mu.Lock()
+	for i := range s.records {
+		if s.records[i].ID == r.ID {
+			s.records[i] = r
+			break
+		}
+	}
+	s.mu.Unlock()
+	s.notify(r)
+}
+
+// notify fans a record out to all current subscribers without blocking.
+func (s *Store) notify(r TransmissionRecord) {
+	s.mu.RLock()
 	subs := make([]chan TransmissionRecord, 0, len(s.subs))
 	for _, ch := range s.subs {
 		subs = append(subs, ch)
 	}
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	for _, ch := range subs {
 		// Non-blocking: a slow websocket client never stalls the pipeline.

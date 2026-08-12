@@ -3,6 +3,7 @@ addr: "0.0.0.0:8080"
 # Free-form aircraft identifier (tail number). Shown in the UI and recorded in
 # liveatc session manifests.
 tailNumber: "N12345"
+tailType: "Velocity V-Twin"
 
 pingInterval: "1s"
 
@@ -70,6 +71,9 @@ hardware:
     device: "/dev/ttyAMA4"
 
 storage:
+  # Relative storage paths are interpreted relative to the directory this config
+  # file lives in (the intercom-stt process resolves them this way), so the data
+  # tree travels with the config regardless of where the process is launched.
   dvr: "data/recordings"
   music: "data/music"
   backup: "data/backup"
@@ -156,6 +160,10 @@ liveatc:
   # slog level: debug | info | warn | error
   logLevel: "info"
 
+  # Built Vue SPA directory served at "/" (relative to the working dir). Build
+  # it with `make ui` in liveatc/. Empty disables UI serving (API only).
+  uiDir: "ui/dist"
+
   audio:
     # ALSA capture device. Override via config.yaml or the AUDIO_DEVICE env var.
     audioDevice: "hw:1,0"
@@ -173,12 +181,16 @@ liveatc:
     # warning and fall back to "energy" so the pipeline still runs.
     engine: "silero"
     # Path to the python interpreter and sidecar script for the silero engine.
+    # A relative path here is resolved against the process working directory
+    # (where intercom-stt is launched from); a bare command like "python3" is
+    # left alone so it resolves via $PATH.
     sileroPython: "python3"
     sileroScript: "sidecar/silero_vad.py"
     # Path to the Silero ONNX model file. When set, it is passed to the sidecar
     # as the SILERO_ONNX env var, selecting the lighter onnxruntime backend
     # (numpy + onnxruntime) instead of torch.hub. Empty = use the torch.hub
-    # backend (which downloads/caches the model on first run).
+    # backend (which downloads/caches the model on first run). A relative path is
+    # resolved under storage.liveatc.
     sileroOnnx: ""
     # Speech-probability threshold [0..1] above which a frame counts as speech.
     threshold: 0.5
@@ -202,14 +214,38 @@ liveatc:
 
   whisper:
     binary: "/usr/local/bin/whisper-cli"
+    # GGML model file. A relative path is resolved under storage.liveatc (e.g.
+    # "models/ggml-base.en.bin" -> <storage.liveatc>/models/ggml-base.en.bin).
     model: "/opt/models/ggml-base.en.bin"
     # Optional dir holding a fine-tuned ATC model; if a *.bin exists here and
-    # `atcModel` names it, it is used in place of `model`.
+    # `atcModel` names it, it is used in place of `model`. A relative path is
+    # resolved under storage.liveatc.
     modelDir: "/opt/models"
     atcModel: "" # filename within modelDir, e.g. "ggml-atc.bin"; "" = disabled
     language: "en"
     threads: 4 # RPi 5 has 4 performance cores
     workers: 2 # STT worker goroutines
+    # Initial prompt passed to whisper (--prompt) to bias decoding toward ATC
+    # phraseology, this aircraft's callsign, and digit formatting for altitudes,
+    # headings, runways, and frequencies. whisper treats it as preceding context,
+    # so a representative sample steers spelling/formatting of what follows.
+    # LIMIT: ~224 tokens (~150 words) for ALL Whisper sizes -- the decoder context
+    # is 448 for every model (tiny .. large-v3-turbo) and only half is used for the
+    # prompt; GPU/hardware doesn't change this. An over-long prompt isn't an error
+    # but is silently truncated to its LAST ~224 tokens (the front is dropped), so
+    # keep the most important guidance last -- or better, keep it short.
+    # ${tailNumber} and ${tailType} may be substituted from the top-level config.
+    prompt: >-
+      Air traffic control and pilot radio communications; standard ATC phraseology. Our aircraft is an experimental ${tailType}, tail number ${tailNumber}.
+
+      - Callsigns: omit the "November"/"N" prefix and may shorten to the last 3 characters (e.g. "7SC"); keep aircraft types ("Cessna", "Velocity", "V-Twin") and company codes ("FedEx").
+      - Numbers: combine spoken digits into one number, commas for thousands (e.g. "13,000"); flight levels as "FL310"; runways with a letter suffix ("28R", not "28 right").
+      - Waypoints: record the spoken word then its phonetic letters (e.g. "POTER, Papa Oscar Tango Echo Romeo").
+      - Mark garbled overlapping transmissions "[blocked]".
+
+      Examples:
+        - Velocity 1ME, 4 miles from POTER, maintain 3,000 until established, cleared GPS runway 4R approach, contact Chandler Tower 133.1.
+        - FedEx 1234 heavy, turn left heading 210, descend and maintain FL270.
 
   # TX vs RX detection.
   #  - pttPin: GPIO line (name or offset) wired to the PTT line. When set, a

@@ -32,4 +32,18 @@ type TransmissionRecord struct {
 	Confidence float32     `json:"confidence"` // mean whisper token confidence
 	Direction  string      `json:"direction"`  // "rx" | "tx" | "unknown"
 	ModelUsed  string      `json:"model_used"`
+
+	// Correction is a human-provided corrected transcript, entered via the UI.
+	// It is stored alongside the machine Transcript (never overwriting it) so the
+	// pair can later be used as corrective training material. Empty = none.
+	Correction string `json:"correction,omitempty"`
+	// CorrectedAt is when the correction was last saved (UTC); zero if none.
+	CorrectedAt time.Time `json:"corrected_at,omitempty"`
+
+	// Reviewed marks that a human reviewed this transmission and confirmed the
+	// machine Transcript is correct as-is (no errors). Distinct from Correction,
+	// which records a fix. Useful as positive/verified training material.
+	Reviewed bool `json:"reviewed,omitempty"`
+	// ReviewedAt is when it was marked reviewed (UTC); zero if not reviewed.
+	ReviewedAt time.Time `json:"reviewed_at,omitempty"`
 }

@@ -1,6 +1,11 @@
 # Build output
 /intercom-stt
+/dist/
 /tmp/
+/build-errors.log
+
+# Node (root package.json: concurrently for `yarn dev`)
+/node_modules/
 
 # Local config overrides (defaults live in config.default.yaml)
 /config.yaml

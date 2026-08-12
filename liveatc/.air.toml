@@ -1,0 +1,32 @@
+# air configuration for liveatc / intercom-stt
+# https://github.com/air-verse/air
+#
+# Hot-reloads the Go API binary on change. The default `--config ..` resolves to
+# the repo root, so it reads the shared velocipi config in dev. On a non-Pi dev
+# box ALSA capture will fail and retry (harmless) -- the API + UI still serve.
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/intercom-stt ./cmd/intercom-stt"
+  bin = "./tmp/intercom-stt"
+  delay = 500             # ms to wait before rebuilding after a change
+  include_ext = ["go", "yaml"]
+  exclude_dir  = ["tmp", "vendor", "ui", "data", "node_modules", "dist", "sidecar"]
+  exclude_file = []
+  kill_delay = "1s"
+  send_interrupt = true   # send SIGINT before SIGKILL for graceful shutdown
+  log = "build-errors.log"
+
+[log]
+  time = true
+
+[color]
+  main    = "magenta"
+  watcher = "cyan"
+  build   = "yellow"
+  runner  = "green"
+
+[misc]
+  clean_on_exit = true    # remove tmp/intercom-stt on exit

@@ -115,14 +115,23 @@ func main() {
 	defer scorer.Close()
 
 	// STT.
-	transcriber := stt.New(cfg.LiveATC.Whisper.Binary, modelPath, cfg.LiveATC.Whisper.Language, cfg.LiveATC.Whisper.Threads)
+	transcriber := stt.New(cfg.LiveATC.Whisper.Binary, modelPath, cfg.LiveATC.Whisper.Language, cfg.LiveATC.Whisper.Threads, cfg.LiveATC.Whisper.Prompt)
+	if p := cfg.LiveATC.Whisper.Prompt; p != "" {
+		est := stt.EstimatePromptTokens(p)
+		if est > stt.PromptTokenLimit {
+			log.Warn("whisper prompt likely exceeds the initial-prompt limit; whisper.cpp keeps only the LAST ~limit tokens (the front is dropped)",
+				"estimated_tokens", est, "limit", stt.PromptTokenLimit)
+		} else {
+			log.Info("whisper prompt", "estimated_tokens", est, "limit", stt.PromptTokenLimit)
+		}
+	}
 
 	// PTT monitor (optional; disabled when pttPin is empty or non-linux).
 	pttMon := newPTT(cfg, log)
 	defer pttMon.Close()
 
 	// API server.
-	apiSrv := api.New(cfg.LiveATC.Addr, store, gpsStore, sess, log)
+	apiSrv := api.New(cfg.LiveATC.Addr, cfg.Storage.LiveATC, cfg.LiveATC.UIDir, store, writer, gpsStore, sess, log)
 	go func() {
 		if err := apiSrv.Start(); err != nil {
 			log.Error("api server", "err", err)

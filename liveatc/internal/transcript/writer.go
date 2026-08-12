@@ -16,9 +16,11 @@ import (
 //   - an append-only JSONL log (one record per line; the durable source of truth)
 //   - a human-readable text log for quick review
 type Writer struct {
-	mu    sync.Mutex
-	jsonl *os.File
-	text  *os.File
+	mu        sync.Mutex
+	jsonl     *os.File
+	text      *os.File
+	jsonlPath string
+	textPath  string
 }
 
 // NewWriter opens (creating parent dirs) the JSONL and text logs at the given
@@ -39,7 +41,41 @@ func NewWriter(jsonlPath, textPath string) (*Writer, error) {
 		_ = jf.Close()
 		return nil, err
 	}
-	return &Writer{jsonl: jf, text: tf}, nil
+	return &Writer{jsonl: jf, text: tf, jsonlPath: jsonlPath, textPath: textPath}, nil
+}
+
+// UpdateRecord applies mut to the record with id in this session's JSONL and
+// returns the updated record. It rewrites the file atomically while holding the
+// same lock the appender uses, then reopens the append handle onto the new file
+// -- so it can't interleave with, or lose, concurrent Appends.
+func (w *Writer) UpdateRecord(id string, mut func(*TransmissionRecord)) (TransmissionRecord, bool, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	recs, err := ReadJSONL(w.jsonlPath)
+	if err != nil {
+		return TransmissionRecord{}, false, err
+	}
+	rec, ok := applyTo(recs, id, mut)
+	if !ok {
+		return TransmissionRecord{}, false, nil
+	}
+
+	// Close our append handle before the rename so subsequent Appends don't keep
+	// writing to the now-unlinked old inode; reopen it onto the rewritten file.
+	if err := w.jsonl.Close(); err != nil {
+		return TransmissionRecord{}, false, err
+	}
+	writeErr := writeJSONLAtomic(w.jsonlPath, recs)
+	jf, openErr := os.OpenFile(w.jsonlPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if openErr != nil {
+		return TransmissionRecord{}, false, openErr
+	}
+	w.jsonl = jf
+	if writeErr != nil {
+		return TransmissionRecord{}, false, writeErr
+	}
+	return rec, true, nil
 }
 
 // Append writes the record to both logs and flushes them.

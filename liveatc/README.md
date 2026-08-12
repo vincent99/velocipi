@@ -50,9 +50,37 @@ Axis feed) and snapshotted at each transmission's start and end.
 | `internal/session`            | Session id, on-disk paths, manifest                  |
 | `internal/pipeline`           | Orchestration of all of the above                    |
 | `sidecar/silero_vad.py`       | Silero VAD sidecar (stdin PCM → stdout probabilities)|
+| `ui/`                         | Vue 3 + Vite web UI (sessions, live feed, audio, edits)|
 | `systemd/intercom-stt.service`| Sample unit file                                     |
 
 ## Build & run
+
+For local development there's a `package.json` mirroring the main velocipi repo
+(`concurrently` runs the Go API + the Vite UI together):
+
+```bash
+yarn install && yarn install:ui   # once (root gets concurrently; ui gets its deps)
+yarn dev                           # runs the API (air, hot-reload) + UI (Vite :8091)
+yarn build                         # build:ui then build:go -> ./intercom-stt
+yarn test                          # go test ./...
+```
+
+Any args after `yarn dev` are forwarded to the Go server, so you can feed it a
+test source instead of ALSA hardware:
+
+```bash
+yarn dev --stream https://example.liveatc.net/feed.mp3
+yarn dev --file testdata/clip.wav
+```
+
+`dev:go` uses [air](https://github.com/air-verse/air) for hot-reload, same as the
+main repo — install it with `go install github.com/air-verse/air@latest` if you
+don't have it. On a non-Pi dev box ALSA capture fails and retries (harmless); the
+API + UI still serve any sessions already on disk.
+
+There's also a `Makefile` for ops-style tasks — run `make help` to list them
+(`make build-pi`, `make check`, `make ui`, `make venv`, `make model MODEL=small.en-q5_1`,
+`make deploy PI=pi@host`). The raw commands, if you prefer:
 
 ```bash
 go build -o intercom-stt ./cmd/intercom-stt   # native (Pi: run this on the Pi)
@@ -92,12 +120,34 @@ schema.
   (`SILERO_ONNX=/path`). If the sidecar can't start, the service logs a warning
   and falls back to the built-in energy (RMS) VAD so it still runs.
 
+## Web UI
+
+A Vue 3 + Vite single-page app in `ui/` provides:
+
+- a **session sidebar** (live session flagged) to browse the current flight or past ones,
+- a **transcript view** that loads a session's records from disk and, for the live
+  session, appends new transmissions in real time over `/ws/transcripts`,
+- a **Listen** button per transmission that streams the segment WAV (with seeking),
+- an inline **correction editor** — edits are saved to a separate `correction`
+  field on the record (the machine `transcript` is never overwritten) for use as
+  corrective training material later.
+
+Build it with `make ui` (outputs `ui/dist`, which the Go binary serves at `/`);
+develop it with `make ui-dev` (Vite dev server on :8091, proxying `/api` + `/ws`
+to a running backend). Set `liveatc.uiDir: ""` to run API-only.
+
 ## Internal API
 
-- `GET  /api/transcripts/session/{session_id}` — records for a session (JSON array)
-- `GET  /api/transcripts/recent?n=20` — last N records
+- `GET  /api/sessions` — all sessions (from disk manifests), newest first, `live` flagged
+- `GET  /api/transcripts/session/{session_id}` — records for a session, read from the
+  durable JSONL (works for the live session and past ones; includes corrections)
+- `GET  /api/transcripts/recent?n=20` — last N records (in-memory cache)
+- `PUT  /api/transcripts/session/{session_id}/{id}/correction` — save `{ "correction": "..." }`
+  onto a record; returns the updated record and broadcasts it to live viewers
+- `GET  /api/media/{path...}` — serve a file (e.g. a segment WAV) from under the
+  storage root, with Range support (confined to the root; traversal is blocked)
 - `GET  /api/session` — current session manifest; `GET /healthz`
-- `WS   /ws/transcripts` — pushes each new `TransmissionRecord` (with a small backlog on connect)
+- `WS   /ws/transcripts` — pushes each new/edited `TransmissionRecord` (with a small backlog on connect)
 - `POST /api/gps` and `WS /ws/gps` — feed the current `GPSFix` in (until the Garmin Axis integration lands)
 
 ## TX vs RX detection
@@ -116,5 +166,9 @@ schema.
 - **whisper flags**: whisper.cpp has no `--word-timestamps` flag; word timing
   comes from the token offsets in `--output-json-full` (`-ojf`), which the
   parser merges back into whole words. `--no-prints` = `-np`.
+- **Decoding prompt**: `liveatc.whisper.prompt` is passed as whisper's initial
+  prompt (`--prompt`) to bias decoding toward ATC phraseology, this aircraft's
+  callsign, and digit formatting (altitudes/headings/runways/frequencies). The
+  default is a representative ATC sample; edit it for your callsign/airport.
 - **Callsign hint** in the WAV filename is left empty for now (callsign parsing
   is out of scope; add it later as a rename/symlink post-pass on the JSONL).

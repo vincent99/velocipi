@@ -1,0 +1,22 @@
+{
+  "name": "liveatc",
+  "version": "1.0.0",
+  "description": "Cockpit intercom speech-to-text: continuous capture, Silero VAD segmentation, whisper.cpp transcription, GPS-tagged transcripts, and a web UI. Runs as a standalone process on a Raspberry Pi 5.",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:ui": "cd ui && yarn dev --host 0.0.0.0",
+    "dev:go": "air",
+    "build": "yarn build:ui && yarn build:go",
+    "build:ui": "cd ui && yarn build",
+    "build:go": "go build -o intercom-stt ./cmd/intercom-stt",
+    "start": "./intercom-stt",
+    "test": "go test ./...",
+    "format": "gofmt -w ./internal ./cmd && cd ui && yarn format",
+    "install:ui": "cd ui && yarn install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

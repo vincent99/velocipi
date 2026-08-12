@@ -5,12 +5,27 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 	"periph.io/x/conn/v3/physic"
 )
+
+// configDir is the directory holding config.default.yaml / config.yaml. It
+// defaults to "." (the process working directory) to preserve prior behavior;
+// override it once at startup via SetDir (wired to the -config flag in main).
+var configDir = "."
+
+// SetDir sets the directory Load and SaveOverrides read/write config files in.
+// Call it before the first Load().
+func SetDir(dir string) {
+	if dir != "" {
+		configDir = dir
+	}
+}
 
 // CameraConfig holds connection parameters for a single IP camera.
 type CameraConfig struct {
@@ -285,7 +300,7 @@ type LoadResult struct {
 func Load() *LoadResult {
 	var defaults Config
 
-	data, err := os.ReadFile("config.default.yaml")
+	data, err := os.ReadFile(filepath.Join(configDir, "config.default.yaml"))
 	if err != nil {
 		log.Fatal("config: read error: ", err)
 	}
@@ -295,7 +310,7 @@ func Load() *LoadResult {
 
 	// Start with a copy of defaults, then layer overrides on top.
 	cfg := defaults
-	if ovData, err := os.ReadFile("config.yaml"); err == nil {
+	if ovData, err := os.ReadFile(filepath.Join(configDir, "config.yaml")); err == nil {
 		if err := yaml.Unmarshal(ovData, &cfg); err != nil {
 			log.Println("config: ignoring malformed config.yaml:", err)
 		}
@@ -303,6 +318,14 @@ func Load() *LoadResult {
 
 	parseDurations(&cfg)
 	parseDurations(&defaults)
+
+	// Storage roots are interpreted relative to the config file's directory (made
+	// absolute) so the data tree travels with the config regardless of the
+	// process working directory. Resolve both cfg and defaults identically so
+	// SaveOverrides doesn't see storage as a difference and persist it.
+	absDir := storageDirAbs()
+	resolveStoragePaths(&cfg, absDir)
+	resolveStoragePaths(&defaults, absDir)
 
 	// Build AppURL from VELOCIPI_PORT (default 8080).
 	port := os.Getenv("VELOCIPI_PORT")
@@ -313,6 +336,64 @@ func Load() *LoadResult {
 	defaults.AppURL = cfg.AppURL
 
 	return &LoadResult{Config: &cfg, Defaults: &defaults}
+}
+
+// storageDirAbs returns the absolute config directory (falling back to the raw
+// configDir if it can't be resolved).
+func storageDirAbs() string {
+	if abs, err := filepath.Abs(configDir); err == nil {
+		return abs
+	}
+	return configDir
+}
+
+// ResolveStorage rewrites cfg's storage paths to absolute under the config
+// directory. Use it on a Config received from an external source (e.g. the admin
+// UI, which is shown storage relative to the config -- see RelativizeStorage)
+// before storing or using it, so internal paths stay absolute.
+func ResolveStorage(cfg *Config) {
+	resolveStoragePaths(cfg, storageDirAbs())
+}
+
+// RelativizeStorage returns a copy of cfg whose storage paths are expressed
+// relative to the config directory when they live under it (left absolute
+// otherwise). Used to present config to the admin UI. The input is unchanged.
+func RelativizeStorage(cfg Config) Config {
+	dir := storageDirAbs()
+	v := reflect.ValueOf(&cfg.Storage).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		if f.Kind() != reflect.String || !f.CanSet() {
+			continue
+		}
+		s := f.String()
+		if s == "" || !filepath.IsAbs(s) {
+			continue
+		}
+		// Only relativize paths under the config dir; anything outside (e.g. an
+		// external SSD mount) stays absolute so it reads unambiguously.
+		if rel, err := filepath.Rel(dir, s); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			f.SetString(rel)
+		}
+	}
+	return cfg
+}
+
+// resolveStoragePaths makes every path in the storage section absolute relative
+// to cfgDir (the config file's directory) when it is given as a relative path.
+// Reflection is used so all storage keys -- current and any added later -- are
+// covered uniformly. Absolute and empty values are left untouched.
+func resolveStoragePaths(cfg *Config, cfgDir string) {
+	v := reflect.ValueOf(&cfg.Storage).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		if f.Kind() != reflect.String || !f.CanSet() {
+			continue
+		}
+		if s := f.String(); s != "" && !filepath.IsAbs(s) {
+			f.SetString(filepath.Join(cfgDir, s))
+		}
+	}
 }
 
 func parseDurations(cfg *Config) {
@@ -339,7 +420,7 @@ func SaveOverrides(updated, defaults Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile("config.yaml", data, 0644)
+	return os.WriteFile(filepath.Join(configDir, "config.yaml"), data, 0644)
 }
 
 func toMap(v any) map[string]any {
