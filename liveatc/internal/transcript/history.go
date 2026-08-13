@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ReadJSONL parses a transcript JSONL file into records, in file order. Blank
@@ -84,6 +85,101 @@ func writeJSONLAtomic(path string, recs []TransmissionRecord) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+// removeByID returns recs without the record with id (a fresh slice, leaving the
+// input untouched) plus the removed record and whether it was found.
+func removeByID(recs []TransmissionRecord, id string) ([]TransmissionRecord, TransmissionRecord, bool) {
+	for i := range recs {
+		if recs[i].ID == id {
+			removed := recs[i]
+			out := append(recs[:i:i], recs[i+1:]...)
+			return out, removed, true
+		}
+	}
+	return recs, TransmissionRecord{}, false
+}
+
+// writeFileAtomic writes data to path via a temp file + rename.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".transcript-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+// writeTextAtomic regenerates the human-readable text log from recs so it stays
+// in sync with the JSONL after a record is removed (text lines carry no id, so
+// they can't be edited in place).
+func writeTextAtomic(path string, recs []TransmissionRecord) error {
+	var b strings.Builder
+	for _, r := range recs {
+		b.WriteString(formatText(r))
+		b.WriteByte('\n')
+	}
+	return writeFileAtomic(path, []byte(b.String()))
+}
+
+// DeleteRecordFile removes the record with id from the JSONL at jsonlPath and
+// regenerates the sibling text log at textPath. Use this only for files NOT
+// owned by an open Writer (past sessions); for the live session use
+// Writer.DeleteRecord. Returns the removed record and whether it was found.
+func DeleteRecordFile(jsonlPath, textPath, id string) (TransmissionRecord, bool, error) {
+	recs, err := ReadJSONL(jsonlPath)
+	if err != nil {
+		return TransmissionRecord{}, false, err
+	}
+	remaining, removed, ok := removeByID(recs, id)
+	if !ok {
+		return TransmissionRecord{}, false, nil
+	}
+	if err := writeJSONLAtomic(jsonlPath, remaining); err != nil {
+		return removed, false, err
+	}
+	if textPath != "" {
+		if _, err := os.Stat(textPath); err == nil {
+			if err := writeTextAtomic(textPath, remaining); err != nil {
+				return removed, false, err
+			}
+		}
+	}
+	return removed, true, nil
+}
+
+// RewriteFile applies fn to the full record list of a past-session JSONL and
+// rewrites the JSONL + sibling text log. Do not use for the live session (use
+// Writer.Rewrite, which coordinates with the appender).
+func RewriteFile(jsonlPath, textPath string, fn func([]TransmissionRecord) []TransmissionRecord) error {
+	recs, err := ReadJSONL(jsonlPath)
+	if err != nil {
+		return err
+	}
+	recs = fn(recs)
+	if err := writeJSONLAtomic(jsonlPath, recs); err != nil {
+		return err
+	}
+	if textPath != "" {
+		if _, err := os.Stat(textPath); err == nil {
+			if err := writeTextAtomic(textPath, recs); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // UpdateRecordFile rewrites the JSONL at path, applying mut to the record with

@@ -173,6 +173,17 @@ liveatc:
     arecordBin: "arecord"
     # ffmpeg binary (used for --stream / --file test sources).
     ffmpegBin: "ffmpeg"
+    # Capture channels: 1 = mono; 2 = stereo. With 2, liveatc detects per frame
+    # whether the two channels are identical (radios joined -> one "mono"
+    # transmission) or independent (split -> the left and right radios are
+    # transcribed separately), and tags each transmission with its channel.
+    channels: 1
+    monoLabel: "mono" # label when joined (can't tell which radio)
+    leftLabel: "com1" # left channel when split
+    rightLabel: "com2" # right channel when split
+    # L/R difference-energy ratio above which a stereo frame is "split"
+    # (identical channels ~0, independent ~1). 0 = detector default (0.15).
+    splitThreshold: 0.15
 
   vad:
     # Which frame scorer to use: "silero" (python sidecar, preferred) or
@@ -225,27 +236,26 @@ liveatc:
     language: "en"
     threads: 4 # RPi 5 has 4 performance cores
     workers: 2 # STT worker goroutines
-    # Initial prompt passed to whisper (--prompt) to bias decoding toward ATC
-    # phraseology, this aircraft's callsign, and digit formatting for altitudes,
-    # headings, runways, and frequencies. whisper treats it as preceding context,
-    # so a representative sample steers spelling/formatting of what follows.
+    # Initial prompt passed to whisper (--prompt). IMPORTANT: whisper treats this
+    # as *preceding transcript text* it will try to continue -- it is priming, NOT
+    # an instruction field. Give it a short block of EXAMPLE transmissions in the
+    # exact style/formatting you want (callsigns, digits with commas, FL levels,
+    # runway letter suffixes, waypoint word + phonetics, [blocked]); do NOT write
+    # rules/bullets/meta-instructions -- those confuse the decoder (especially the
+    # small-decoder large-v3-turbo) and can make it emit nothing.
     # LIMIT: ~224 tokens (~150 words) for ALL Whisper sizes -- the decoder context
     # is 448 for every model (tiny .. large-v3-turbo) and only half is used for the
-    # prompt; GPU/hardware doesn't change this. An over-long prompt isn't an error
-    # but is silently truncated to its LAST ~224 tokens (the front is dropped), so
-    # keep the most important guidance last -- or better, keep it short.
-    # ${tailNumber} and ${tailType} may be substituted from the top-level config.
+    # prompt; GPU/hardware doesn't change this. Over-long prompts are truncated to
+    # their last ~224 tokens (not an error). ${tailNumber}/${tailType} are
+    # substituted from the top-level config.
     prompt: >-
-      Air traffic control and pilot radio communications; standard ATC phraseology. Our aircraft is an experimental ${tailType}, tail number ${tailNumber}.
-
-      - Callsigns: omit the "November"/"N" prefix and may shorten to the last 3 characters (e.g. "7SC"); keep aircraft types ("Cessna", "Velocity", "V-Twin") and company codes ("FedEx").
-      - Numbers: combine spoken digits into one number, commas for thousands (e.g. "13,000"); flight levels as "FL310"; runways with a letter suffix ("28R", not "28 right").
-      - Waypoints: record the spoken word then its phonetic letters (e.g. "POTER, Papa Oscar Tango Echo Romeo").
-      - Mark garbled overlapping transmissions "[blocked]".
-
-      Examples:
-        - Velocity 1ME, 4 miles from POTER, maintain 3,000 until established, cleared GPS runway 4R approach, contact Chandler Tower 133.1.
-        - FedEx 1234 heavy, turn left heading 210, descend and maintain FL270.
+      Velocity 1ME, 4 miles from POTER, maintain 3,000 until established, cleared GPS runway 4R approach, contact Chandler Tower 133.1.
+      Cleared GPS 4R approach, over to tower, good day, 1ME.
+      FedEx 1234 heavy, turn left heading 210, descend and maintain FL270.
+      Cleared for takeoff runway 30L, squawk 2734, contact departure 123.475.
+      Cessna 747SC, cleared direct POTER, Papa Oscar Tango Echo Romeo, climb and maintain 13,000.
+      ${tailType} ${tailNumber}, radar contact, resume own navigation.
+      [blocked]
 
   # TX vs RX detection.
   #  - pttPin: GPIO line (name or offset) wired to the PTT line. When set, a

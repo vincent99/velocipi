@@ -31,6 +31,7 @@ export interface TransmissionRecord {
   gps_end: GPSFix;
   confidence: number;
   direction: string; // "rx" | "tx" | "unknown"
+  channel?: string; // "mono" | "com1" | "com2" | stream name
   model_used: string;
   correction?: string;
   corrected_at?: string;

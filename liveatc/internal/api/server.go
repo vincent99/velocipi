@@ -16,6 +16,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/vincent99/liveatc/internal/audio"
 	"github.com/vincent99/liveatc/internal/gps"
 	"github.com/vincent99/liveatc/internal/session"
 	"github.com/vincent99/liveatc/internal/transcript"
@@ -58,6 +59,9 @@ func New(addr, root, uiDir string, store *transcript.Store, writer *transcript.W
 	mux.HandleFunc("GET /api/transcripts/recent", s.handleRecent)
 	mux.HandleFunc("PUT /api/transcripts/session/{sid}/{id}/correction", s.handleCorrection)
 	mux.HandleFunc("PUT /api/transcripts/session/{sid}/{id}/reviewed", s.handleReviewed)
+	mux.HandleFunc("POST /api/transcripts/session/{sid}/{id}/merge", s.handleMerge)
+	mux.HandleFunc("DELETE /api/transcripts/session/{sid}/{id}", s.handleDeleteRecord)
+	mux.HandleFunc("DELETE /api/transcripts/session/{sid}", s.handleDeleteSession)
 	mux.HandleFunc("GET /api/media/{path...}", s.handleMedia)
 	mux.HandleFunc("POST /api/gps", s.handlePostGPS)
 	mux.HandleFunc("/ws/transcripts", s.handleWSTranscripts)
@@ -155,8 +159,14 @@ func (s *Server) handleCorrection(w http.ResponseWriter, r *http.Request) {
 	s.updateRecord(w, r, func(rec *transcript.TransmissionRecord) {
 		now := time.Now().UTC()
 		rec.Correction = body.Correction
-		rec.CorrectedAt = now
-		// Providing a correction implies the transmission was reviewed.
+		// An empty correction (text matched the original, or a revert) clears the
+		// correction; a non-empty one stamps when it was made.
+		if body.Correction != "" {
+			rec.CorrectedAt = now
+		} else {
+			rec.CorrectedAt = time.Time{}
+		}
+		// Either way, submitting the edit means the transmission was reviewed.
 		rec.Reviewed = true
 		rec.ReviewedAt = now
 	})
@@ -234,6 +244,218 @@ func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, full)
+}
+
+// handleMerge combines a transmission with the immediately-later transmission in
+// the same session into a single record (as if it were one to begin with): the
+// two segment WAVs are concatenated into the earlier record's file, the text and
+// metadata are merged, and the later record is deleted.
+func (s *Server) handleMerge(w http.ResponseWriter, r *http.Request) {
+	sid := r.PathValue("sid")
+	id := r.PathValue("id")
+
+	jsonl, err := session.FindTranscriptJSONL(s.root, sid)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if jsonl == "" {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	recs, err := transcript.ReadJSONL(jsonl)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Find the clicked record and its next-later neighbour by start time.
+	var a, b *transcript.TransmissionRecord
+	for i := range recs {
+		if recs[i].ID == id {
+			a = &recs[i]
+			break
+		}
+	}
+	if a == nil {
+		http.Error(w, "record not found", http.StatusNotFound)
+		return
+	}
+	for i := range recs {
+		rec := &recs[i]
+		if rec.StartTime.After(a.StartTime) && (b == nil || rec.StartTime.Before(b.StartTime)) {
+			b = rec
+		}
+	}
+	if b == nil {
+		http.Error(w, "no later transmission to merge with", http.StatusConflict)
+		return
+	}
+
+	// Concatenate a's then b's audio into a's WAV.
+	aPath := filepath.Join(s.root, filepath.Clean("/"+a.AudioFile))
+	bPath := filepath.Join(s.root, filepath.Clean("/"+b.AudioFile))
+	aSamples, rate, err := audio.ReadWAV(aPath)
+	if err != nil {
+		http.Error(w, "read audio: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	bSamples, _, err := audio.ReadWAV(bPath)
+	if err != nil {
+		http.Error(w, "read audio: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if rate <= 0 {
+		rate = 16000
+	}
+	merged := transcript.Merge(*a, *b, time.Now().UTC())
+	deletedID := b.ID
+
+	info := audio.INFO{
+		ICRD: merged.StartTime.UTC().Format(time.RFC3339),
+		ISRC: "cockpit-intercom",
+		ICMT: mergeGPSJSON(merged.GPSStart, merged.GPSEnd),
+		IKEY: merged.Transcript,
+	}
+	if err := audio.WriteWAV(aPath, append(aSamples, bSamples...), rate, info); err != nil {
+		http.Error(w, "write audio: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Replace a with the merged record and drop b from the logs.
+	fn := func(list []transcript.TransmissionRecord) []transcript.TransmissionRecord {
+		out := list[:0]
+		for _, rec := range list {
+			switch rec.ID {
+			case deletedID:
+				// dropped
+			case merged.ID:
+				out = append(out, merged)
+			default:
+				out = append(out, rec)
+			}
+		}
+		return out
+	}
+	if sid == s.sess.ID && s.writer != nil {
+		err = s.writer.Rewrite(fn)
+	} else {
+		err = transcript.RewriteFile(jsonl, strings.TrimSuffix(jsonl, ".jsonl")+".txt", fn)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.deleteMedia(b.AudioFile)
+	s.store.Remove(deletedID)
+	s.store.Update(merged)
+	writeJSON(w, http.StatusOK, map[string]any{"merged": merged, "deleted_id": deletedID})
+}
+
+// mergeGPSJSON is the ICMT metadata blob for a merged segment WAV.
+func mergeGPSJSON(start, end gps.GPSFix) string {
+	b, err := json.Marshal(map[string]any{"start": start, "end": end, "gps_valid": start.Valid})
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// handleDeleteRecord deletes one transmission: its JSONL entry, its line in the
+// text log, and its audio file. The live session is routed through the Writer so
+// it can't race the appender; past sessions are rewritten directly.
+func (s *Server) handleDeleteRecord(w http.ResponseWriter, r *http.Request) {
+	sid := r.PathValue("sid")
+	id := r.PathValue("id")
+
+	var (
+		rec transcript.TransmissionRecord
+		ok  bool
+		err error
+	)
+	if sid == s.sess.ID && s.writer != nil {
+		rec, ok, err = s.writer.DeleteRecord(id)
+	} else {
+		jsonl, ferr := session.FindTranscriptJSONL(s.root, sid)
+		if ferr != nil {
+			http.Error(w, ferr.Error(), http.StatusInternalServerError)
+			return
+		}
+		if jsonl == "" {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		textPath := strings.TrimSuffix(jsonl, ".jsonl") + ".txt"
+		rec, ok, err = transcript.DeleteRecordFile(jsonl, textPath, id)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "record not found", http.StatusNotFound)
+		return
+	}
+
+	s.deleteMedia(rec.AudioFile)
+	s.store.Remove(id)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
+}
+
+// handleDeleteSession deletes an entire session (audio, transcripts, manifest,
+// and now-empty dirs). The active session can't be deleted while it's recording.
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	sid := r.PathValue("sid")
+	if sid == s.sess.ID {
+		http.Error(w, "cannot delete the active session", http.StatusConflict)
+		return
+	}
+
+	jsonl, err := session.FindTranscriptJSONL(s.root, sid)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	manifest := filepath.Join(s.root, "sessions", sid+".json")
+	_, mErr := os.Stat(manifest)
+	if jsonl == "" && os.IsNotExist(mErr) {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	var audioFiles []string
+	if jsonl != "" {
+		if recs, rerr := transcript.ReadJSONL(jsonl); rerr == nil {
+			for _, rc := range recs {
+				if rc.AudioFile != "" {
+					audioFiles = append(audioFiles, rc.AudioFile)
+				}
+			}
+		}
+	}
+
+	if err := session.Delete(s.root, sid, audioFiles); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	s.store.RemoveSession(sid)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// deleteMedia removes a stored file (a segment WAV), confined to the storage
+// root. Missing files are ignored.
+func (s *Server) deleteMedia(rel string) {
+	if rel == "" {
+		return
+	}
+	full := filepath.Join(s.root, filepath.Clean("/"+rel))
+	rootAbs, _ := filepath.Abs(s.root)
+	fullAbs, _ := filepath.Abs(full)
+	if fullAbs != rootAbs && !strings.HasPrefix(fullAbs, rootAbs+string(os.PathSeparator)) {
+		return
+	}
+	_ = os.Remove(full)
 }
 
 // spaHandler serves the built Vue SPA from uiDir, falling back to index.html for

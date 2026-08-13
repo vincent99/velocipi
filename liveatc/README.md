@@ -94,7 +94,27 @@ GOOS=linux GOARCH=arm64 go build ./cmd/intercom-stt   # cross-compile for a Pi 5
 ./intercom-stt --file testdata/clip.wav
 ./intercom-stt --device hw:2,0            # override ALSA device
 ./intercom-stt --config /path/to/velocipi # dir holding the shared config.default.yaml (defaults to `..`)
+
+# Multiple named streams (each transmission tagged with the stream name):
+./intercom-stt --stream com1=https://host/a.mp3 --stream com2=https://host/b.mp3
 ```
+
+### Channels / split radios
+
+Set `liveatc.audio.channels: 2` to capture the USB adapter in stereo. liveatc
+then detects, frame by frame, whether the two channels are **joined** (identical
+— comms mixed into both ears → one transmission tagged `mono`) or **split**
+(independent radios → the left and right sides are VAD'd and transcribed
+separately, tagged `com1`/`com2`). The join/split state can change at will. Each
+transmission's `channel` is recorded in the JSONL, the text log, the WAV
+(`IART`), and shown in the UI. With `channels: 1` (default) it's plain mono.
+
+Split detection applies to whichever single source honors `channels: 2` — the
+ALSA device, a `--file`, **or a single `--stream`** (a stereo stream is join/split
+detected; a mono one just reads as `mono`). **Multiple** `--stream name=url`
+sources are instead one mono channel each, named after the stream — naming them
+is how you separate the radios, so each is transcribed independently (no split
+detection per stream) into the shared session.
 
 Run `go test ./...` for the VAD segmenter unit tests.
 
@@ -146,6 +166,13 @@ to a running backend). Set `liveatc.uiDir: ""` to run API-only.
   onto a record; returns the updated record and broadcasts it to live viewers
 - `GET  /api/media/{path...}` — serve a file (e.g. a segment WAV) from under the
   storage root, with Range support (confined to the root; traversal is blocked)
+- `POST /api/transcripts/session/{session_id}/{id}/merge` — combine a transmission
+  with the next (later) one into a single record: audio concatenated into the
+  earlier record's WAV, text/metadata merged, later record deleted
+- `DELETE /api/transcripts/session/{session_id}/{id}` — delete one transmission
+  (its audio + JSONL entry + text-log line)
+- `DELETE /api/transcripts/session/{session_id}` — delete a whole session (audio,
+  transcripts, manifest, now-empty dirs); refuses the active session (409)
 - `GET  /api/session` — current session manifest; `GET /healthz`
 - `WS   /ws/transcripts` — pushes each new/edited `TransmissionRecord` (with a small backlog on connect)
 - `POST /api/gps` and `WS /ws/gps` — feed the current `GPSFix` in (until the Garmin Axis integration lands)

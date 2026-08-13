@@ -44,6 +44,91 @@ func NewWriter(jsonlPath, textPath string) (*Writer, error) {
 	return &Writer{jsonl: jf, text: tf, jsonlPath: jsonlPath, textPath: textPath}, nil
 }
 
+// DeleteRecord removes the record with id from this session's JSONL and
+// regenerates the text log, holding the appender's lock and reopening both
+// append handles onto the rewritten files so it can't race concurrent Appends.
+// Returns the removed record and whether it was found.
+func (w *Writer) DeleteRecord(id string) (TransmissionRecord, bool, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	recs, err := ReadJSONL(w.jsonlPath)
+	if err != nil {
+		return TransmissionRecord{}, false, err
+	}
+	remaining, removed, ok := removeByID(recs, id)
+	if !ok {
+		return TransmissionRecord{}, false, nil
+	}
+
+	// Rewrite the JSONL and reopen the append handle onto the new file.
+	if err := w.jsonl.Close(); err != nil {
+		return removed, false, err
+	}
+	jErr := writeJSONLAtomic(w.jsonlPath, remaining)
+	jf, err := os.OpenFile(w.jsonlPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return removed, false, err
+	}
+	w.jsonl = jf
+	if jErr != nil {
+		return removed, false, jErr
+	}
+
+	// Regenerate the text log and reopen its append handle.
+	if err := w.text.Close(); err != nil {
+		return removed, false, err
+	}
+	tErr := writeTextAtomic(w.textPath, remaining)
+	tf, err := os.OpenFile(w.textPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return removed, false, err
+	}
+	w.text = tf
+	if tErr != nil {
+		return removed, false, tErr
+	}
+	return removed, true, nil
+}
+
+// Rewrite applies fn to this session's full record list and rewrites both the
+// JSONL and the text log atomically (reopening the append handles), under the
+// appender's lock. Used by multi-record edits like merge.
+func (w *Writer) Rewrite(fn func([]TransmissionRecord) []TransmissionRecord) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	recs, err := ReadJSONL(w.jsonlPath)
+	if err != nil {
+		return err
+	}
+	recs = fn(recs)
+
+	if err := w.jsonl.Close(); err != nil {
+		return err
+	}
+	jErr := writeJSONLAtomic(w.jsonlPath, recs)
+	jf, err := os.OpenFile(w.jsonlPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	w.jsonl = jf
+	if jErr != nil {
+		return jErr
+	}
+
+	if err := w.text.Close(); err != nil {
+		return err
+	}
+	tErr := writeTextAtomic(w.textPath, recs)
+	tf, err := os.OpenFile(w.textPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	w.text = tf
+	return tErr
+}
+
 // UpdateRecord applies mut to the record with id in this session's JSONL and
 // returns the updated record. It rewrites the file atomically while holding the
 // same lock the appender uses, then reopens the append handle onto the new file
@@ -122,7 +207,11 @@ func formatText(r TransmissionRecord) string {
 	if dir == "" {
 		dir = "UNKNOWN"
 	}
-	return fmt.Sprintf("[%s] [%s] [%s] %q", ts, dir, formatGPS(r.GPSStart), r.Transcript)
+	ch := ""
+	if r.Channel != "" {
+		ch = " [" + r.Channel + "]"
+	}
+	return fmt.Sprintf("[%s]%s [%s] [%s] %q", ts, ch, dir, formatGPS(r.GPSStart), r.Transcript)
 }
 
 func formatGPS(f gps.GPSFix) string {

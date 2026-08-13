@@ -194,6 +194,22 @@ body {
     color: var(--muted);
     font-size: 0.8rem;
   }
+  .count-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    &:hover {
+      color: var(--text);
+      text-decoration: underline;
+    }
+    &.active {
+      color: var(--accent);
+      font-weight: 700;
+    }
+  }
 }
 
 .rows {
@@ -203,11 +219,46 @@ body {
 }
 
 .tx-row {
+  position: relative;
   border: 1px solid var(--border);
   border-left: 3px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
   padding: 0.55rem 0.7rem;
+
+  // Merge-up affordance: revealed on row hover, centered on the top edge.
+  .tx-merge {
+    position: absolute;
+    top: -11px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    width: 30px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 0.9rem;
+    line-height: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-2);
+    color: var(--muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+    &:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+    &:disabled {
+      cursor: default;
+    }
+  }
+  &:hover .tx-merge {
+    opacity: 1;
+  }
 
   &.rx {
     border-left-color: var(--rx);
@@ -242,6 +293,15 @@ body {
     &.tx {
       color: var(--tx);
     }
+  }
+  .tx-chan {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 0.3rem;
   }
   .tx-tag {
     color: var(--live);
@@ -287,7 +347,7 @@ body {
   }
   .tx-editor {
     margin-top: 0.5rem;
-    textarea {
+    .tx-input {
       width: 100%;
       background: var(--bg);
       color: var(--text);
@@ -295,7 +355,10 @@ body {
       border-radius: 6px;
       padding: 0.45rem;
       font: inherit;
-      resize: vertical;
+      &:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
     }
     .tx-editor-actions {
       display: flex;
@@ -325,6 +388,13 @@ body {
     background: var(--accent);
     border-color: var(--accent);
     color: #041020;
+  }
+  &.danger {
+    color: var(--danger);
+    &:hover {
+      border-color: var(--danger);
+      background: color-mix(in srgb, var(--danger) 15%, var(--panel-2));
+    }
   }
   &:disabled {
     opacity: 0.6;

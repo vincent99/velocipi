@@ -71,6 +71,32 @@ func (s *Store) notify(r TransmissionRecord) {
 	}
 }
 
+// Remove drops the cached record with the given id (if present).
+func (s *Store) Remove(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.records[:0]
+	for _, r := range s.records {
+		if r.ID != id {
+			out = append(out, r)
+		}
+	}
+	s.records = out
+}
+
+// RemoveSession drops all cached records for a session.
+func (s *Store) RemoveSession(sessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.records[:0]
+	for _, r := range s.records {
+		if r.SessionID != sessionID {
+			out = append(out, r)
+		}
+	}
+	s.records = out
+}
+
 // Recent returns up to n most-recent records (chronological order).
 func (s *Store) Recent(n int) []TransmissionRecord {
 	s.mu.RLock()

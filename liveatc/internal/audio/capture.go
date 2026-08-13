@@ -28,40 +28,49 @@ type Params struct {
 	StreamURL    string // ffmpeg network input
 	FilePath     string // ffmpeg local file input
 	SampleRate   int
-	FrameSamples int // samples per emitted frame (512 for Silero @ 16k)
+	Channels     int // 1 = mono, 2 = stereo (split-radio detection)
+	FrameSamples int // samples per channel per emitted frame (512 for Silero @ 16k)
 	ArecordBin   string
 	FFmpegBin    string
 	FastReplay   bool // ModeFile only: drop ffmpeg -re so the file plays as fast as possible
 }
 
-// Capture reads a raw s16le mono stream from its source, chops it into
-// fixed-size frames, mirrors them into an in-memory ring buffer, and publishes
-// them on a channel. It never writes the continuous stream to disk.
+// Frame is one fixed-size block of captured audio, deinterleaved per channel.
+// Chan[0] is mono/left, Chan[1] is right (present only for stereo). Each
+// Chan[i] holds FrameSamples samples.
+type Frame struct {
+	Chan [][]int16
+}
+
+// Capture reads a raw s16le stream (1 or 2 channels) from its source, chops it
+// into fixed-size per-channel frames, and publishes them on a channel. It never
+// writes the continuous stream to disk.
 type Capture struct {
 	p      Params
 	log    *slog.Logger
-	ring   *RingBuffer
-	frames chan []int16
+	frames chan Frame
 }
 
-// New builds a Capture. ringSamples sets the in-memory history window.
+// New builds a Capture. ringSamples is retained for API compatibility (unused).
 func New(p Params, ringSamples int, log *slog.Logger) *Capture {
 	if p.FrameSamples <= 0 {
 		p.FrameSamples = 512
 	}
+	if p.Channels <= 0 {
+		p.Channels = 1
+	}
 	return &Capture{
 		p:      p,
 		log:    log,
-		ring:   NewRingBuffer(ringSamples),
-		frames: make(chan []int16, 64),
+		frames: make(chan Frame, 64),
 	}
 }
 
-// Frames is the stream of captured frames (each FrameSamples long).
-func (c *Capture) Frames() <-chan []int16 { return c.frames }
+// Frames is the stream of captured frames.
+func (c *Capture) Frames() <-chan Frame { return c.frames }
 
-// Ring exposes the recent-audio history buffer.
-func (c *Capture) Ring() *RingBuffer { return c.ring }
+// Channels reports how many channels this capture produces.
+func (c *Capture) Channels() int { return c.p.Channels }
 
 // Run blocks until ctx is cancelled, reading from the source. Live sources
 // (ALSA/stream) are restarted with backoff if they drop; a file source returns
@@ -109,20 +118,26 @@ func (c *Capture) runOnce(ctx context.Context) error {
 	return readErr
 }
 
-// readFrames reads FrameSamples*2 bytes at a time, converts to int16, and
-// publishes each frame.
+// readFrames reads FrameSamples*Channels*2 bytes at a time (interleaved
+// s16le), deinterleaves into per-channel frames, and publishes them.
 func (c *Capture) readFrames(ctx context.Context, r io.Reader) error {
-	frameBytes := c.p.FrameSamples * 2
-	raw := make([]byte, frameBytes)
+	ch := c.p.Channels
+	raw := make([]byte, c.p.FrameSamples*ch*2)
 	for {
 		if _, err := io.ReadFull(r, raw); err != nil {
 			return err
 		}
-		frame := make([]int16, c.p.FrameSamples)
-		for i := range frame {
-			frame[i] = int16(binary.LittleEndian.Uint16(raw[i*2:]))
+		frame := Frame{Chan: make([][]int16, ch)}
+		for c0 := 0; c0 < ch; c0++ {
+			frame.Chan[c0] = make([]int16, c.p.FrameSamples)
 		}
-		c.ring.Write(frame)
+		// Interleaved layout: [s0c0 s0c1 s1c0 s1c1 ...].
+		for i := 0; i < c.p.FrameSamples; i++ {
+			for c0 := 0; c0 < ch; c0++ {
+				off := (i*ch + c0) * 2
+				frame.Chan[c0][i] = int16(binary.LittleEndian.Uint16(raw[off:]))
+			}
+		}
 		select {
 		case c.frames <- frame:
 		case <-ctx.Done():
@@ -139,13 +154,14 @@ func (c *Capture) readFrames(ctx context.Context, r io.Reader) error {
 //     segment timestamps realistic during testing).
 func (c *Capture) command(ctx context.Context) *exec.Cmd {
 	rate := fmt.Sprint(c.p.SampleRate)
+	channels := fmt.Sprint(c.p.Channels)
 	switch c.p.Mode {
 	case ModeALSA:
 		return exec.CommandContext(ctx, c.p.ArecordBin,
 			"-D", c.p.Device,
 			"-f", "S16_LE",
 			"-r", rate,
-			"-c", "1",
+			"-c", channels,
 			"-t", "raw",
 			"-q",
 		)
@@ -164,7 +180,7 @@ func (c *Capture) command(ctx context.Context) *exec.Cmd {
 			"-reconnect_delay_max", "2",
 			"-rw_timeout", "15000000", // 15s (microseconds): abort a stalled read
 			"-i", c.p.StreamURL,
-			"-ac", "1", "-ar", rate,
+			"-ac", channels, "-ar", rate,
 			"-f", "s16le", "-",
 		)
 	default: // ModeFile
@@ -175,7 +191,7 @@ func (c *Capture) command(ctx context.Context) *exec.Cmd {
 		if !c.p.FastReplay {
 			args = append(args, "-re")
 		}
-		args = append(args, "-i", c.p.FilePath, "-ac", "1", "-ar", rate, "-f", "s16le", "-")
+		args = append(args, "-i", c.p.FilePath, "-ac", channels, "-ar", rate, "-f", "s16le", "-")
 		return exec.CommandContext(ctx, c.p.FFmpegBin, args...)
 	}
 }

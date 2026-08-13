@@ -1,5 +1,11 @@
 // Package pipeline wires the subsystems together: capture -> VAD segmentation
 // -> per-transmission WAV -> whisper STT -> transcript persistence + broadcast.
+//
+// Audio enters through one or more Sources. A mono source feeds a single VAD
+// "lane" tagged with its channel name. A stereo source detects, frame by frame,
+// whether its two channels are joined (identical -> one "mono" lane) or split
+// (independent radios -> separate left/right lanes), so the two radios are
+// transcribed separately and each transmission is tagged with its channel.
 package pipeline
 
 import (
@@ -7,6 +13,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,13 +29,32 @@ import (
 	"github.com/vincent99/liveatc/internal/vad"
 )
 
+// SourceSpec describes one audio source, built by main. A mono source uses
+// Capture + Scorer + Label; a stereo source uses Capture + ScorerL/ScorerR and
+// the three labels + threshold.
+type SourceSpec struct {
+	Capture *audio.Capture
+	Stereo  bool
+
+	// mono
+	Label  string
+	Scorer vad.Scorer
+
+	// stereo
+	ScorerL        vad.Scorer
+	ScorerR        vad.Scorer
+	MonoLabel      string
+	LeftLabel      string
+	RightLabel     string
+	SplitThreshold float64
+}
+
 // Deps are the collaborators the pipeline needs, built by main.
 type Deps struct {
 	Config      *config.Config
 	Session     *session.Session
 	Log         *slog.Logger
-	Capture     *audio.Capture
-	Scorer      vad.Scorer
+	Sources     []SourceSpec
 	Transcriber *stt.Transcriber
 	Store       *transcript.Store
 	Writer      *transcript.Writer
@@ -36,7 +62,7 @@ type Deps struct {
 	PTT         ptt.Monitor
 	// LiveSource is true for unbounded live capture (ALSA / network stream),
 	// where a full STT queue must be dropped rather than block capture. For a
-	// bounded file source it is false, so onSegment applies backpressure and no
+	// bounded file source it is false, so emit applies backpressure and no
 	// segment is lost (the run just paces to STT throughput).
 	LiveSource bool
 }
@@ -44,23 +70,19 @@ type Deps struct {
 // Pipeline owns the runtime loops.
 type Pipeline struct {
 	Deps
-	seg  *vad.Segmenter
 	jobs chan sttJob
 	wg   sync.WaitGroup
 
-	// runCtx is the Run context; it lets onSegment's blocking (bounded-source)
-	// enqueue bail out on shutdown instead of deadlocking on a full queue once
-	// the STT workers have stopped pulling.
+	// runCtx is the Run context; it lets emit's blocking (bounded-source) enqueue
+	// bail out on shutdown instead of deadlocking on a full queue once the STT
+	// workers have stopped pulling.
 	runCtx context.Context
-
-	// pendingGPSStart is captured at transmission start and consumed when the
-	// segment ends. The segmenter is single-goroutine so no lock is needed.
-	pendingGPSStart gps.GPSFix
 }
 
 // sttJob is a finished segment awaiting transcription.
 type sttJob struct {
 	id       string
+	channel  string
 	wavPath  string
 	relPath  string
 	samples  []int16
@@ -74,41 +96,50 @@ type sttJob struct {
 
 // New builds a Pipeline from its deps.
 func New(d Deps) *Pipeline {
-	vd := d.Config.VADDurations()
-	p := &Pipeline{
-		Deps: d,
-		jobs: make(chan sttJob, 32),
-	}
-	p.seg = vad.NewSegmenter(vad.Params{
-		SampleRate:      d.Config.LiveATC.Audio.SampleRate,
+	return &Pipeline{Deps: d, jobs: make(chan sttJob, 32)}
+}
+
+// lane is one independent VAD path tagged with a channel. It snapshots GPS at
+// each transmission start and emits finished segments to the pipeline.
+type lane struct {
+	channel string
+	seg     *vad.Segmenter
+	gps     *gps.Store
+	pending gps.GPSFix
+}
+
+func (p *Pipeline) newLane(channel string) *lane {
+	vd := p.Config.VADDurations()
+	l := &lane{channel: channel, gps: p.GPS}
+	l.seg = vad.NewSegmenter(vad.Params{
+		SampleRate:      p.Config.LiveATC.Audio.SampleRate,
 		FrameSamples:    512,
-		Threshold:       d.Config.LiveATC.VAD.Threshold,
+		Threshold:       p.Config.LiveATC.VAD.Threshold,
 		MinSpeech:       vd.MinSpeech,
 		MinSilence:      vd.MinSilence,
 		MaxSegment:      vd.MaxSegment,
 		PreRoll:         vd.PreRoll,
-		CarrierFloor:    d.Config.LiveATC.VAD.CarrierFloor,
+		CarrierFloor:    p.Config.LiveATC.VAD.CarrierFloor,
 		CarrierHangover: vd.CarrierHangover,
 	}, time.Now)
-	p.seg.OnSpeechStart = p.onSpeechStart
-	p.seg.OnSegment = p.onSegment
-	return p
+	l.seg.OnSpeechStart = func(time.Time) { l.pending = l.gps.Snapshot() }
+	l.seg.OnSegment = func(s vad.Segment) { p.emit(l.channel, s, l.pending) }
+	return l
 }
 
-// sttShutdownGrace bounds how long shutdown waits for an in-flight
-// transcription to finish before cancelling it. Segments still queued (not yet
-// started) at shutdown are dropped -- their WAVs are already on disk and
-// self-contained, so they can be reprocessed later.
+func (l *lane) feed(frame []int16, score float64) { l.seg.Feed(frame, score) }
+func (l *lane) flush()                            { l.seg.Flush() }
+
+// sttShutdownGrace bounds how long shutdown waits for an in-flight transcription
+// to finish before cancelling it. Segments still queued (not yet started) at
+// shutdown are dropped -- their WAVs are on disk and self-contained.
 const sttShutdownGrace = 5 * time.Second
 
-// Run blocks until ctx is cancelled (or capture ends), then flushes the
-// in-progress segment and stops the STT workers before returning.
+// Run blocks until ctx is cancelled (or all sources end), then flushes and stops
+// the STT workers before returning.
 func (p *Pipeline) Run(ctx context.Context) error {
 	p.runCtx = ctx
 
-	// sttCtx cancels in-flight whisper-cli runs. On shutdown the workers stop
-	// pulling new jobs immediately (see sttWorker); this only bounds how long we
-	// wait for a transcription already running.
 	sttCtx, sttCancel := context.WithCancel(context.Background())
 	defer sttCancel()
 
@@ -121,23 +152,23 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		go p.sttWorker(i, ctx, sttCtx)
 	}
 
-	// Capture runs in its own goroutine; we consume its frames here.
-	captureErr := make(chan error, 1)
-	go func() { captureErr <- p.Capture.Run(ctx) }()
+	// Run each source; each blocks until ctx is cancelled (live) or EOF (file).
+	var swg sync.WaitGroup
+	for _, spec := range p.Sources {
+		swg.Add(1)
+		go func(s SourceSpec) {
+			defer swg.Done()
+			p.runSource(ctx, s)
+		}(spec)
+	}
+	p.log().Info("pipeline running", "session", p.Session.ID, "sources", len(p.Sources))
+	swg.Wait()
 
-	p.log().Info("pipeline running", "session", p.Session.ID)
-	p.consume(ctx)
-
-	// Cleanup: flush any held transmission, then wait for the STT workers.
-	p.seg.Flush()
+	// Cleanup: no more segments will be produced; drain the STT workers.
 	close(p.jobs)
-
 	drained := make(chan struct{})
 	go func() { p.wg.Wait(); close(drained) }()
 	if ctx.Err() != nil {
-		// Shutdown: workers already stopped pulling new jobs; give an in-flight
-		// transcription a short grace window, then cancel it so Ctrl-C returns
-		// promptly instead of draining the whole backlog.
 		select {
 		case <-drained:
 		case <-time.After(sttShutdownGrace):
@@ -146,62 +177,93 @@ func (p *Pipeline) Run(ctx context.Context) error {
 			<-drained
 		}
 	} else {
-		// Clean end-of-input (file mode): let the queue drain fully.
-		<-drained
+		<-drained // clean end-of-input (file mode): drain fully
 	}
-
-	<-captureErr // let capture unwind
 	return nil
 }
 
-// consume scores each frame and drives the segmenter until frames stop.
-func (p *Pipeline) consume(ctx context.Context) {
-	frames := p.Capture.Frames()
-	for {
-		select {
-		case <-ctx.Done():
-			// Drain whatever capture already produced, then stop.
-			for frame := range frames {
-				p.feed(frame)
+// runSource consumes one capture and routes its frames into lanes. Returns when
+// the capture's frame channel closes (ctx cancel for live sources, EOF for a
+// file). It starts the capture itself.
+func (p *Pipeline) runSource(ctx context.Context, spec SourceSpec) {
+	captureErr := make(chan error, 1)
+	go func() { captureErr <- spec.Capture.Run(ctx) }()
+	frames := spec.Capture.Frames()
+
+	if !spec.Stereo {
+		l := p.newLane(spec.Label)
+		for f := range frames {
+			if len(f.Chan) == 0 {
+				continue
 			}
-			return
-		case frame, ok := <-frames:
-			if !ok {
-				return
+			ch0 := f.Chan[0]
+			l.feed(ch0, p.score(spec.Scorer, ch0))
+		}
+		l.flush()
+		<-captureErr
+		return
+	}
+
+	// Stereo: three lanes, only one mode active at a time. Flush the lanes being
+	// deactivated on a mode change so no segment spans a join<->split transition.
+	monoLane := p.newLane(spec.MonoLabel)
+	com1 := p.newLane(spec.LeftLabel)
+	com2 := p.newLane(spec.RightLabel)
+	det := audio.NewSplitDetector(spec.SplitThreshold)
+	prevSplit := false
+	for f := range frames {
+		if len(f.Chan) < 2 {
+			continue
+		}
+		l, r := f.Chan[0], f.Chan[1]
+		split := det.Update(l, r)
+		if split != prevSplit {
+			if split {
+				monoLane.flush()
+			} else {
+				com1.flush()
+				com2.flush()
 			}
-			p.feed(frame)
+			prevSplit = split
+		}
+		// scorerL always sees L (used by the mono OR com1 lane); scorerR only in
+		// split mode, so it isn't run when the right radio's lane is idle.
+		sL := p.score(spec.ScorerL, l)
+		if split {
+			com1.feed(l, sL)
+			com2.feed(r, p.score(spec.ScorerR, r))
+		} else {
+			monoLane.feed(l, sL)
 		}
 	}
+	monoLane.flush()
+	com1.flush()
+	com2.flush()
+	<-captureErr
 }
 
-func (p *Pipeline) feed(frame []int16) {
-	score, err := p.Scorer.Score(frame)
+// score runs a scorer, treating an error as silence so a hiccup can't wedge the
+// stream.
+func (p *Pipeline) score(s vad.Scorer, frame []int16) float64 {
+	v, err := s.Score(frame)
 	if err != nil {
-		// A scorer hiccup shouldn't wedge the stream; treat as silence.
 		p.log().Debug("VAD score error", "err", err)
-		score = 0
+		return 0
 	}
-	p.seg.Feed(frame, score)
+	return v
 }
 
-// onSpeechStart snapshots GPS at the start of a confirmed transmission.
-func (p *Pipeline) onSpeechStart(time.Time) {
-	p.pendingGPSStart = p.GPS.Snapshot()
-}
-
-// onSegment persists the WAV + metadata and enqueues STT.
-func (p *Pipeline) onSegment(seg vad.Segment) {
+// emit persists the WAV + metadata and enqueues STT for one channel's segment.
+func (p *Pipeline) emit(channel string, seg vad.Segment, gpsStart gps.GPSFix) {
 	id := uuid.NewString()
-	gpsStart := p.pendingGPSStart
 	gpsEnd := p.GPS.Snapshot()
 	sampleRate := p.Config.LiveATC.Audio.SampleRate
 
-	// callsign hint is filled in by a later post-processing pass; empty for now.
 	wavPath := p.Session.AudioPath(seg.StartTime, id, "")
-
 	info := audio.INFO{
 		ICRD: seg.StartTime.UTC().Format(time.RFC3339),
 		ISRC: "cockpit-intercom",
+		IART: channel,
 		ICMT: gpsCommentJSON(gpsStart, gpsEnd),
 	}
 	if err := audio.WriteWAV(wavPath, seg.Samples, sampleRate, info); err != nil {
@@ -211,6 +273,7 @@ func (p *Pipeline) onSegment(seg vad.Segment) {
 
 	job := sttJob{
 		id:       id,
+		channel:  channel,
 		wavPath:  wavPath,
 		relPath:  p.Session.Rel(wavPath),
 		samples:  seg.Samples,
@@ -222,22 +285,19 @@ func (p *Pipeline) onSegment(seg vad.Segment) {
 		infoBase: info,
 	}
 	p.log().Info("segment captured",
-		"id", id, "dur_ms", job.end.Sub(job.start).Milliseconds(), "dir", job.dir, "file", job.relPath)
+		"id", id, "channel", channel, "dur_ms", job.end.Sub(job.start).Milliseconds(), "dir", job.dir, "file", job.relPath)
 
 	if p.LiveSource {
 		select {
 		case p.jobs <- job:
 		default:
-			// Queue full on a live source: STT is falling behind and we can't
-			// pause the stream. Drop the STT step but keep the WAV (still
-			// self-contained on disk) rather than blocking capture.
+			// Queue full on a live source: STT is falling behind and we can't pause
+			// the stream. Keep the (self-contained) WAV, drop the STT step.
 			p.log().Warn("STT queue full, segment saved without transcript", "id", id, "file", job.relPath)
 		}
 		return
 	}
-	// Bounded source (file replay): block so no segment is lost; this paces
-	// capture to STT throughput instead of dropping transcripts (e.g. --fast).
-	// Bail on shutdown so a full queue with no workers pulling can't deadlock.
+	// Bounded source (file replay): block so no segment is lost. Bail on shutdown.
 	select {
 	case p.jobs <- job:
 	case <-p.runCtx.Done():
@@ -248,13 +308,11 @@ func (p *Pipeline) onSegment(seg vad.Segment) {
 // direction classifies tx/rx/unknown. See package ptt for the two strategies.
 func (p *Pipeline) direction(seg vad.Segment, start time.Time) string {
 	if p.PTT.Enabled() {
-		// GPIO is definitive: keyed during the transmission => tx, else rx.
 		if p.PTT.ActiveSince(seg.StartTime) {
 			return "tx"
 		}
 		return "rx"
 	}
-	// Audio-level heuristic: louder sidetone suggests our own transmission.
 	if th := p.Config.LiveATC.TxRMSThresh; th > 0 {
 		if meanRMS(seg.Samples) > float64(th) {
 			return "tx"
@@ -264,16 +322,11 @@ func (p *Pipeline) direction(seg vad.Segment, start time.Time) string {
 }
 
 // sttWorker transcribes queued segments, writes the transcript back into the
-// WAV, and publishes the completed record. ctx is the shutdown signal (stop
-// pulling new jobs); sttCtx cancels an in-flight transcription at the end of the
-// shutdown grace window.
+// WAV, and publishes the completed record.
 func (p *Pipeline) sttWorker(n int, ctx, sttCtx context.Context) {
 	defer p.wg.Done()
 	log := p.log().With("worker", n)
 	for {
-		// Stop pulling new work as soon as shutdown begins; the queued backlog is
-		// dropped (WAVs are on disk, self-contained). A job already running below
-		// is bounded by the grace window in Run.
 		var job sttJob
 		select {
 		case <-ctx.Done():
@@ -285,23 +338,30 @@ func (p *Pipeline) sttWorker(n int, ctx, sttCtx context.Context) {
 			return
 		case j, ok := <-p.jobs:
 			if !ok {
-				return // channel closed and drained (clean end-of-input)
+				return
 			}
 			job = j
 		}
 
 		res, err := p.Transcriber.Transcribe(sttCtx, job.wavPath)
+		// A configured --prompt can make whisper.cpp error or emit nothing on some
+		// clips; since segments are VAD-gated speech, retry once without it.
+		if p.Transcriber.HasPrompt() && sttCtx.Err() == nil &&
+			(err != nil || strings.TrimSpace(res.Text) == "") {
+			log.Warn("transcription empty/failed with --prompt; retrying without it",
+				"id", job.id, "err", err)
+			if r2, e2 := p.Transcriber.TranscribeWithoutPrompt(sttCtx, job.wavPath); e2 == nil {
+				res, err = r2, nil
+			}
+		}
 		if err != nil {
 			if sttCtx.Err() != nil {
-				return // cancelled at shutdown; WAV is on disk, skip the error record
+				return
 			}
 			log.Error("transcription failed", "id", job.id, "err", err)
-			// Still publish a record (empty transcript) so the segment is tracked.
 			res = stt.Result{Model: "error"}
 		}
 
-		// Write the transcript back into the WAV (IKEY) so the file is
-		// self-contained (rewrite from retained samples + base INFO).
 		info := job.infoBase
 		info.IKEY = res.Text
 		if err := audio.WriteWAV(job.wavPath, job.samples, p.Config.LiveATC.Audio.SampleRate, info); err != nil {
@@ -321,21 +381,20 @@ func (p *Pipeline) sttWorker(n int, ctx, sttCtx context.Context) {
 			GPSEnd:     job.gpsEnd,
 			Confidence: res.Confidence,
 			Direction:  job.dir,
+			Channel:    job.channel,
 			ModelUsed:  res.Model,
 		}
 		if err := p.Writer.Append(rec); err != nil {
 			log.Error("append transcript", "id", job.id, "err", err)
 		}
 		p.Store.Add(rec)
-		log.Info("transcribed", "id", job.id, "text", res.Text)
+		log.Info("transcribed", "id", job.id, "channel", job.channel, "text", res.Text)
 	}
 }
 
 func (p *Pipeline) log() *slog.Logger { return p.Log }
 
 // gpsComment is the shape embedded in the WAV ICMT chunk + serialized to JSON.
-// End is a pointer so it is omitted entirely when identical to Start (a struct
-// value can't be omitted via omitempty).
 type gpsComment struct {
 	Start    gps.GPSFix  `json:"start"`
 	End      *gps.GPSFix `json:"end,omitempty"`

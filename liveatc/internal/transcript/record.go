@@ -29,8 +29,9 @@ type TransmissionRecord struct {
 	Words      []WordToken `json:"words"`
 	GPSStart   gps.GPSFix  `json:"gps_start"`
 	GPSEnd     gps.GPSFix  `json:"gps_end"`
-	Confidence float32     `json:"confidence"` // mean whisper token confidence
-	Direction  string      `json:"direction"`  // "rx" | "tx" | "unknown"
+	Confidence float32     `json:"confidence"`        // mean whisper token confidence
+	Direction  string      `json:"direction"`         // "rx" | "tx" | "unknown"
+	Channel    string      `json:"channel,omitempty"` // "mono" | "com1" | "com2" | stream name
 	ModelUsed  string      `json:"model_used"`
 
 	// Correction is a human-provided corrected transcript, entered via the UI.

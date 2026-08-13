@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import type { TransmissionRecord } from '@/types';
 import { useSessions } from '@/composables/useSessions';
 import { useTranscriptFeed } from '@/composables/useTranscriptFeed';
@@ -8,6 +8,7 @@ import { useAudioPlayer } from '@/composables/useAudioPlayer';
 import TranscriptRow from '@/components/TranscriptRow.vue';
 
 const route = useRoute();
+const router = useRouter();
 const { sessions, refresh } = useSessions();
 const { onRecord } = useTranscriptFeed();
 const { tryAutoplay } = useAudioPlayer();
@@ -31,6 +32,50 @@ const isLive = computed(
 const sortedRecords = computed(() =>
   [...records.value].sort((a, b) => b.start_time.localeCompare(a.start_time))
 );
+
+// Each record is in exactly one state. Saving a correction also marks reviewed,
+// so "edited" wins over "correct".
+type State = 'correct' | 'edited' | 'unreviewed';
+function stateOf(r: TransmissionRecord): State {
+  if (r.correction) return 'edited';
+  if (r.reviewed) return 'correct';
+  return 'unreviewed';
+}
+
+// Review breakdown; buckets are mutually exclusive and sum to the total.
+const counts = computed(() => {
+  let correct = 0;
+  let edited = 0;
+  let unreviewed = 0;
+  for (const r of records.value) {
+    const s = stateOf(r);
+    if (s === 'edited') edited++;
+    else if (s === 'correct') correct++;
+    else unreviewed++;
+  }
+  return { total: records.value.length, correct, edited, unreviewed };
+});
+
+// Active filter, persisted in the URL (?filter=) so it survives reload.
+const filter = computed<'all' | State>(() => {
+  const f = route.query.filter;
+  const v = Array.isArray(f) ? f[0] : f;
+  return v === 'correct' || v === 'edited' || v === 'unreviewed' ? v : 'all';
+});
+function setFilter(f: 'all' | State) {
+  router.replace({
+    query: { ...route.query, filter: f === 'all' ? undefined : f },
+  });
+}
+
+const visibleRecords = computed(() =>
+  filter.value === 'all'
+    ? sortedRecords.value
+    : sortedRecords.value.filter((r) => stateOf(r) === filter.value)
+);
+
+// The single newest record has no later transmission to merge into.
+const newestId = computed(() => sortedRecords.value[0]?.id ?? '');
 
 async function load() {
   ready.value = false;
@@ -73,6 +118,37 @@ function onWsRecord(rec: TransmissionRecord) {
   }
 }
 
+function onDeleted(id: string) {
+  records.value = records.value.filter((r) => r.id !== id);
+}
+
+// Merge result: the earlier record now holds the combined data; the later one
+// (deletedId) is gone.
+function onMerged(p: { merged: TransmissionRecord; deletedId: string }) {
+  records.value = records.value.filter((r) => r.id !== p.deletedId);
+  upsert(p.merged);
+}
+
+async function deleteSession() {
+  if (
+    !confirm(
+      'Delete this entire session and all its recordings? This cannot be undone.'
+    )
+  ) {
+    return;
+  }
+  try {
+    const r = await fetch(`/api/transcripts/session/${sessionId.value}`, {
+      method: 'DELETE',
+    });
+    if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+    await refresh();
+    router.push('/');
+  } catch (e) {
+    alert('Delete failed: ' + (e instanceof Error ? e.message : String(e)));
+  }
+}
+
 let off: (() => void) | null = null;
 onMounted(async () => {
   if (!sessions.value.length) await refresh();
@@ -90,21 +166,64 @@ watch(sessionId, load);
         isLive ? 'LIVE' : 'SESSION'
       }}</span>
       <code class="sid">{{ sessionId }}</code>
-      <span class="count">{{ records.length }} transmissions</span>
+      <span class="count">
+        <button
+          class="count-btn"
+          :class="{ active: filter === 'all' }"
+          @click="setFilter('all')"
+        >
+          {{ counts.total }} transmissions</button
+        >,
+        <button
+          class="count-btn"
+          :class="{ active: filter === 'correct' }"
+          @click="setFilter('correct')"
+        >
+          {{ counts.correct }} correct</button
+        >,
+        <button
+          class="count-btn"
+          :class="{ active: filter === 'edited' }"
+          @click="setFilter('edited')"
+        >
+          {{ counts.edited }} edited</button
+        >,
+        <button
+          class="count-btn"
+          :class="{ active: filter === 'unreviewed' }"
+          @click="setFilter('unreviewed')"
+        >
+          {{ counts.unreviewed }} unreviewed
+        </button>
+      </span>
+      <button
+        v-if="!isLive"
+        class="btn danger"
+        title="Delete this entire session"
+        @click="deleteSession"
+      >
+        Delete session
+      </button>
     </div>
 
     <div v-if="loading" class="placeholder">Loading transmissions…</div>
     <div v-else-if="!records.length" class="placeholder">
       No transmissions in this session yet.
     </div>
+    <div v-else-if="!visibleRecords.length" class="placeholder">
+      No transmissions match this filter.
+    </div>
     <div v-else class="rows">
       <TranscriptRow
-        v-for="r in sortedRecords"
+        v-for="r in visibleRecords"
         :key="r.id"
         :record="r"
         :session-id="sessionId"
         :highlight="highlighted.has(r.id)"
+        :can-merge="r.id !== newestId"
         @updated="upsert"
+        @deleted="onDeleted"
+        @merged="onMerged"
       />
     </div>
   </div>

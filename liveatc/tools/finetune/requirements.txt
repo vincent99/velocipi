@@ -1,0 +1,14 @@
+# Fine-tuning deps (Apple Silicon). Install into a venv:
+#   python3 -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# torch ships MPS (Apple GPU) support in the standard macOS arm64 wheels.
+# build_dataset.py needs NONE of these -- it's pure standard library.
+torch>=2.2
+transformers>=4.44
+datasets>=2.20
+accelerate>=0.33
+peft>=0.12
+jiwer>=3.0
+soundfile>=0.12
+librosa>=0.10

@@ -14,6 +14,16 @@ type AudioConfig struct {
 	SampleRate  int    `yaml:"sampleRate"  json:"sampleRate"`
 	ArecordBin  string `yaml:"arecordBin"  json:"arecordBin"`
 	FFmpegBin   string `yaml:"ffmpegBin"   json:"ffmpegBin"`
+
+	// Channels: 1 = mono, 2 = capture stereo and detect join/split per radio.
+	Channels int `yaml:"channels" json:"channels"`
+	// Channel labels recorded on each transmission (see SplitThreshold).
+	MonoLabel  string `yaml:"monoLabel"  json:"monoLabel"`  // joined (both radios mixed)
+	LeftLabel  string `yaml:"leftLabel"  json:"leftLabel"`  // left channel when split
+	RightLabel string `yaml:"rightLabel" json:"rightLabel"` // right channel when split
+	// SplitThreshold is the L/R difference-energy ratio above which a stereo feed
+	// is treated as split (independent radios). 0 uses the detector default.
+	SplitThreshold float64 `yaml:"splitThreshold" json:"splitThreshold"`
 }
 
 // VADConfig holds voice-activity-detection / segmentation parameters.

@@ -14,11 +14,13 @@ import (
 //	ICMT -- JSON blob with GPS state at time of transmission
 //	ISRC -- source, e.g. "cockpit-intercom"
 //	IKEY -- transcript text (written back after STT completes)
+//	IART -- channel (mono/com1/com2/stream name)
 type INFO struct {
 	ICRD string // creation date
 	ICMT string // comment (GPS JSON)
 	ISRC string // source
 	IKEY string // keywords -- we use it for the transcript
+	IART string // artist -- we use it for the channel
 }
 
 // WriteWAV writes 16-bit mono PCM at sampleRate to path (creating parent dirs),
@@ -74,6 +76,7 @@ func buildListInfo(info INFO) []byte {
 	subs := []struct{ id, val string }{
 		{"ICRD", info.ICRD},
 		{"ISRC", info.ISRC},
+		{"IART", info.IART},
 		{"ICMT", info.ICMT},
 		{"IKEY", info.IKEY},
 	}

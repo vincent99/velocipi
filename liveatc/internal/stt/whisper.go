@@ -72,6 +72,19 @@ func New(binary, modelPath, language string, threads int, prompt string) *Transc
 //   - -np        : no prints (the spec's --no-prints), suppresses progress
 //   - --prompt   : initial prompt biasing decoding (ATC phraseology/callsigns)
 func (t *Transcriber) Transcribe(ctx context.Context, wavPath string) (Result, error) {
+	return t.transcribe(ctx, wavPath, t.prompt)
+}
+
+// HasPrompt reports whether an initial prompt is configured.
+func (t *Transcriber) HasPrompt() bool { return t.prompt != "" }
+
+// TranscribeWithoutPrompt runs a decode with no initial prompt. Used as a
+// fallback when a prompted decode fails or returns nothing.
+func (t *Transcriber) TranscribeWithoutPrompt(ctx context.Context, wavPath string) (Result, error) {
+	return t.transcribe(ctx, wavPath, "")
+}
+
+func (t *Transcriber) transcribe(ctx context.Context, wavPath, prompt string) (Result, error) {
 	tmpDir, err := os.MkdirTemp("", "liveatc-stt-")
 	if err != nil {
 		return Result{}, err
@@ -87,8 +100,8 @@ func (t *Transcriber) Transcribe(ctx context.Context, wavPath string) (Result, e
 		"--output-file", outBase,
 		"--no-prints",
 	}
-	if t.prompt != "" {
-		args = append(args, "--prompt", t.prompt)
+	if prompt != "" {
+		args = append(args, "--prompt", prompt)
 	}
 	args = append(args, "--file", wavPath)
 
