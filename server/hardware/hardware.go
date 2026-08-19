@@ -18,13 +18,13 @@ import (
 	"github.com/vincent99/velocipi/server/hardware/lightsensor"
 	"github.com/vincent99/velocipi/server/hardware/thermalcam"
 	"github.com/vincent99/velocipi/server/hardware/tpms"
-	"github.com/warthog618/go-gpiocdev"
 )
 
-var (
-	resetOnce sync.Once
-	resetLine *gpiocdev.Line // nil when ResetPin == 0
+// Reset (implemented per-platform in reset_linux.go / reset_stub.go) pulses
+// the shared hardware reset pin low for dur, then high. Does nothing if no
+// ResetPin is configured, or on non-Linux platforms.
 
+var (
 	airConOnce sync.Once
 	airConUnit *aircon.Client
 
@@ -64,49 +64,6 @@ var (
 	brightnessOnce sync.Once
 	brightnessUnit *brightness.Brightness
 )
-
-// resetLineInit opens the shared hardware reset GPIO line on first call.
-// Returns nil (and logs) if ResetPin is 0 or the line cannot be opened.
-func resetLineInit() *gpiocdev.Line {
-	resetOnce.Do(func() {
-		cfg := config.Load().Config
-		if cfg.Hardware.ResetPin == 0 {
-			return
-		}
-		chip := cfg.Hardware.OLED.GPIOChip
-		if chip == "" {
-			chip = "gpiochip0"
-		}
-		l, err := gpiocdev.RequestLine(chip, cfg.Hardware.ResetPin,
-			gpiocdev.AsOutput(1),
-			gpiocdev.WithPullUp,
-		)
-		if err != nil {
-			log.Printf("hardware: reset pin %d open error: %v", cfg.Hardware.ResetPin, err)
-			return
-		}
-		log.Printf("hardware: reset pin %d ready", cfg.Hardware.ResetPin)
-		resetLine = l
-	})
-	return resetLine
-}
-
-// Reset pulses the shared hardware reset pin low for dur, then high.
-// Does nothing if no ResetPin is configured.
-func Reset(dur time.Duration) {
-	l := resetLineInit()
-	if l == nil {
-		return
-	}
-	if err := l.SetValue(0); err != nil {
-		log.Println("hardware: reset low error:", err)
-		return
-	}
-	time.Sleep(dur)
-	if err := l.SetValue(1); err != nil {
-		log.Println("hardware: reset high error:", err)
-	}
-}
 
 // AirCon returns the singleton aircon state/command relay, or nil if the
 // knob (its only transport now -- see hardware/aircon's package doc) isn't
