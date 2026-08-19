@@ -24,6 +24,7 @@ import (
 	"github.com/vincent99/velocipi/server/hardware/oled"
 	"github.com/vincent99/velocipi/server/hardware/siyi"
 	"github.com/vincent99/velocipi/server/music"
+	"github.com/vincent99/velocipi/server/weightbalance"
 )
 
 func main() {
@@ -468,6 +469,7 @@ func main() {
 	})
 
 	registerAirConRoutes(mux)
+	weightbalance.RegisterRoutes(mux, cfg.Storage.WeightBalance)
 
 	mux.Handle("/", spaHandler("ui/dist"))
 	handler := corsMiddleware(mux)

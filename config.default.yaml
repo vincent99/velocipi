@@ -79,6 +79,7 @@ storage:
   backup: "data/backup"
   snaps: "data/snaps"
   liveatc: "data/liveatc"
+  weightBalance: "data/weight-balance"
 
 dvr:
   segmentDuration: 600

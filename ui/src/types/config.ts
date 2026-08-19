@@ -99,6 +99,7 @@ export interface StorageConfig {
   music: string;
   backup: string;
   snaps: string;
+  weightBalance: string;
 }
 
 export interface CameraConfig {

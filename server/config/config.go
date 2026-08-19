@@ -56,11 +56,12 @@ type MusicConfig struct {
 
 // StorageConfig holds filesystem directory paths for all subsystems.
 type StorageConfig struct {
-	DVR     string `yaml:"dvr"     json:"dvr"`     // recordings directory; default "recordings"
-	Music   string `yaml:"music"   json:"music"`   // music library root; default "music"
-	Backup  string `yaml:"backup"  json:"backup"`  // database backup directory; default "backup"
-	Snaps   string `yaml:"snaps"   json:"snaps"`   // downloaded camera snaps/photos; default "snaps"
-	LiveATC string `yaml:"liveatc" json:"liveatc"` // liveatc audio/transcripts root (used by the intercom-stt process)
+	DVR           string `yaml:"dvr"           json:"dvr"`           // recordings directory; default "recordings"
+	Music         string `yaml:"music"         json:"music"`         // music library root; default "music"
+	Backup        string `yaml:"backup"        json:"backup"`        // database backup directory; default "backup"
+	Snaps         string `yaml:"snaps"         json:"snaps"`         // downloaded camera snaps/photos; default "snaps"
+	LiveATC       string `yaml:"liveatc"       json:"liveatc"`       // liveatc audio/transcripts root (used by the intercom-stt process)
+	WeightBalance string `yaml:"weightBalance" json:"weightBalance"` // weight & balance people/layouts/saved records root
 }
 
 // DVRConfig holds settings for the DVR recording subsystem.
