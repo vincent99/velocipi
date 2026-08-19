@@ -86,11 +86,19 @@ type LiveATCConfig struct {
 	Audio   AudioConfig   `yaml:"audio"   json:"audio"`
 	VAD     VADConfig     `yaml:"vad"     json:"vad"`
 	Whisper WhisperConfig `yaml:"whisper" json:"whisper"`
+	GPS     GPSConfig     `yaml:"gps"     json:"gps"`
 
 	PTTPin       string `yaml:"pttPin"         json:"pttPin"`
 	PTTChip      string `yaml:"pttChip"        json:"pttChip"`
 	PTTActiveLow bool   `yaml:"pttActiveLow"   json:"pttActiveLow"`
 	TxRMSThresh  int    `yaml:"txRmsThreshold" json:"txRmsThreshold"`
+}
+
+// GPSConfig configures where liveatc gets aircraft position from. The push API
+// (POST /api/gps, WS /ws/gps) always works; AxisWsURL additionally makes liveatc
+// dial the velocipi server's websocket and consume its axisState frames.
+type GPSConfig struct {
+	AxisWsURL string `yaml:"axisWsUrl" json:"axisWsUrl"` // e.g. ws://localhost:8080/ws; "" = disabled
 }
 
 // StorageConfig holds filesystem roots.

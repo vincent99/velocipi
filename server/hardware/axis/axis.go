@@ -17,21 +17,21 @@ func randFloat() float64 { return rand.Float64() }
 
 // State holds the current GPS/attitude state of the aircraft.
 type State struct {
-	Lat      float64 // degrees, positive = north
-	Lon      float64 // degrees, positive = east
-	AltFt    float64 // feet MSL
-	Heading  float64 // degrees true (0–360)
-	Roll     float64 // degrees, positive = right bank
-	Pitch    float64 // degrees, positive = nose up
-	Yaw      float64 // degrees true, same as Heading for fixed-wing
-	SpeedKts float64 // knots ground speed
-	OAT      float64 // outside air temperature, °C
-	Origin   string  // ICAO airport code of the origin airport
-	Dest     string  // ICAO airport code of the destination airport
-	Com1     float64 // COM1 frequency, Hz
-	Com2     float64 // COM2 frequency, Hz
-	Nav1     float64 // NAV1 frequency, Hz
-	Nav2     float64 // NAV2 frequency, Hz
+	Lat      float64 `json:"lat"`        // degrees, positive = north
+	Lon      float64 `json:"lon"`        // degrees, positive = east
+	AltFt    float64 `json:"altFt"`      // feet MSL
+	Heading  float64 `json:"heading"`    // degrees true (0–360)
+	Roll     float64 `json:"roll"`       // degrees, positive = right bank
+	Pitch    float64 `json:"pitch"`      // degrees, positive = nose up
+	Yaw      float64 `json:"yaw"`        // degrees true, same as Heading for fixed-wing
+	SpeedKts float64 `json:"speedKts"`   // knots ground speed
+	OAT      float64 `json:"oatCelsius"` // outside air temperature, °C
+	Origin   string  `json:"origin"`     // ICAO airport code of the origin airport
+	Dest     string  `json:"dest"`       // ICAO airport code of the destination airport
+	Com1     float64 `json:"com1"`       // COM1 frequency, Hz
+	Com2     float64 `json:"com2"`       // COM2 frequency, Hz
+	Nav1     float64 `json:"nav1"`       // NAV1 frequency, Hz
+	Nav2     float64 `json:"nav2"`       // NAV2 frequency, Hz
 }
 
 // Axis tracks avionics state and broadcasts updates.

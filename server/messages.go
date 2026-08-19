@@ -4,6 +4,7 @@ import (
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/aircon"
 	"github.com/vincent99/velocipi/server/hardware/airsensor"
+	"github.com/vincent99/velocipi/server/hardware/axis"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/tpms"
 )
@@ -64,17 +65,11 @@ type LocalCameraMsg struct {
 	Camera string `json:"camera"` // current panel camera name
 }
 
+// AxisStateMsg embeds the whole axis.State (flattened into the JSON) so new
+// State fields appear on the wire automatically -- no second place to update.
 type AxisStateMsg struct {
-	Type       string  `json:"type"` // always "axisState"
-	Lat        float64 `json:"lat"`
-	Lon        float64 `json:"lon"`
-	AltFt      float64 `json:"altFt"`
-	Heading    float64 `json:"heading"`
-	Roll       float64 `json:"roll"`
-	Pitch      float64 `json:"pitch"`
-	Yaw        float64 `json:"yaw"`
-	SpeedKts   float64 `json:"speedKts"`
-	OATCelsius float64 `json:"oatCelsius"`
+	Type       string `json:"type"` // always "axisState"
+	axis.State        // promoted: lat, lon, altFt, heading, ..., oatCelsius, origin, com1, ...
 }
 
 type SiyiAttitudeMsg struct {

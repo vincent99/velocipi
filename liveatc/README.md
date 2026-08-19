@@ -175,7 +175,12 @@ to a running backend). Set `liveatc.uiDir: ""` to run API-only.
   transcripts, manifest, now-empty dirs); refuses the active session (409)
 - `GET  /api/session` — current session manifest; `GET /healthz`
 - `WS   /ws/transcripts` — pushes each new/edited `TransmissionRecord` (with a small backlog on connect)
-- `POST /api/gps` and `WS /ws/gps` — feed the current `GPSFix` in (until the Garmin Axis integration lands)
+- `POST /api/gps` and `WS /ws/gps` — push the current `GPSFix` in
+
+GPS can also be **pulled**: set `liveatc.gps.axisWsUrl` (e.g. `ws://localhost:8080/ws`)
+and liveatc dials the velocipi server's websocket, consuming its `axisState`
+frames (lat/lon/alt/heading/groundspeed) as the position source, reconnecting
+with backoff. Empty = disabled; the push endpoints stay available either way.
 
 ## TX vs RX detection
 

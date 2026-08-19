@@ -223,6 +223,12 @@ liveatc:
     carrier_floor: 250
     carrier_hangover_ms: 100
 
+  gps:
+    # When set, liveatc dials the velocipi server's websocket and consumes its
+    # axisState frames (lat/lon/alt/heading/groundspeed) as the GPS source. Empty
+    # = disabled; position can still be pushed in via POST /api/gps or WS /ws/gps.
+    axisWsUrl: "" # e.g. ws://localhost:8080/ws
+
   whisper:
     binary: "/usr/local/bin/whisper-cli"
     # GGML model file. A relative path is resolved under storage.liveatc (e.g.

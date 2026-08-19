@@ -265,10 +265,7 @@ func (h *Hub) setLocalCamera(name string) {
 // sendAxisState sends the current Axis avionics state to a single newly-connected client.
 func (h *Hub) sendAxisState(c *client) {
 	s := hardware.Axis().State()
-	msg := AxisStateMsg{
-		Type: "axisState", Lat: s.Lat, Lon: s.Lon, AltFt: s.AltFt,
-		Heading: s.Heading, Roll: s.Roll, Pitch: s.Pitch, Yaw: s.Yaw, SpeedKts: s.SpeedKts,
-	}
+	msg := AxisStateMsg{Type: "axisState", State: s}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return
@@ -285,11 +282,7 @@ func (h *Hub) sendAxisState(c *client) {
 func (h *Hub) runAxisLoop(ctx context.Context) {
 	a := hardware.Axis()
 	a.OnChange(func(s axis.State) {
-		msg := AxisStateMsg{
-			Type: "axisState", Lat: s.Lat, Lon: s.Lon, AltFt: s.AltFt,
-			Heading: s.Heading, Roll: s.Roll, Pitch: s.Pitch, Yaw: s.Yaw, SpeedKts: s.SpeedKts, OATCelsius: s.OAT,
-		}
-		h.broadcastAll(msg)
+		h.broadcastAll(AxisStateMsg{Type: "axisState", State: s})
 	})
 	go a.Run(ctx)
 

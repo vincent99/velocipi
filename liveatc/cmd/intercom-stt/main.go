@@ -19,6 +19,7 @@ import (
 
 	"github.com/vincent99/liveatc/internal/api"
 	"github.com/vincent99/liveatc/internal/audio"
+	"github.com/vincent99/liveatc/internal/axisclient"
 	"github.com/vincent99/liveatc/internal/config"
 	"github.com/vincent99/liveatc/internal/gps"
 	"github.com/vincent99/liveatc/internal/pipeline"
@@ -76,6 +77,13 @@ func main() {
 	// Stores.
 	store := transcript.NewStore(1000)
 	gpsStore := gps.NewStore()
+
+	// Optionally pull GPS/attitude from the velocipi server's websocket. The push
+	// API (POST /api/gps, WS /ws/gps) stays available regardless.
+	if url := cfg.LiveATC.GPS.AxisWsURL; url != "" {
+		go axisclient.New(url, gpsStore, log).Run(ctx)
+		log.Info("axis GPS source enabled", "url", url)
+	}
 
 	// Transcript disk writers.
 	writer, err := transcript.NewWriter(sess.JSONLPath(), sess.TextPath())
