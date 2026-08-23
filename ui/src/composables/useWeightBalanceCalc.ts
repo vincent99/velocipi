@@ -76,6 +76,20 @@ export function useWeightBalanceCalc(
 
     const errors = computeErrors(l, pos, curve, tow, ldw, zfw);
 
+    // "Extra" (as shown on the calculator's fuel line) = loaded − taxi −
+    // trip − reserve. Deliberately not clamped at 0 anywhere in this
+    // computation (unlike ldw.gallons, which cgcalc clamps since a fuel
+    // *quantity* can't be negative) -- going negative here is exactly the
+    // "not enough fuel" condition being flagged, including the case where
+    // taxi + trip alone exceed what's loaded and no reserve is configured.
+    const extraGal =
+      loadedGal - taxiFuelGal.value - tripFuelGal.value - l.reserveFuelGal;
+    if (extraGal < -1e-9) {
+      errors.push(
+        `Extra fuel is ${extraGal.toFixed(0)} gal: loaded fuel doesn't cover taxi + trip + the ${l.reserveFuelGal.toFixed(0)} gal reserve requirement.`
+      );
+    }
+
     return {
       totalCapacityGal,
       loadedGal,

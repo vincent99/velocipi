@@ -17,14 +17,24 @@ export interface CGLimitPoint {
 
 export type Lateral = 'left' | 'center' | 'right' | 'full';
 
-// One seat within a "row" station. Has its own name/lateral/weight limit,
-// but shares its parent row's arm.
-export interface RowSeat {
+export type RowItemType = 'seat' | 'cargo';
+
+// One position within a "row" station -- a seat or a cargo spot, so a row
+// can mix the two (e.g. a seat on the left, cargo on the right). Has its own
+// name/lateral/weight limit, but shares its parent row's arm.
+//
+// The JSON field is still called "seats" on Station (see below) even though
+// it can now hold cargo items too -- renaming it would silently drop this
+// data for anyone with an existing layout on disk.
+export interface RowItem {
   id: string;
+  /** Missing/unrecognized is treated as 'seat' (data predating this field). */
+  type?: RowItemType;
   name: string;
   lateral: Lateral;
   weightLimit?: number;
-  /** If true, the calculator's "Clear" button leaves this seat's occupant in place. */
+  /** If true, the calculator's "Clear" button leaves this item's occupant in
+   * place. Only meaningful for type 'seat' -- cargo is always cleared. */
   ignoreClear?: boolean;
 }
 
@@ -41,9 +51,9 @@ export type StationType = 'seat' | 'row' | 'cargo' | 'fuel';
 // `type` discriminator rather than a variant type, mirroring the Go Station
 // struct — field applicability by type:
 //   seat:  arm, weightLimit, lateral, ignoreClear
-//   row:   arm, weightLimit (total for the row), seats
+//   row:   arm, weightLimit (total for the row), seats (seats and/or cargo)
 //   cargo: arm, weightLimit, lateral
-//   fuel:  arm (used unless variableMoment set), weightLimit, capacityGal, variableMoment
+//   fuel:  arm (used unless variableMoment set), capacityGal, variableMoment (no weightLimit -- capacity already bounds it)
 export interface Station {
   id: string;
   type: StationType;
@@ -52,7 +62,7 @@ export interface Station {
   weightLimit?: number;
   lateral?: Lateral;
   ignoreClear?: boolean;
-  seats?: RowSeat[];
+  seats?: RowItem[]; // seats and/or cargo within a "row" station
   capacityGal?: number;
   variableMoment?: GallonMoment[];
 }
@@ -68,6 +78,7 @@ export interface Layout {
   maxLandingWeight: number; // lb; 0 = not enforced
   maxZeroFuelWeight: number; // lb; 0 = not enforced
   fuelWeightPerGallon: number; // lb/gal
+  reserveFuelGal: number; // gal; required remaining after trip fuel is burned
 
   forwardCGLimits: CGLimitPoint[];
   aftCGLimits: CGLimitPoint[];

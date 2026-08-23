@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import type { Layout } from '@/types/weightbalance';
-import PeopleEditor from '@/components/weightbalance/setup/PeopleEditor.vue';
 import LayoutList from '@/components/weightbalance/setup/LayoutList.vue';
 import LayoutEditor from '@/components/weightbalance/setup/LayoutEditor.vue';
+
+const router = useRouter();
 
 const layouts = ref<Layout[]>([]);
 const selectedId = ref<string | null>(null);
 const loading = ref(true);
 const saving = ref(false);
-const saved = ref(false);
 const error = ref('');
 
 onMounted(load);
@@ -31,10 +32,62 @@ const selectedLayout = computed(
   () => layouts.value.find((l) => l.id === selectedId.value) ?? null
 );
 
+function blankLayout(): Layout {
+  return {
+    id: crypto.randomUUID(),
+    name: 'New layout',
+    emptyWeight: 0,
+    emptyCG: 0,
+    gearRetractionMoment: 0,
+    maxTakeoffWeight: 0,
+    maxLandingWeight: 0,
+    maxZeroFuelWeight: 0,
+    fuelWeightPerGallon: 6,
+    reserveFuelGal: 0,
+    forwardCGLimits: [],
+    aftCGLimits: [],
+    stations: [],
+  };
+}
+
+function addLayout() {
+  const l = blankLayout();
+  layouts.value.push(l);
+  selectedId.value = l.id;
+}
+
+function copyLayout() {
+  const l = selectedLayout.value;
+  if (!l) {
+    return;
+  }
+  // l (and its nested arrays) are Vue reactive proxies -- structuredClone
+  // can throw on those ("could not be cloned") depending on the engine, so
+  // round-trip through JSON instead, which is proxy-transparent and plenty
+  // for this plain-data shape.
+  const copy: Layout = JSON.parse(JSON.stringify(l));
+  copy.id = crypto.randomUUID();
+  copy.name = l.name + ' copy';
+  layouts.value.push(copy);
+  selectedId.value = copy.id;
+}
+
+function removeLayout() {
+  const l = selectedLayout.value;
+  if (!l) {
+    return;
+  }
+  const idx = layouts.value.findIndex((x) => x.id === l.id);
+  if (idx < 0) {
+    return;
+  }
+  layouts.value.splice(idx, 1);
+  selectedId.value = layouts.value[0]?.id ?? null;
+}
+
 async function saveLayouts() {
   saving.value = true;
   error.value = '';
-  saved.value = false;
   try {
     const r = await fetch('/wb/layouts', {
       method: 'PUT',
@@ -44,43 +97,33 @@ async function saveLayouts() {
     if (!r.ok) {
       throw new Error(await r.text());
     }
-    saved.value = true;
-    setTimeout(() => {
-      saved.value = false;
-    }, 3000);
+    router.push('/remote/weightbalance');
   } catch (e: unknown) {
     error.value = 'Save failed: ' + String(e);
   } finally {
     saving.value = false;
   }
 }
+
+function cancel() {
+  router.push('/remote/weightbalance');
+}
 </script>
 
 <template>
   <div class="wb-setup">
-    <PeopleEditor />
-
     <div class="layouts-section">
-      <div class="layouts-header">
-        <span class="section-title">Layouts</span>
-        <div class="section-actions">
-          <span v-if="saved" class="saved-msg">Saved ✓</span>
-          <button
-            type="button"
-            class="save-btn"
-            :disabled="saving || loading"
-            @click="saveLayouts"
-          >
-            {{ saving ? 'Saving…' : 'Save Layouts' }}
-          </button>
-        </div>
-      </div>
+      <span class="section-title">Layouts</span>
       <p v-if="error" class="error-msg">{{ error }}</p>
 
       <LayoutList
         v-if="!loading"
-        v-model:layouts="layouts"
-        v-model:selected-id="selectedId"
+        :layouts="layouts"
+        :selected-id="selectedId"
+        @select="(id) => (selectedId = id)"
+        @add="addLayout"
+        @copy="copyLayout"
+        @delete="removeLayout"
       />
 
       <LayoutEditor
@@ -92,6 +135,18 @@ async function saveLayouts() {
         No layout selected — add one above.
       </p>
     </div>
+
+    <div class="bottom-bar">
+      <button type="button" class="cancel-btn" @click="cancel">Cancel</button>
+      <button
+        type="button"
+        class="save-btn"
+        :disabled="saving || loading"
+        @click="saveLayouts"
+      >
+        {{ saving ? 'Saving…' : 'Save' }}
+      </button>
+    </div>
   </div>
 </template>
 
@@ -100,37 +155,22 @@ async function saveLayouts() {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 1rem 1.25rem 2rem;
+  padding: 1rem 1.25rem 5rem;
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
   color: #e0e0e0;
-}
-
-.layouts-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
+  position: relative;
 }
 
 .section-title {
+  display: block;
   font-size: 0.95rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: #e0e0e0;
-}
-
-.section-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.saved-msg {
-  color: #4ade80;
-  font-size: 0.8rem;
+  margin-bottom: 0.75rem;
 }
 
 .error-msg {
@@ -138,13 +178,46 @@ async function saveLayouts() {
   font-size: 0.82rem;
 }
 
+.hint {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.bottom-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+}
+
+.cancel-btn {
+  background: none;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #ccc;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #888;
+    color: #fff;
+  }
+}
+
 .save-btn {
   background: #3b82f6;
   border: none;
   border-radius: 4px;
   color: #fff;
-  padding: 0.35rem 0.9rem;
-  font-size: 0.82rem;
+  padding: 0.5rem 1.3rem;
+  font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
 
@@ -155,10 +228,5 @@ async function saveLayouts() {
   &:disabled {
     opacity: 0.5;
   }
-}
-
-.hint {
-  color: #666;
-  font-size: 0.85rem;
 }
 </style>

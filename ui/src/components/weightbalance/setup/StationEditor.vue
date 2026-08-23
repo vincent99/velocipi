@@ -9,6 +9,7 @@ function addSeat() {
   station.value.seats = station.value.seats ?? [];
   station.value.seats.push({
     id: crypto.randomUUID(),
+    type: 'seat',
     name: '',
     lateral: 'left',
   });
@@ -73,7 +74,7 @@ function removeMomentPoint(idx: number) {
         >Arm (in)
         <input v-model.number="station.arm" type="number" step="0.01" />
       </label>
-      <label
+      <label v-if="station.type !== 'fuel'"
         >Weight limit (lb)
         <input
           :value="weightLimitStr(station.weightLimit)"
@@ -110,16 +111,27 @@ function removeMomentPoint(idx: number) {
       </label>
     </div>
 
-    <!-- Row seats -->
+    <!-- Row positions (seats and/or cargo) -->
     <div v-if="station.type === 'row'" class="sub-section">
       <div class="sub-section-header">
-        <span>Seats in this row</span>
+        <span>Positions in this row</span>
         <button type="button" class="add-link" @click="addSeat">
-          + Add Seat
+          + Add Position
         </button>
       </div>
       <div v-for="(seat, idx) in station.seats" :key="seat.id" class="seat-row">
-        <input v-model="seat.name" type="text" placeholder="Seat name" />
+        <input v-model="seat.name" type="text" placeholder="Name" />
+        <select
+          :value="seat.type ?? 'seat'"
+          @change="
+            seat.type = ($event.target as HTMLSelectElement).value as
+              | 'seat'
+              | 'cargo'
+          "
+        >
+          <option value="seat">Seat</option>
+          <option value="cargo">Cargo</option>
+        </select>
         <select v-model="seat.lateral">
           <option value="left">Left</option>
           <option value="center">Center</option>
@@ -135,16 +147,17 @@ function removeMomentPoint(idx: number) {
             setSeatWeightLimit(idx, ($event.target as HTMLInputElement).value)
           "
         />
-        <label class="checkbox-label small"
+        <label v-if="seat.type !== 'cargo'" class="checkbox-label small"
           ><input v-model="seat.ignoreClear" type="checkbox" /> Ignore
           clear</label
         >
+        <span v-else />
         <button type="button" class="delete-btn" @click="removeSeat(idx)">
           Delete
         </button>
       </div>
       <p v-if="!station.seats?.length" class="hint">
-        No seats in this row yet.
+        No positions in this row yet.
       </p>
     </div>
 
@@ -315,7 +328,7 @@ function removeMomentPoint(idx: number) {
 
 .seat-row {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr auto auto;
+  grid-template-columns: 1.3fr 0.8fr 0.8fr 0.8fr auto auto;
   gap: 0.5rem;
   align-items: center;
   margin-bottom: 0.35rem;

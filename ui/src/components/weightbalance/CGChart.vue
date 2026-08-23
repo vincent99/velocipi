@@ -18,7 +18,12 @@ const props = defineProps<{
 const containerRef = ref<HTMLDivElement | null>(null);
 const containerWidth = ref(400);
 const height = 320;
-const margin = { top: 16, right: 20, bottom: 34, left: 56 };
+// The X/Y scales themselves are tight around the actual data (no extra
+// domain padding) -- top/right are sized instead as fixed pixel gutters,
+// just enough to keep a marker dot/label sitting exactly at the top or
+// right edge of the data (e.g. FFW) from being clipped. left/bottom are
+// sized for the axis tick labels, unrelated to this.
+const margin = { top: 22, right: 34, bottom: 34, left: 56 };
 
 const innerWidth = computed(() =>
   Math.max(0, containerWidth.value - margin.left - margin.right)
@@ -40,7 +45,10 @@ onMounted(() => {
   onUnmounted(() => ro.disconnect());
 });
 
-// X domain: every CG limit point plus the curve, padded 5%.
+// X domain: tight around every CG limit point plus the curve (which
+// includes the full FFW→ZFW line) -- no extra domain padding. Room for
+// marker labels/dots sitting right at the edges comes from the fixed
+// margin.right gutter above, not from padding the data itself.
 const xScale = computed(() => {
   const cgs = [
     ...props.layout.forwardCGLimits.map((p) => p.cg),
@@ -50,14 +58,19 @@ const xScale = computed(() => {
   const [lo, hi] = d3.extent(cgs) as [number | undefined, number | undefined];
   const min = lo ?? 0;
   const max = hi ?? 1;
-  const pad = Math.max((max - min) * 0.08, 0.5);
+  // A degenerate (zero-width) domain would otherwise map every point to the
+  // same pixel; give it a minimal span in that edge case only.
+  const span = max > min ? 0 : 0.5;
   return d3
     .scaleLinear()
-    .domain([min - pad, max + pad])
+    .domain([min - span, max + span])
     .range([0, innerWidth.value]);
 });
 
-// Y domain: 0 up to the largest weight in play (limits, MTOW/MLW/MZFW, curve), padded 5%.
+// Y domain: from the basic empty weight (the floor -- nothing on the chart
+// is ever lighter than the bare airplane) up to the largest weight in play
+// (limits, MTOW/MLW/MZFW, curve) -- no extra domain padding; margin.top
+// above reserves the pixel space a top-edge marker's label needs.
 const yScale = computed(() => {
   const weights = [
     ...props.layout.forwardCGLimits.map((p) => p.weight),
@@ -67,8 +80,11 @@ const yScale = computed(() => {
     props.layout.maxLandingWeight,
     props.layout.maxZeroFuelWeight,
   ].filter((w) => w > 0);
-  const max = (d3.max(weights) ?? 100) * 1.05;
-  return d3.scaleLinear().domain([0, max]).range([innerHeight.value, 0]).nice();
+  const max = d3.max(weights) ?? props.layout.emptyWeight + 100;
+  return d3
+    .scaleLinear()
+    .domain([props.layout.emptyWeight, max])
+    .range([innerHeight.value, 0]);
 });
 
 // Envelope polygon: forward limits ascending by weight (left boundary), then
@@ -93,14 +109,32 @@ const envelopePath = computed(() => {
   );
 });
 
-const curvePath = computed(() => {
+// The curve is split at TOW: ZFW→TOW is the actual flown portion (solid);
+// TOW→FFW is "what if the tanks were fuller" and never actually flown
+// (dotted). TOW's own point is included in both halves so they connect
+// without a visible gap.
+const flownCurvePath = computed(() => {
   const x = xScale.value;
   const y = yScale.value;
+  const towGal = props.calc.tow.gallons;
+  const pts = props.calc.curve.filter((p) => p.gallons <= towGal + 1e-9);
   const gen = d3
     .line<{ cg: number; weight: number }>()
     .x((d) => x(d.cg))
     .y((d) => y(d.weight));
-  return gen(props.calc.curve) ?? '';
+  return gen(pts) ?? '';
+});
+
+const informationalCurvePath = computed(() => {
+  const x = xScale.value;
+  const y = yScale.value;
+  const towGal = props.calc.tow.gallons;
+  const pts = props.calc.curve.filter((p) => p.gallons >= towGal - 1e-9);
+  const gen = d3
+    .line<{ cg: number; weight: number }>()
+    .x((d) => x(d.cg))
+    .y((d) => y(d.weight));
+  return gen(pts) ?? '';
 });
 
 const xTicks = computed(() => {
@@ -160,13 +194,24 @@ const markerRenders = computed(() => {
   return out;
 });
 
+// MLW/MZFW are only interesting as separate lines when they're actually
+// below MTOW -- if MTOW isn't set (0) there's nothing to compare against.
 const referenceLines = computed(() => {
   const y = yScale.value;
+  const mtow = props.layout.maxTakeoffWeight;
   const lines: { y: number; label: string }[] = [];
-  if (props.layout.maxLandingWeight > 0) {
+  if (
+    props.layout.maxLandingWeight > 0 &&
+    mtow > 0 &&
+    props.layout.maxLandingWeight < mtow
+  ) {
     lines.push({ y: y(props.layout.maxLandingWeight), label: 'MLW' });
   }
-  if (props.layout.maxZeroFuelWeight > 0) {
+  if (
+    props.layout.maxZeroFuelWeight > 0 &&
+    mtow > 0 &&
+    props.layout.maxZeroFuelWeight < mtow
+  ) {
     lines.push({ y: y(props.layout.maxZeroFuelWeight), label: 'MZFW' });
   }
   return lines;
@@ -277,9 +322,19 @@ defineExpose({ svgString });
           class="envelope"
         />
 
-        <!-- Fuel-burn curve -->
+        <!-- Fuel-burn curve: solid for the portion actually flown
+             (ZFW→TOW), dotted above TOW (informational only -- "what if
+             the tanks were fuller"), never actually flown. -->
         <path
-          :d="curvePath"
+          :d="informationalCurvePath"
+          fill="none"
+          stroke="#888"
+          stroke-width="2"
+          stroke-linejoin="round"
+          stroke-dasharray="2,3"
+        />
+        <path
+          :d="flownCurvePath"
           fill="none"
           stroke="#e0e0e0"
           stroke-width="2"

@@ -4,6 +4,7 @@ import { ref } from 'vue';
 const props = defineProps<{
   title: string;
   weight: number;
+  maxWeight: number;
 }>();
 
 const emit = defineEmits<{
@@ -23,25 +24,29 @@ function submit() {
   <div class="modal-backdrop" @click.self="emit('cancel')">
     <div class="modal-box">
       <div class="modal-header">
-        <span>{{ title }}</span>
+        <span class="modal-title">{{ title }}</span>
+        <button type="button" class="clear-btn" @click="emit('clear')">
+          Clear
+        </button>
         <button class="modal-close" @click="emit('cancel')">✕</button>
       </div>
 
       <div class="modal-body">
-        <label class="weight-label">
-          Weight (lb)
-          <input v-model.number="value" type="number" min="0" autofocus />
-        </label>
-      </div>
-
-      <div class="modal-footer">
-        <button type="button" class="clear-btn" @click="emit('clear')">
-          Clear
-        </button>
-        <div class="footer-right">
-          <button type="button" class="cancel-btn" @click="emit('cancel')">
-            Cancel
-          </button>
+        <div class="weight-row">
+          <div class="weight-slider-wrap">
+            <div class="weight-readout">
+              {{ value }}
+              <span class="unit">/ {{ maxWeight }} lb</span>
+            </div>
+            <input
+              v-model.number="value"
+              type="range"
+              class="weight-slider"
+              min="0"
+              :max="maxWeight"
+              step="5"
+            />
+          </div>
           <button type="button" class="set-btn" @click="submit">Set</button>
         </div>
       </div>
@@ -66,18 +71,26 @@ function submit() {
   border: 1px solid #333;
   border-radius: 8px;
   width: 100%;
-  max-width: 300px;
+  max-width: 320px;
   overflow: hidden;
 }
 
 .modal-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.6rem;
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #333;
   font-weight: 600;
   color: #e0e0e0;
+}
+
+.modal-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modal-close {
@@ -86,6 +99,7 @@ function submit() {
   color: #888;
   cursor: pointer;
   font-size: 0.9rem;
+  flex-shrink: 0;
 
   &:hover {
     color: #e0e0e0;
@@ -96,69 +110,35 @@ function submit() {
   padding: 1rem;
 }
 
-.weight-label {
+.weight-row {
   display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.82rem;
-  color: #999;
-
-  input {
-    background: #2a2a2a;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #e0e0e0;
-    padding: 0.5rem 0.6rem;
-    font-size: 1.2rem;
-    font-weight: 600;
-
-    &:focus {
-      outline: none;
-      border-color: #3b82f6;
-    }
-  }
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0.75rem 1rem;
-  border-top: 1px solid #333;
+  gap: 0.6rem;
 }
 
-.footer-right {
-  display: flex;
-  gap: 0.5rem;
+.weight-slider-wrap {
+  flex: 1;
+  min-width: 0;
 }
 
-.clear-btn {
-  background: none;
-  border: 1px solid rgba(239, 68, 68, 0.5);
-  color: #f87171;
-  border-radius: 4px;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.82rem;
-  cursor: pointer;
+.weight-readout {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #e0e0e0;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 0.15rem;
 
-  &:hover {
-    background: rgba(239, 68, 68, 0.15);
+  .unit {
+    font-size: 0.78rem;
+    font-weight: 400;
+    color: #888;
   }
 }
 
-.cancel-btn {
-  background: none;
-  border: 1px solid #444;
-  color: #aaa;
-  border-radius: 4px;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.82rem;
+.weight-slider {
+  width: 100%;
+  accent-color: #3b82f6;
   cursor: pointer;
-
-  &:hover {
-    border-color: #666;
-    color: #e0e0e0;
-  }
 }
 
 .set-btn {
@@ -167,12 +147,28 @@ function submit() {
   border-radius: 4px;
   color: #fff;
   padding: 0.4rem 0.9rem;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  flex-shrink: 0;
 
   &:hover {
     background: #2563eb;
+  }
+}
+
+.clear-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  color: #f87171;
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(239, 68, 68, 0.15);
   }
 }
 </style>

@@ -35,15 +35,32 @@ const (
 	LateralFull   Lateral = "full"
 )
 
-// RowSeat is one seat within a "row" station. It has its own name, lateral
-// position, and optional weight limit, but shares its parent row's arm.
-type RowSeat struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Lateral     Lateral  `json:"lateral"`
-	WeightLimit *float64 `json:"weightLimit,omitempty"`
+// RowItemType discriminates the two kinds of position a "row" station can hold.
+type RowItemType string
+
+const (
+	RowItemSeat  RowItemType = "seat"
+	RowItemCargo RowItemType = "cargo"
+)
+
+// RowItem is one position within a "row" station -- a seat or a cargo spot,
+// so a row can mix the two (e.g. a seat on the left, cargo on the right). It
+// has its own name, lateral position, and optional weight limit, but shares
+// its parent row's arm.
+//
+// The JSON field is still called "seats" on Station (see below) even though
+// it can now hold cargo items too -- renaming it would silently drop this
+// data for anyone with an existing layout on disk, since the old field name
+// just wouldn't be found.
+type RowItem struct {
+	ID          string      `json:"id"`
+	Type        RowItemType `json:"type"` // empty/unrecognized treated as "seat" (data predating this field)
+	Name        string      `json:"name"`
+	Lateral     Lateral     `json:"lateral"`
+	WeightLimit *float64    `json:"weightLimit,omitempty"`
 	// IgnoreClear, when true, means the "Clear" button on the calculator
-	// leaves this seat's occupant in place (e.g. the pilot).
+	// leaves this item's occupant in place (e.g. the pilot). Only meaningful
+	// for Type == RowItemSeat -- cargo is always cleared.
 	IgnoreClear bool `json:"ignoreClear,omitempty"`
 }
 
@@ -74,9 +91,9 @@ const (
 // Field applicability by Type:
 //
 //	seat:  Arm, WeightLimit, Lateral, IgnoreClear
-//	row:   Arm, WeightLimit (total for the row), Seats
+//	row:   Arm, WeightLimit (total for the row), Seats (seats and/or cargo)
 //	cargo: Arm, WeightLimit, Lateral
-//	fuel:  Arm (used unless VariableMoment is set), WeightLimit, CapacityGal, VariableMoment
+//	fuel:  Arm (used unless VariableMoment is set), CapacityGal, VariableMoment (no WeightLimit -- capacity already bounds it)
 type Station struct {
 	ID             string         `json:"id"`
 	Type           StationType    `json:"type"`
@@ -85,7 +102,7 @@ type Station struct {
 	WeightLimit    *float64       `json:"weightLimit,omitempty"`
 	Lateral        Lateral        `json:"lateral,omitempty"`
 	IgnoreClear    bool           `json:"ignoreClear,omitempty"`
-	Seats          []RowSeat      `json:"seats,omitempty"`
+	Seats          []RowItem      `json:"seats,omitempty"` // seats and/or cargo within a "row" station
 	CapacityGal    float64        `json:"capacityGal,omitempty"`
 	VariableMoment []GallonMoment `json:"variableMoment,omitempty"`
 }
@@ -104,6 +121,7 @@ type Layout struct {
 	MaxLandingWeight     float64 `json:"maxLandingWeight"`     // lb; 0 = not enforced
 	MaxZeroFuelWeight    float64 `json:"maxZeroFuelWeight"`    // lb; 0 = not enforced
 	FuelWeightPerGallon  float64 `json:"fuelWeightPerGallon"`  // lb/gal
+	ReserveFuelGal       float64 `json:"reserveFuelGal"`       // gal; required remaining after trip fuel is burned
 
 	ForwardCGLimits []CGLimitPoint `json:"forwardCGLimits"`
 	AftCGLimits     []CGLimitPoint `json:"aftCGLimits"`

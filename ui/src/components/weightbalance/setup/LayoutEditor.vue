@@ -69,6 +69,15 @@ function removeStation(idx: number) {
           />
         </label>
         <label
+          >Reserve fuel (gal)
+          <input
+            v-model.number="layout.reserveFuelGal"
+            type="number"
+            min="0"
+            step="0.1"
+          />
+        </label>
+        <label
           >Max takeoff weight (lb)
           <input
             v-model.number="layout.maxTakeoffWeight"

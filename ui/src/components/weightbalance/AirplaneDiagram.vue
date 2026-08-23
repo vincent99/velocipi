@@ -21,21 +21,25 @@ const emit = defineEmits<{
 }>();
 
 // ── Geometry ─────────────────────────────────────────────────────────────
+// The fuselage runs left-right (nose left, tail right), so a station's
+// "arm" (fore-aft position) maps to X, and its "lateral" (left/center/
+// right/full -- a position across the cabin) maps to Y, perpendicular to
+// the fuselage centerline.
 const ROW_SPACING = 130;
-const NOSE_LEN = 70;
+const NOSE_LEN = 130;
 const TAIL_LEN = 90;
 const FUSELAGE_HALF = 95;
 const HEIGHT = 260;
 const CY = HEIGHT / 2;
-const LATERAL_OFFSET = 52;
-const SEAT_W = 44;
-const SEAT_H = 52;
+const LATERAL_OFFSET = 52; // Y offset for left/right seats & cargo
+const SEAT_SPAN = 44; // shoulder-to-shoulder extent, across the cabin (Y)
+const SEAT_DEPTH = 52; // front-to-back extent, along the fuselage (X)
 
+// Fuel stations aren't drawn on the diagram itself -- the calculator shows
+// them in its own fuel summary line, since that also needs taxi/trip/reserve
+// figures the diagram doesn't know about.
 const nonFuelStations = computed(() =>
   props.layout.stations.filter((s) => s.type !== 'fuel')
-);
-const fuelStations = computed(() =>
-  props.layout.stations.filter((s) => s.type === 'fuel')
 );
 
 const uniqueArms = computed(() =>
@@ -51,22 +55,30 @@ function armX(arm: number): number {
   return NOSE_LEN + (Math.max(idx, 0) + 0.5) * ROW_SPACING;
 }
 
-function lateralOffset(lateral?: Lateral): number {
+// left/right are positions across the cabin, which -- since the fuselage is
+// drawn horizontally -- render as an offset above/below the centerline
+// (top/bottom on screen), not left/right on screen: left is the bottom of
+// the diagram, right is the top.
+function lateralY(lateral?: Lateral): number {
   if (lateral === 'left') {
-    return -LATERAL_OFFSET;
+    return LATERAL_OFFSET;
   }
   if (lateral === 'right') {
-    return LATERAL_OFFSET;
+    return -LATERAL_OFFSET;
   }
   return 0; // center, full
 }
 
-// Simplified fuselage outline: pointed nose at x=0, rounded tail bulge at
-// the right edge. Not to scale — just recognizable as a top-down airplane.
+// Simplified fuselage outline: a long, straight (convex) "V" taper for the
+// nose -- like a real top-down airplane nose, not a curve that pinches in
+// early -- with just its very tip rounded off by a small arc, plus a
+// rounded tail bulge at the right edge. Not to scale — just recognizable
+// as a top-down airplane.
 const fuselagePath = computed(() => {
   const w = width.value;
   const tailStart = w - TAIL_LEN;
   const half = FUSELAGE_HALF;
+  const tipR = 18; // radius of the small rounding arc at the very nose tip
   return [
     `M ${NOSE_LEN} ${CY - half}`,
     `L ${tailStart} ${CY - half}`,
@@ -74,26 +86,34 @@ const fuselagePath = computed(() => {
     `Q ${w} ${CY} ${w - 8} ${CY + half * 0.45}`,
     `Q ${w - TAIL_LEN * 0.25} ${CY + half} ${tailStart} ${CY + half}`,
     `L ${NOSE_LEN} ${CY + half}`,
-    `Q ${NOSE_LEN * 0.35} ${CY + half} 0 ${CY}`,
-    `Q ${NOSE_LEN * 0.35} ${CY - half} ${NOSE_LEN} ${CY - half}`,
+    `L ${tipR} ${CY + tipR}`,
+    // Semicircular arc around the tip (through x=0), back up to the top
+    // taper line's start -- sweep-flag=1 takes the west (left) side.
+    `A ${tipR} ${tipR} 0 0 1 ${tipR} ${CY - tipR}`,
     'Z',
   ].join(' ');
 });
 
 // A pair of simple tapered wings crossing the fuselage, purely decorative.
+// X offsets (chordwise width) are 3x a plain wing's; Y offsets (how far
+// they reach out from the fuselage -- "height") are unchanged.
 const wingsPath = computed(() => {
   const cx = NOSE_LEN + rowCount.value * ROW_SPACING * 0.42;
   const span = FUSELAGE_HALF + 60;
+  const rootFwd = 24 * 3;
+  const rootAft = 30 * 3;
+  const tipFwd = 10 * 3;
+  const tipAft = 40 * 3;
   return [
-    `M ${cx - 24} ${CY - FUSELAGE_HALF + 10}`,
-    `L ${cx + 10} ${CY - span}`,
-    `L ${cx + 40} ${CY - span}`,
-    `L ${cx + 30} ${CY - FUSELAGE_HALF + 10}`,
+    `M ${cx - rootFwd} ${CY - FUSELAGE_HALF + 10}`,
+    `L ${cx + tipFwd} ${CY - span}`,
+    `L ${cx + tipAft} ${CY - span}`,
+    `L ${cx + rootAft} ${CY - FUSELAGE_HALF + 10}`,
     'Z',
-    `M ${cx - 24} ${CY + FUSELAGE_HALF - 10}`,
-    `L ${cx + 10} ${CY + span}`,
-    `L ${cx + 40} ${CY + span}`,
-    `L ${cx + 30} ${CY + FUSELAGE_HALF - 10}`,
+    `M ${cx - rootFwd} ${CY + FUSELAGE_HALF - 10}`,
+    `L ${cx + tipFwd} ${CY + span}`,
+    `L ${cx + tipAft} ${CY + span}`,
+    `L ${cx + rootAft} ${CY + FUSELAGE_HALF - 10}`,
     'Z',
   ].join(' ');
 });
@@ -104,6 +124,7 @@ interface SeatRender {
   stationId: string;
   seatId?: string;
   x: number;
+  y: number;
   wide: boolean;
   name: string;
   weight: number;
@@ -118,23 +139,30 @@ const seatRenders = computed<SeatRender[]>(() => {
       out.push({
         key: station.id,
         stationId: station.id,
-        x: armX(station.arm) + lateralOffset(station.lateral),
+        x: armX(station.arm),
+        y: CY + lateralY(station.lateral),
         wide: station.lateral === 'full',
         name: pos?.name || station.name,
         weight: pos?.weight ?? 0,
         occupied: !!pos && (!!pos.personId || (pos.weight ?? 0) > 0),
       });
     } else if (station.type === 'row') {
-      for (const seat of station.seats ?? []) {
-        const key = rowSeatKey(station.id, seat.id);
+      // Missing/unrecognized item type is treated as a seat (data predating
+      // the row-cargo option).
+      for (const item of station.seats ?? []) {
+        if (item.type === 'cargo') {
+          continue; // rendered in cargoRenders below
+        }
+        const key = rowSeatKey(station.id, item.id);
         const pos = props.positions[key];
         out.push({
           key,
           stationId: station.id,
-          seatId: seat.id,
-          x: armX(station.arm) + lateralOffset(seat.lateral),
-          wide: seat.lateral === 'full',
-          name: pos?.name || seat.name,
+          seatId: item.id,
+          x: armX(station.arm),
+          y: CY + lateralY(item.lateral),
+          wide: item.lateral === 'full',
+          name: pos?.name || item.name,
           weight: pos?.weight ?? 0,
           occupied: !!pos && (!!pos.personId || (pos.weight ?? 0) > 0),
         });
@@ -144,42 +172,54 @@ const seatRenders = computed<SeatRender[]>(() => {
   return out;
 });
 
-// ── Cargo ────────────────────────────────────────────────────────────────
+// ── Cargo (top-level cargo stations + cargo items within a row) ────────────
 interface CargoRender {
   key: string;
   stationId: string;
+  seatId?: string;
   x: number;
+  y: number;
   wide: boolean;
   name: string;
   weight: number;
 }
 
-const cargoRenders = computed<CargoRender[]>(() =>
-  nonFuelStations.value
-    .filter((s) => s.type === 'cargo')
-    .map((station) => {
+const cargoRenders = computed<CargoRender[]>(() => {
+  const out: CargoRender[] = [];
+  for (const station of nonFuelStations.value) {
+    if (station.type === 'cargo') {
       const pos = props.positions[station.id];
-      return {
+      out.push({
         key: station.id,
         stationId: station.id,
-        x: armX(station.arm) + lateralOffset(station.lateral),
+        x: armX(station.arm),
+        y: CY + lateralY(station.lateral),
         wide: station.lateral === 'full',
         name: station.name,
         weight: pos?.weight ?? 0,
-      };
-    })
-);
-
-// ── Fuel readouts (shown centered below the diagram) ────────────────────────
-const fuelRenders = computed(() =>
-  fuelStations.value.map((station) => ({
-    key: station.id,
-    stationId: station.id,
-    name: station.name,
-    gallons: props.positions[station.id]?.gallons ?? 0,
-    capacityGal: station.capacityGal ?? 0,
-  }))
-);
+      });
+    } else if (station.type === 'row') {
+      for (const item of station.seats ?? []) {
+        if (item.type !== 'cargo') {
+          continue;
+        }
+        const key = rowSeatKey(station.id, item.id);
+        const pos = props.positions[key];
+        out.push({
+          key,
+          stationId: station.id,
+          seatId: item.id,
+          x: armX(station.arm),
+          y: CY + lateralY(item.lateral),
+          wide: item.lateral === 'full',
+          name: item.name,
+          weight: pos?.weight ?? 0,
+        });
+      }
+    }
+  }
+  return out;
+});
 
 function tap(stationId: string, seatId?: string) {
   emit('station-tap', { stationId, seatId });
@@ -204,45 +244,47 @@ defineExpose({ svgString });
       <path :d="wingsPath" class="wings" />
       <path :d="fuselagePath" class="fuselage" />
 
-      <!-- Seats -->
+      <!-- Seats. The cushion is wider along X (fore-aft / depth) than Y
+           (across the cabin / span) -- a "landscape" rectangle -- since the
+           fuselage (and the direction a seat faces) runs along X here. -->
       <g
         v-for="seat in seatRenders"
         :key="seat.key"
-        :transform="`translate(${seat.x},${CY})`"
+        :transform="`translate(${seat.x},${seat.y})`"
         class="seat"
         :class="{ occupied: seat.occupied }"
         @click="tap(seat.stationId, seat.seatId)"
       >
         <rect
           class="seat-armrest"
-          :x="(seat.wide ? -SEAT_W * 1.6 : -SEAT_W) / 2 - 5"
-          :y="-SEAT_H * 0.3"
-          width="5"
-          :height="SEAT_H * 0.6"
+          :x="-SEAT_DEPTH * 0.3"
+          :y="(seat.wide ? -SEAT_SPAN * 1.6 : -SEAT_SPAN) / 2 - 5"
+          :width="SEAT_DEPTH * 0.6"
+          height="5"
           rx="2.5"
         />
         <rect
           class="seat-armrest"
-          :x="(seat.wide ? SEAT_W * 1.6 : SEAT_W) / 2"
-          :y="-SEAT_H * 0.3"
-          width="5"
-          :height="SEAT_H * 0.6"
+          :x="-SEAT_DEPTH * 0.3"
+          :y="(seat.wide ? SEAT_SPAN * 1.6 : SEAT_SPAN) / 2"
+          :width="SEAT_DEPTH * 0.6"
+          height="5"
           rx="2.5"
         />
         <rect
           class="seat-body"
-          :x="(seat.wide ? -SEAT_W * 1.6 : -SEAT_W) / 2"
-          :y="-SEAT_H / 2"
-          :width="seat.wide ? SEAT_W * 1.6 : SEAT_W"
-          :height="SEAT_H"
+          :x="-SEAT_DEPTH / 2"
+          :y="(seat.wide ? -SEAT_SPAN * 1.6 : -SEAT_SPAN) / 2"
+          :width="SEAT_DEPTH"
+          :height="seat.wide ? SEAT_SPAN * 1.6 : SEAT_SPAN"
           rx="9"
         />
         <rect
           class="seat-back"
-          :x="(seat.wide ? -SEAT_W * 1.6 : -SEAT_W) * 0.32"
-          :y="-SEAT_H / 2 + 4"
-          :width="(seat.wide ? SEAT_W * 1.6 : SEAT_W) * 0.64"
-          height="12"
+          :x="SEAT_DEPTH / 2 - 16"
+          :y="(seat.wide ? -SEAT_SPAN * 1.6 : -SEAT_SPAN) * 0.32"
+          width="12"
+          :height="(seat.wide ? SEAT_SPAN * 1.6 : SEAT_SPAN) * 0.64"
           rx="5"
         />
         <template v-if="seat.occupied">
@@ -255,17 +297,17 @@ defineExpose({ svgString });
       <g
         v-for="cargo in cargoRenders"
         :key="cargo.key"
-        :transform="`translate(${cargo.x},${CY})`"
+        :transform="`translate(${cargo.x},${cargo.y})`"
         class="cargo"
         :class="{ empty: cargo.weight <= 0 }"
-        @click="tap(cargo.stationId)"
+        @click="tap(cargo.stationId, cargo.seatId)"
       >
         <rect
           class="cargo-body"
-          :x="(cargo.wide ? SEAT_W * 1.9 : SEAT_W * 1.15) / -2"
-          :y="-SEAT_H / 2"
-          :width="cargo.wide ? SEAT_W * 1.9 : SEAT_W * 1.15"
-          :height="SEAT_H"
+          :x="-SEAT_DEPTH * 1.15 * 0.5"
+          :y="(cargo.wide ? -SEAT_SPAN * 1.9 : -SEAT_SPAN) / 2"
+          :width="SEAT_DEPTH * 1.15"
+          :height="cargo.wide ? SEAT_SPAN * 1.9 : SEAT_SPAN"
           rx="8"
           :fill="cargo.weight > 0 ? 'url(#cargoHatch)' : undefined"
         />
@@ -293,23 +335,6 @@ defineExpose({ svgString });
         </pattern>
       </defs>
     </svg>
-
-    <!-- Fuel readouts, centered below the diagram -->
-    <div v-if="fuelRenders.length" class="fuel-row">
-      <button
-        v-for="fuel in fuelRenders"
-        :key="fuel.key"
-        type="button"
-        class="fuel-pill"
-        @click="tap(fuel.stationId)"
-      >
-        <span class="fuel-name">{{ fuel.name }}</span>
-        <span class="fuel-gal"
-          >{{ fuel.gallons.toFixed(1) }} /
-          {{ fuel.capacityGal.toFixed(0) }} gal</span
-        >
-      </button>
-    </div>
   </div>
 </template>
 
@@ -443,42 +468,5 @@ defineExpose({ svgString });
   &:hover .cargo-body {
     stroke: #888;
   }
-}
-
-.fuel-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.5rem;
-}
-
-.fuel-pill {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.15rem;
-  background: #1e1e1e;
-  border: 1px solid #444;
-  border-radius: 8px;
-  padding: 0.4rem 0.9rem;
-  color: #e0e0e0;
-  cursor: pointer;
-
-  &:hover {
-    border-color: #3b82f6;
-  }
-}
-
-.fuel-name {
-  font-size: 0.72rem;
-  color: #aaa;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.fuel-gal {
-  font-size: 0.95rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 </style>

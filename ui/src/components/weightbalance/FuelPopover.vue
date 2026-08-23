@@ -1,32 +1,37 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 
-const props = defineProps<{
-  title: string;
-  capacityGal: number;
-  gallons: number;
-}>();
+const props = withDefaults(
+  defineProps<{
+    title: string;
+    capacityGal: number;
+    gallons: number;
+    /** Empty/Half/Full shortcuts -- only meaningful for an actual fuel tank. */
+    showShortcuts?: boolean;
+  }>(),
+  { showShortcuts: true }
+);
 
 const emit = defineEmits<{
   update: [gallons: number];
   close: [];
 }>();
 
-const value = ref(props.gallons);
+const value = ref(Math.round(props.gallons));
 watch(
   () => props.gallons,
   (v) => {
-    value.value = v;
+    value.value = Math.round(v);
   }
 );
 
 function commit(v: number) {
-  value.value = Math.max(0, Math.min(props.capacityGal, v));
+  value.value = Math.round(Math.max(0, Math.min(props.capacityGal, v)));
   emit('update', value.value);
 }
 
 function onSliderInput(e: Event) {
-  value.value = parseFloat((e.target as HTMLInputElement).value);
+  value.value = Math.round(parseFloat((e.target as HTMLInputElement).value));
 }
 function onSliderChange(e: Event) {
   commit(parseFloat((e.target as HTMLInputElement).value));
@@ -43,20 +48,20 @@ function onSliderChange(e: Event) {
 
       <div class="modal-body">
         <div class="fuel-readout">
-          {{ value.toFixed(1) }}
-          <span class="unit">/ {{ capacityGal.toFixed(0) }} gal</span>
+          {{ value }}
+          <span class="unit">/ {{ Math.round(capacityGal) }} gal</span>
         </div>
         <input
           class="fuel-slider"
           type="range"
           min="0"
           :max="capacityGal"
-          step="0.1"
+          step="1"
           :value="value"
           @input="onSliderInput"
           @change="onSliderChange"
         />
-        <div class="shortcut-row">
+        <div v-if="showShortcuts" class="shortcut-row">
           <button type="button" @click="commit(0)">Empty</button>
           <button type="button" @click="commit(capacityGal / 2)">Half</button>
           <button type="button" @click="commit(capacityGal)">Full</button>

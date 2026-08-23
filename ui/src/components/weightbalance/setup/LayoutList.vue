@@ -1,50 +1,17 @@
 <script setup lang="ts">
 import type { Layout } from '@/types/weightbalance';
 
-const layouts = defineModel<Layout[]>('layouts', { required: true });
-const selectedId = defineModel<string | null>('selectedId', { required: true });
+defineProps<{
+  layouts: Layout[];
+  selectedId: string | null;
+}>();
 
-function blankLayout(): Layout {
-  return {
-    id: crypto.randomUUID(),
-    name: 'New layout',
-    emptyWeight: 0,
-    emptyCG: 0,
-    gearRetractionMoment: 0,
-    maxTakeoffWeight: 0,
-    maxLandingWeight: 0,
-    maxZeroFuelWeight: 0,
-    fuelWeightPerGallon: 6,
-    forwardCGLimits: [],
-    aftCGLimits: [],
-    stations: [],
-  };
-}
-
-function addLayout() {
-  const l = blankLayout();
-  layouts.value.push(l);
-  selectedId.value = l.id;
-}
-
-function duplicateLayout(l: Layout) {
-  const copy: Layout = structuredClone({ ...l, hash: undefined });
-  copy.id = crypto.randomUUID();
-  copy.name = l.name + ' copy';
-  layouts.value.push(copy);
-  selectedId.value = copy.id;
-}
-
-function deleteLayout(l: Layout) {
-  const idx = layouts.value.findIndex((x) => x.id === l.id);
-  if (idx < 0) {
-    return;
-  }
-  layouts.value.splice(idx, 1);
-  if (selectedId.value === l.id) {
-    selectedId.value = layouts.value[0]?.id ?? null;
-  }
-}
+const emit = defineEmits<{
+  select: [id: string];
+  add: [];
+  copy: [];
+  delete: [];
+}>();
 </script>
 
 <template>
@@ -55,28 +22,20 @@ function deleteLayout(l: Layout) {
       type="button"
       class="layout-tab"
       :class="{ active: selectedId === l.id }"
-      @click="selectedId = l.id"
+      @click="emit('select', l.id)"
     >
       {{ l.name || 'Unnamed' }}
       <span class="seat-count">{{ l.stations.length }} stations</span>
     </button>
     <div class="layout-list-actions">
-      <button type="button" class="add-layout-btn" @click="addLayout">
+      <button type="button" class="add-layout-btn" @click="emit('add')">
         + Add Layout
       </button>
       <template v-if="selectedId">
-        <button
-          type="button"
-          class="side-btn"
-          @click="duplicateLayout(layouts.find((l) => l.id === selectedId)!)"
-        >
+        <button type="button" class="side-btn" @click="emit('copy')">
           Copy
         </button>
-        <button
-          type="button"
-          class="side-btn delete"
-          @click="deleteLayout(layouts.find((l) => l.id === selectedId)!)"
-        >
+        <button type="button" class="side-btn delete" @click="emit('delete')">
           Delete
         </button>
       </template>

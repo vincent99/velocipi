@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { onBeforeRouteLeave } from 'vue-router';
+import { onBeforeRouteLeave, useRouter } from 'vue-router';
 import type {
   Layout,
   Person,
@@ -15,9 +15,12 @@ import { combineSvgSnapshot } from '@/lib/svgSnapshot';
 import AirplaneDiagram from '@/components/weightbalance/AirplaneDiagram.vue';
 import CGChart from '@/components/weightbalance/CGChart.vue';
 import ErrorList from '@/components/weightbalance/ErrorList.vue';
+import FuelSummary from '@/components/weightbalance/FuelSummary.vue';
 import SeatPickerPopover from '@/components/weightbalance/SeatPickerPopover.vue';
 import CargoPopover from '@/components/weightbalance/CargoPopover.vue';
 import FuelPopover from '@/components/weightbalance/FuelPopover.vue';
+
+const router = useRouter();
 
 const layouts = ref<Layout[]>([]);
 const people = ref<Person[]>([]);
@@ -80,17 +83,87 @@ onMounted(async () => {
   }
 });
 
-function onLayoutChange() {
-  selectedLayout.value =
-    layouts.value.find((l) => l.id === selectedLayoutId.value) ?? null;
-  positions.value = {};
+/** Matching key for carrying a position over between layouts: station name
+ * alone for top-level stations, "row name:item name" for a row's children
+ * (disambiguates e.g. two different rows each having a "Left" seat). */
+function nameKey(stationName: string, itemName?: string): string {
+  return itemName != null ? `${stationName}:${itemName}` : stationName;
+}
+
+function selectLayout(id: string) {
+  const oldLayout = selectedLayout.value;
+  const oldPositions = positions.value;
+  const newLayout = layouts.value.find((l) => l.id === id) ?? null;
+
+  selectedLayoutId.value = id;
+  selectedLayout.value = newLayout;
   layoutMismatch.value = false;
+
+  if (!oldLayout || !newLayout) {
+    positions.value = {};
+    return;
+  }
+
+  // Carry over fuel quantities and seat/cargo weights for any station (or
+  // row item) that exists -- by name -- in both layouts; anything without a
+  // same-named match in the new layout is left empty. Ids aren't useful for
+  // this since they're freshly generated per layout, so matching is by name.
+  const byName = new Map<string, PositionValue>();
+  for (const station of oldLayout.stations) {
+    if (station.type === 'row') {
+      for (const item of station.seats ?? []) {
+        const v = oldPositions[rowSeatKey(station.id, item.id)];
+        if (v) {
+          byName.set(nameKey(station.name, item.name), v);
+        }
+      }
+    } else {
+      const v = oldPositions[station.id];
+      if (v) {
+        byName.set(nameKey(station.name), v);
+      }
+    }
+  }
+
+  const next: Record<string, PositionValue> = {};
+  for (const station of newLayout.stations) {
+    if (station.type === 'row') {
+      for (const item of station.seats ?? []) {
+        const v = byName.get(nameKey(station.name, item.name));
+        if (v) {
+          next[rowSeatKey(station.id, item.id)] = v;
+        }
+      }
+    } else {
+      const v = byName.get(nameKey(station.name));
+      if (v) {
+        next[station.id] = v;
+      }
+    }
+  }
+  positions.value = next;
+}
+
+function goToSetup() {
+  router.push('/remote/weightbalance/setup');
 }
 
 // ── Station tap → popover ───────────────────────────────────────────────────
 type PopoverState =
-  | { kind: 'seat'; stationId: string; seatId?: string; title: string }
-  | { kind: 'cargo'; stationId: string; title: string }
+  | {
+      kind: 'seat';
+      stationId: string;
+      seatId?: string;
+      title: string;
+      maxWeight: number;
+    }
+  | {
+      kind: 'cargo';
+      stationId: string;
+      seatId?: string;
+      title: string;
+      maxWeight: number;
+    }
   | { kind: 'fuel'; stationId: string; title: string; capacityGal: number }
   | null;
 const popover = ref<PopoverState>(null);
@@ -99,10 +172,21 @@ function positionKey(p: PopoverState): string {
   if (!p) {
     return '';
   }
-  if (p.kind === 'seat' && p.seatId) {
+  if ((p.kind === 'seat' || p.kind === 'cargo') && p.seatId) {
     return rowSeatKey(p.stationId, p.seatId);
   }
   return p.stationId;
+}
+
+// Weight slider max: the position's own limit, else the row's limit (for a
+// row item), else a fallback default -- see StationEditor/LayoutEditor for
+// where these limits are configured.
+const DEFAULT_MAX_WEIGHT = 300;
+function resolveMaxWeight(
+  stationWeightLimit: number | undefined,
+  itemWeightLimit?: number
+): number {
+  return itemWeightLimit ?? stationWeightLimit ?? DEFAULT_MAX_WEIGHT;
 }
 
 function onStationTap({
@@ -119,20 +203,40 @@ function onStationTap({
     return;
   }
   if (station.type === 'seat') {
-    popover.value = { kind: 'seat', stationId, title: station.name || 'Seat' };
-  } else if (station.type === 'row') {
-    const seat = station.seats?.find((s) => s.id === seatId);
     popover.value = {
       kind: 'seat',
       stationId,
-      seatId,
-      title: seat?.name || station.name || 'Seat',
+      title: station.name || 'Seat',
+      maxWeight: resolveMaxWeight(station.weightLimit),
     };
+  } else if (station.type === 'row') {
+    // Missing/unrecognized item type is treated as a seat (data predating
+    // the row-cargo option).
+    const item = station.seats?.find((s) => s.id === seatId);
+    const maxWeight = resolveMaxWeight(station.weightLimit, item?.weightLimit);
+    if (item?.type === 'cargo') {
+      popover.value = {
+        kind: 'cargo',
+        stationId,
+        seatId,
+        title: item.name || station.name || 'Cargo',
+        maxWeight,
+      };
+    } else {
+      popover.value = {
+        kind: 'seat',
+        stationId,
+        seatId,
+        title: item?.name || station.name || 'Seat',
+        maxWeight,
+      };
+    }
   } else if (station.type === 'cargo') {
     popover.value = {
       kind: 'cargo',
       stationId,
       title: station.name || 'Cargo',
+      maxWeight: resolveMaxWeight(station.weightLimit),
     };
   } else if (station.type === 'fuel') {
     popover.value = {
@@ -167,10 +271,48 @@ function clearPosition() {
   popover.value = null;
 }
 
-function onSelectPerson(value: PositionValue) {
+// ── People (saved via the seat popover -- there's no separate people editor) ─
+async function savePeople() {
+  try {
+    await fetch('/wb/people', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(people.value),
+    });
+  } catch (e: unknown) {
+    console.error('weight & balance: failed to save people', e);
+  }
+}
+
+// A custom (non-picked) name+weight becomes a saved person: a new one if
+// the name is new, or an overwrite of the existing person's weight if the
+// name matches one already saved.
+async function onSelectPerson(value: PositionValue) {
+  if (!value.personId && value.name) {
+    const existing = people.value.find((p) => p.name === value.name);
+    if (existing) {
+      existing.weight = value.weight ?? existing.weight;
+      value.personId = existing.id;
+    } else {
+      const created: Person = {
+        id: crypto.randomUUID(),
+        name: value.name,
+        weight: value.weight ?? 0,
+      };
+      people.value = [...people.value, created];
+      value.personId = created.id;
+    }
+    await savePeople();
+  }
   setPosition(value);
   popover.value = null;
 }
+
+async function onDeletePerson(id: string) {
+  people.value = people.value.filter((p) => p.id !== id);
+  await savePeople();
+}
+
 function onSetCargoWeight(weight: number) {
   setPosition({ weight });
   popover.value = null;
@@ -178,6 +320,10 @@ function onSetCargoWeight(weight: number) {
 function onFuelUpdate(gallons: number) {
   setPosition({ gallons });
 }
+
+// ── Taxi / trip fuel popovers ────────────────────────────────────────────────
+const taxiPopoverOpen = ref(false);
+const tripPopoverOpen = ref(false);
 
 // ── Clear (keeps ignoreClear seats; always clears cargo/fuel) ───────────────
 function clearAll() {
@@ -269,51 +415,41 @@ const summaryRows = computed(() => {
 
 <template>
   <div class="wb-calculator">
-    <div v-if="loading" class="loading">Loading…</div>
-    <div v-else-if="error" class="error-banner">{{ error }}</div>
-    <div v-else-if="layouts.length === 0" class="hint">
-      No layouts configured yet — define one on the Setup tab.
-    </div>
+    <div class="wb-toolbar">
+      <div v-if="!loading && layouts.length" class="layout-box-list">
+        <button
+          v-for="l in layouts"
+          :key="l.id"
+          type="button"
+          class="layout-box"
+          :class="{ active: selectedLayoutId === l.id }"
+          @click="selectLayout(l.id)"
+        >
+          {{ l.name || 'Unnamed' }}
+        </button>
+      </div>
 
-    <template v-else>
-      <div class="wb-toolbar">
-        <label class="layout-select-label">
-          Layout
-          <select v-model="selectedLayoutId" @change="onLayoutChange">
-            <option v-for="l in layouts" :key="l.id" :value="l.id">
-              {{ l.name }}
-            </option>
-          </select>
-        </label>
+      <div class="toolbar-spacer" />
 
-        <label class="fuel-input-label">
-          Taxi fuel (gal)
-          <input
-            v-model.number="taxiFuelGal"
-            type="number"
-            min="0"
-            step="0.1"
-          />
-        </label>
-        <label class="fuel-input-label">
-          Trip fuel (gal)
-          <input
-            v-model.number="tripFuelGal"
-            type="number"
-            min="0"
-            step="0.1"
-          />
-        </label>
-
-        <div class="toolbar-spacer" />
-
-        <span v-if="saveFlash" class="save-flash">Saved ✓</span>
+      <span v-if="saveFlash" class="save-flash">Saved ✓</span>
+      <template v-if="selectedLayout">
         <button type="button" class="clear-btn" @click="clearAll">Clear</button>
         <button type="button" class="save-btn" @click="onSaveClick">
           Save
         </button>
-      </div>
+      </template>
+      <button type="button" class="gear-btn" title="Setup" @click="goToSetup">
+        <i class="fi-sr-settings-sliders" />
+      </button>
+    </div>
 
+    <div v-if="loading" class="loading">Loading…</div>
+    <div v-else-if="error" class="error-banner">{{ error }}</div>
+    <div v-else-if="layouts.length === 0" class="hint">
+      No layouts configured yet — tap the gear icon to add one.
+    </div>
+
+    <template v-else>
       <p v-if="layoutMismatch" class="mismatch-banner">
         This layout's definition has changed since the loaded save was made —
         double-check stations, limits, and fuel before relying on this
@@ -326,6 +462,16 @@ const summaryRows = computed(() => {
           :layout="selectedLayout"
           :positions="positions"
           @station-tap="onStationTap"
+        />
+
+        <FuelSummary
+          :layout="selectedLayout"
+          :positions="positions"
+          :taxi-fuel-gal="taxiFuelGal"
+          :trip-fuel-gal="tripFuelGal"
+          @tap-fuel="(id) => onStationTap({ stationId: id })"
+          @tap-taxi="taxiPopoverOpen = true"
+          @tap-trip="tripPopoverOpen = true"
         />
 
         <div class="wb-summary">
@@ -349,14 +495,17 @@ const summaryRows = computed(() => {
       :title="popover.title"
       :people="people"
       :current="popoverCurrent"
+      :max-weight="popover.maxWeight"
       @select="onSelectPerson"
       @clear="clearPosition"
       @cancel="popover = null"
+      @delete-person="onDeletePerson"
     />
     <CargoPopover
       v-if="popover?.kind === 'cargo'"
       :title="popover.title"
       :weight="popoverCurrent?.weight ?? 0"
+      :max-weight="popover.maxWeight"
       @set="onSetCargoWeight"
       @clear="clearPosition"
       @cancel="popover = null"
@@ -368,6 +517,24 @@ const summaryRows = computed(() => {
       :gallons="popoverCurrent?.gallons ?? 0"
       @update="onFuelUpdate"
       @close="popover = null"
+    />
+    <FuelPopover
+      v-if="taxiPopoverOpen"
+      title="Taxi fuel"
+      :capacity-gal="calc?.loadedGal ?? 0"
+      :gallons="taxiFuelGal"
+      :show-shortcuts="false"
+      @update="(v) => (taxiFuelGal = v)"
+      @close="taxiPopoverOpen = false"
+    />
+    <FuelPopover
+      v-if="tripPopoverOpen"
+      title="Trip fuel"
+      :capacity-gal="calc?.loadedGal ?? 0"
+      :gallons="tripFuelGal"
+      :show-shortcuts="false"
+      @update="(v) => (tripFuelGal = v)"
+      @close="tripPopoverOpen = false"
     />
   </div>
 </template>
@@ -406,27 +573,31 @@ const summaryRows = computed(() => {
   gap: 1rem;
 }
 
-.layout-select-label,
-.fuel-input-label {
+.layout-box-list {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  font-size: 0.75rem;
-  color: #999;
-
-  select,
-  input {
-    background: #2a2a2a;
-    border: 1px solid #444;
-    border-radius: 4px;
-    color: #e0e0e0;
-    padding: 0.35rem 0.5rem;
-    font-size: 0.85rem;
-  }
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
-.fuel-input-label input {
-  width: 90px;
+.layout-box {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+
+  &:hover {
+    border-color: #555;
+  }
+
+  &.active {
+    background: #1e3a5f;
+    border-color: #3b82f6;
+    color: #90caf9;
+  }
 }
 
 .toolbar-spacer {
@@ -466,6 +637,22 @@ const summaryRows = computed(() => {
 
   &:hover {
     background: #2563eb;
+  }
+}
+
+.gear-btn {
+  background: none;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #ccc;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  line-height: 1;
+
+  &:hover {
+    border-color: #888;
+    color: #fff;
   }
 }
 

@@ -93,9 +93,9 @@ func sampleLayout() Layout {
 			{ID: "pilot", Type: StationSeat, Name: "Pilot", Arm: 82, Lateral: LateralLeft, IgnoreClear: true},
 			{
 				ID: "row2", Type: StationRow, Name: "Row 2", Arm: 120,
-				Seats: []RowSeat{
-					{ID: "r2l", Name: "Left", Lateral: LateralLeft},
-					{ID: "r2r", Name: "Right", Lateral: LateralRight},
+				Seats: []RowItem{
+					{ID: "r2l", Type: RowItemSeat, Name: "Left", Lateral: LateralLeft},
+					{ID: "r2r", Type: RowItemCargo, Name: "Right", Lateral: LateralRight},
 				},
 			},
 			{ID: "fuel", Type: StationFuel, Name: "Main Tank", Arm: 100, CapacityGal: 50},
