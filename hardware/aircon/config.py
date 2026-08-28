@@ -1,7 +1,7 @@
 # Firmware version -- shown on the knob's Info screen (see
-# ../aircon-knob/screens/info.py), reported over BLE in get_state()/the
+# ../hvac-knob/screens/info.py), reported over BLE in get_state()/the
 # status characteristic's "ver" field. Bump by hand on release.
-VERSION = '1.0'
+VERSION = '1.1'
 
 # Pin assignments — change each pin in exactly one place here.
 
@@ -24,11 +24,12 @@ PIN_BUZZER = 21
 PIN_LED_RGB = 36
 
 # DS18B20 1-wire temperature probes (one per pin)
-PIN_TEMP_CABIN   = 5
-PIN_TEMP_BLOWER  = 14
-PIN_TEMP_EXHAUST = 15
-PIN_TEMP_BAGGAGE = 17
-PIN_TEMP_TAIL    = 42
+PIN_TEMP_CABIN   = 3
+PIN_TEMP_BLOWER  = 4
+PIN_TEMP_EXHAUST = 5
+PIN_TEMP_COMPRESSOR  = 6
+PIN_TEMP_BAGGAGE = 7
+PIN_TEMP_TAIL    = 8
 
 # Mystery PWM signal from compressor
 PIN_PWM_MONITOR = 2

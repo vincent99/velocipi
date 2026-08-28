@@ -47,6 +47,49 @@ Run this once to install a package that will hide the mouse cursor from the loca
 
 See `config.yaml`
 
+## WebSocket API
+
+`/ws` carries JSON text frames in both directions (every message has a top-level `type` field). A separate `/screen` endpoint carries only binary PNG frames (the browser screencast) — no JSON messages.
+
+Field-level types live in `ui/src/types/ws.ts` (frontend) and `server/messages.go` / the relevant subsystem's own `messages.go` (backend, e.g. `server/music/messages.go`, `server/dvr/dvr.go`) — this table is a human-readable index, not the source of truth. **Update this table whenever a message type is added, removed, renamed, or changes shape.**
+
+### Server → client
+
+| Type            | Key fields                                                                     | Description                                                       |
+| --------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `ping`          | `time`                                                                           | Periodic heartbeat carrying the server's current time              |
+| `airReading`    | `reading` (temp/pressure/humidity/dewpoint, °C+°F)                              | BME280 air sensor reading                                          |
+| `luxReading`    | `lux`                                                                            | Ambient light sensor reading                                       |
+| `tpms`          | `tire` (position, temp, pressure, voltage, battery, inflation/rotation state)   | One tire pressure sensor reading                                   |
+| `ledState`      | `r`, `w`, `b`, `y` (each `{mode, rate?}`)                                        | Full state of all four expander LED channels                       |
+| `keyEcho`       | `eventType`, `key`                                                               | Echoes a dispatched key event back to all clients, for UI feedback |
+| `cameraStatus`  | `name`, `recording`                                                              | One camera's DVR recording status                                  |
+| `recordingReady`| `camera`, `session`, `filename`                                                  | A DVR segment's thumbnails have finished generating                |
+| `dvrState`      | `state` (`on`, `paused`, or `off`)                                               | Overall DVR recording state                                        |
+| `diskSpace`     | `totalGB`, `usedGB`, `freeGB`, `usedPct`                                         | DVR storage disk space reading                                     |
+| `localCamera`   | `camera`                                                                         | Camera currently shown on the local panel display                  |
+| `axisState`     | `lat`, `lon`, `altFt`, `heading`, `roll`, `pitch`, `yaw`, `speedKts`, `oatCelsius`| Axis avionics state                                                 |
+| `siyiAttitude`  | `camera`, `yaw`, `pitch`, `roll`, `yawRate`, `pitchRate`, `rollRate`             | Siyi gimbal attitude for one camera                                 |
+| `musicState`    | `currentSongId`, `queueIndex`, `status`, `shuffle`, `repeat`, `elapsedSec`, `queueLength` | Music player state                                        |
+| `musicQueue`    | `currentIndex`, `entries`                                                        | Full music queue snapshot                                          |
+| `airConState`   | `state` (mode, fan, setpoint, temps, compressor, error, ...)                     | Aircon controller state                                             |
+| `airConHistory` | `history` (array of temp samples)                                               | Temperature history, sent to a client on connect                    |
+| `airConSample`  | `sample`                                                                         | One new temperature sample                                          |
+| `btDevices`     | `devices` (address, name, paired, connected, trusted)                           | Known classic Bluetooth devices (paired + discovered)                |
+| `btNowPlaying`  | `player` (track title/artist/album, status, position) or `null`                  | Current AVRCP now-playing metadata, `null` if no active session      |
+
+### Client → server
+
+| Type              | Key fields                                                  | Description                                                        |
+| ----------------- | ------------------------------------------------------------ | -------------------------------------------------------------------- |
+| `reload`          | —                                                              | Reload the chromedp browser page                                    |
+| `key`             | `eventType`, `key`                                            | Dispatch a logical key event to chromedp / the expander input loop   |
+| `led`             | `channel`, `state`, `rate?`                                   | Set one expander LED channel's state                                 |
+| `navigate`        | `path`                                                         | Navigate the chromedp browser to a URL path                          |
+| `setLocalCamera`  | `camera`                                                       | Change which camera is shown on the local panel display              |
+| `musicControl`    | `action` (play/pause/stop/next/prev/seek/...), `value?`, `str?`| Control the music player                                            |
+| `btControl`       | `action` (scan/pair/connect/.../playPause/next/previous), `address?` | Control Bluetooth device pairing (`btmedia`) or transport control (`bthid`) |
+
 ## Hardware
 
 Display: Generic grayscale [SSD1322 OLED](https://www.amazon.com/dp/B0F7LBQM5N) module (256x64 assumed) or black & white [Noritake-Itron GE256X64B](https://www.noritake-elec.com/products/model?part=GE256X64B-7032B)

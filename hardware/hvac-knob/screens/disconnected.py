@@ -42,11 +42,19 @@ class DisconnectedTile:
     the connection drops while Home was showing -- see
     screens/__init__.py's App.refresh(). Knob push here (edge-detected in
     App.poll_input()) goes to Connect, to pick a different device.
+
+    Generalized from an AirCon-only screen (see screens/connect.py's same
+    change) -- App now owns one instance per device kind
+    (aircon_disconnected_tile/heater_disconnected_tile), told apart only by
+    `label`, shown in the "Connecting…"/"Disconnected" text so a heater
+    drop doesn't read as an (unrelated) AirCon one. `label=""` (the
+    AirCon's) reproduces the original bare text exactly.
     """
 
     _LINE_WIDTH = 14
 
-    def __init__(self, scr):
+    def __init__(self, scr, label=""):
+        self.kind_label = label
         # Deliberately not built with widgets._make_screen()/flex layout --
         # the two corner-to-corner diagonal lines below need absolute panel
         # coordinates, which a flex container would instead treat as just
@@ -86,4 +94,6 @@ class DisconnectedTile:
         self.label.center()
 
     def on_show(self, ever_connected):
-        self.label.set_text("Disconnected" if ever_connected else "Connecting")
+        base = "Disconnected" if ever_connected else "Connecting"
+        text = ("%s %s" % (base, self.kind_label)) if self.kind_label else base
+        self.label.set_text(text)

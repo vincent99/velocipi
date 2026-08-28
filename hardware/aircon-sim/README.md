@@ -1,7 +1,7 @@
 # AirCon BLE simulator
 
 A desktop/Raspberry Pi stand-in for the real RP2350 AC controller
-(`../aircon/`), for testing `../aircon-knob/` (the CrowPanel knob UI) without
+(`../aircon/`), for testing `../hvac-knob/` (the CrowPanel knob UI) without
 the physical AC hardware. It advertises the **exact same BLE GATT
 service** — same device name, same service/characteristic UUIDs, same
 UTF-8/JSON wire format — so the panel can't tell the difference from the
@@ -50,7 +50,7 @@ pip install -r requirements.txt
   (a CoreBluetooth restriction, confirmed while building this — the server
   advertises fine, but a `bleak` scan from the same machine simply never
   sees it). Test from a second device — which is the real use case anyway,
-  i.e. the physical CrowPanel running `../aircon-knob/`.
+  i.e. the physical CrowPanel running `../hvac-knob/`.
 - **Raspberry Pi / Linux**: `bless` talks to `bluetoothd` over D-Bus
   (BlueZ). If advertising fails with a D-Bus permission error, the quickest
   fix is running as root: `sudo $(which python3) main.py` (inside the venv,
@@ -71,7 +71,7 @@ python3 main.py
 ```
 
 Logs the state every 5s, and on every BLE read/write. Ctrl-C to stop. Then
-point `../aircon-knob/`'s firmware at it — `ble_config.py` there already
+point `../hvac-knob/`'s firmware at it — `ble_config.py` there already
 matches this simulator's `config.py` by default (same device name, same
 UUIDs) — and it should connect, show live values, and respond to knob/touch
 input exactly like the real controller would.

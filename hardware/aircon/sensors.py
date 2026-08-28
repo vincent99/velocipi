@@ -9,16 +9,24 @@ import config
 
 
 class TemperatureSensors:
-    """Five DS18B20 probes, each on its own 1-wire bus (one pin each)."""
+    """Six DS18B20 probes, each on its own 1-wire bus (one pin each)."""
 
     PROBE_PINS = (
         config.PIN_TEMP_CABIN,
         config.PIN_TEMP_BLOWER,
         config.PIN_TEMP_EXHAUST,
+        config.PIN_TEMP_COMPRESSOR,
         config.PIN_TEMP_BAGGAGE,
         config.PIN_TEMP_TAIL,
     )
-    PROBE_NAMES = ('cabin', 'blower', 'exhaust', 'baggage', 'tail')
+    PROBE_NAMES = (
+        'cabin',
+        'blower',
+        'exhaust',
+        'compressor',
+        'baggage',
+        'tail'
+    )
 
     def __init__(self):
         self._temps = {name: None for name in self.PROBE_NAMES}

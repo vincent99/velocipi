@@ -134,6 +134,7 @@ class SerialLink:
                 "cabin_temp": s.cabin_temp,
                 "blower_temp": s.blower_temp,
                 "exhaust_temp": s.exhaust_temp,
+                "compressor_temp": s.compressor_temp,
                 "baggage_temp": s.baggage_temp,
                 "tail_temp": s.tail_temp,
                 "error": s.error,

@@ -6,7 +6,7 @@ this file to match.
 """
 
 # Deliberately NOT mirrored to match ../aircon/config.py's VERSION -- shown
-# on the knob's Info screen (see ../aircon-knob/screens/info.py), so it
+# on the knob's Info screen (see ../hvac-knob/screens/info.py), so it
 # should read differently there when talking to this sim instead of a real
 # controller.
 VERSION = "1.0-sim"
@@ -40,8 +40,8 @@ DEFAULT_AUTO_LOOP_INTERVAL = 5
 DEFAULT_TEMP_READ_INTERVAL = 3
 
 # ── BLE identity/UUIDs -- must match ../aircon/config.py exactly, and match
-# whatever hardware/aircon-knob/ble_config.py the panel is flashed with. ───
-BLE_DEVICE_NAME = "AirCon"
+# whatever hardware/hvac-knob/ble_config.py the panel is flashed with. ───
+BLE_DEVICE_NAME = "Air-Sim"
 BLE_NOTIFY_INTERVAL = 2  # seconds; matches the real firmware's push rate
 
 BLE_SVC_UUID = "aaaaaaaa-1111-cccc-00dd-000000000000"

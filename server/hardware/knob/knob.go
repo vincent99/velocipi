@@ -1,5 +1,5 @@
 // Package knob implements the bidirectional JSON serial protocol with the
-// AC control knob's own hardware/aircon-knob/serial_link.py, over the same
+// AC control knob's own hardware/hvac-knob/serial_link.py, over the same
 // USB-CDC connection that also carries its MicroPython REPL/mpremote
 // traffic in dev.
 //

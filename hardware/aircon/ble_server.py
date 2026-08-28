@@ -175,22 +175,36 @@ class BLEServer:
         self._push_status(s)
 
     def _push_status(self, s=None):
-        """Notify only the status characteristic (temps + compressor + error)."""
+        """Update the status characteristic's value (temps + compressor +
+        error + version); notify subscribers only if enabled.
+
+        Always writes, same as _write()'s pattern for the other
+        characteristics (self._notify only gates send_update, the
+        notification itself) -- an earlier version returned before ever
+        calling .write() when self._notify was false, which meant the
+        status characteristic's value was never set at all in that case,
+        not even for a client's initial connect-time read. That silently
+        left every status field (temps, compressor, error, controller
+        version) at whatever placeholder it started as, forever, even
+        though mode/fan/setpoint/etc were still correctly written (via
+        _write(), which never had this bug) and so still worked fine.
+        """
         if s is None:
             s = self._ctrl.get_state()
         status = {
-            'curr':    self._fmt(s['current_temp']),
-            'comp':    s['compressor'],
-            'cabin':   self._fmt(s['cabin_temp']),
-            'blower':  self._fmt(s['blower_temp']),
-            'exhaust': self._fmt(s['exhaust_temp']),
-            'baggage': self._fmt(s['baggage_temp']),
-            'tail':    self._fmt(s['tail_temp']),
-            'err':     s['error'],
-            'ver':     s['version'],
+            'curr':     self._fmt(s['current_temp']),
+            'comp':     s['compressor'],
+            'cabin':    self._fmt(s['cabin_temp']),
+            'blower':   self._fmt(s['blower_temp']),
+            'exhaust':  self._fmt(s['exhaust_temp']),
+            # 'comptemp', not 'comp' -- that key's already taken by the
+            # compressor on/off status two lines up.
+            'comptemp': self._fmt(s['compressor_temp']),
+            'baggage':  self._fmt(s['baggage_temp']),
+            'tail':     self._fmt(s['tail_temp']),
+            'err':      s['error'],
+            'ver':      s['version'],
         }
-        if not self._notify:
-            return
         payload = json.dumps(status).encode()
         if payload == self._last_status:
             return
@@ -198,11 +212,12 @@ class BLEServer:
         import time
         t0 = time.ticks_ms()
         try:
-            self._c_status.write(payload, send_update=True)
+            self._c_status.write(payload, send_update=self._notify)
         except OSError:
             self._c_status.write(payload)
         t1 = time.ticks_ms()
-        log.log('ble', f'notify status: curr={status["curr"]}  comp={status["comp"]}  err={status["err"]!r}  write_ms={time.ticks_diff(t1, t0)}')
+        action = 'notify' if self._notify else 'update'
+        log.log('ble', f'{action} status: curr={status["curr"]}  comp={status["comp"]}  err={status["err"]!r}  write_ms={time.ticks_diff(t1, t0)}')
 
     # ── Per-connection task: push state on connect, then on changes/heartbeat ──
 

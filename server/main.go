@@ -514,6 +514,7 @@ func main() {
 	go hub.runAxisLoop(ctx)
 	go hub.runAirConLoop(ctx)
 	go hub.runBrightnessLoop(ctx)
+	go hub.runBTMediaLoop(ctx)
 
 	// Start Siyi managers for cameras with driver: "siyi".
 	siyiManagers := make(map[string]*siyi.Manager)

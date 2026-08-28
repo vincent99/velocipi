@@ -11,6 +11,8 @@ import (
 	"github.com/vincent99/velocipi/server/hardware/airsensor"
 	"github.com/vincent99/velocipi/server/hardware/axis"
 	"github.com/vincent99/velocipi/server/hardware/brightness"
+	"github.com/vincent99/velocipi/server/hardware/bthid"
+	"github.com/vincent99/velocipi/server/hardware/btmedia"
 	"github.com/vincent99/velocipi/server/hardware/expander"
 	"github.com/vincent99/velocipi/server/hardware/knob"
 	"github.com/vincent99/velocipi/server/hardware/lcd"
@@ -63,6 +65,12 @@ var (
 
 	brightnessOnce sync.Once
 	brightnessUnit *brightness.Brightness
+
+	btMediaOnce sync.Once
+	btMediaUnit *btmedia.Client
+
+	btHIDOnce sync.Once
+	btHIDUnit *bthid.Client
 )
 
 // AirCon returns the singleton aircon state/command relay, or nil if the
@@ -257,4 +265,35 @@ func Brightness() *brightness.Brightness {
 		})
 	})
 	return brightnessUnit
+}
+
+// BTMedia returns the singleton BlueZ AVRCP client (device pairing +
+// read-only now-playing metadata), or nil if there's no system D-Bus / no
+// Bluetooth adapter available (e.g. running off-Pi).
+func BTMedia() *btmedia.Client {
+	btMediaOnce.Do(func() {
+		c, err := btmedia.New()
+		if err != nil {
+			log.Println("hardware: btmedia init error:", err)
+			return
+		}
+		btMediaUnit = c
+	})
+	return btMediaUnit
+}
+
+// BTHID returns the singleton classic-Bluetooth-HID client (Play/Pause/Next/
+// Previous transport control), or nil if there's no system D-Bus / no
+// Bluetooth adapter available. See hardware/bthid's package doc for why
+// control goes through this instead of btmedia's AVRCP.
+func BTHID() *bthid.Client {
+	btHIDOnce.Do(func() {
+		c, err := bthid.New()
+		if err != nil {
+			log.Println("hardware: bthid init error:", err)
+			return
+		}
+		btHIDUnit = c
+	})
+	return btHIDUnit
 }

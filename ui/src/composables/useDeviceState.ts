@@ -13,6 +13,8 @@ import type {
   SiyiAttitudeMsg,
   AirConState,
   AirConTempSample,
+  BTDeviceInfo,
+  BTPlayerState,
   InboundWsMsg,
   LogicalKey,
 } from '@/types/ws';
@@ -47,6 +49,10 @@ const siyiAttitude = reactive<Map<string, SiyiAttitudeMsg>>(new Map());
 const airConState = ref<AirConState | null>(null);
 // airConHistory: temperature history samples
 const airConHistory = ref<AirConTempSample[]>([]);
+// btDevices: known Bluetooth classic devices (paired + discovered)
+const btDevices = ref<BTDeviceInfo[]>([]);
+// btPlayer: current AVRCP session state, or null when no device has one active
+const btPlayer = ref<BTPlayerState | null>(null);
 
 // Key echo: tracks which logical keys are currently "active" for visual feedback.
 // Encoder keys (tap-only) auto-clear after 150ms; held keys clear on keyup.
@@ -154,6 +160,12 @@ function init() {
       case 'airConSample':
         airConHistory.value = [...airConHistory.value, msg.sample];
         break;
+      case 'btDevices':
+        btDevices.value = msg.devices;
+        break;
+      case 'btNowPlaying':
+        btPlayer.value = msg.player;
+        break;
     }
   });
 
@@ -183,5 +195,7 @@ export function useDeviceState() {
     siyiAttitude,
     airConState,
     airConHistory,
+    btDevices,
+    btPlayer,
   };
 }

@@ -51,3 +51,4 @@ _autosave-*
 ble_secrets.json
 __pycache__
 *.mpy
+/scratch

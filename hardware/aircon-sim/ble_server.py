@@ -1,7 +1,7 @@
 """BLE GATT peripheral exposing the same service/characteristics as
 ../aircon/ble_server.py, backed by `bless` (cross-platform GATT server:
 CoreBluetooth on macOS, BlueZ/D-Bus on Linux) instead of MicroPython's
-aioble -- see ../aircon-knob/README.md's client for the other end of this
+aioble -- see ../hvac-knob/README.md's client for the other end of this
 wire protocol, which this must match byte-for-byte:
 UTF-8 strings for mode/fan/setpoint/circ/panel, JSON for settings/status.
 """
@@ -240,6 +240,9 @@ class SimBLEServer:
                         "cabin": _round(s["cabin_temp"]),
                         "blower": _round(s["blower_temp"]),
                         "exhaust": _round(s["exhaust_temp"]),
+                        # "comptemp", not "comp" -- that key's already taken
+                        # by the compressor on/off status above.
+                        "comptemp": _round(s["compressor_temp"]),
                         "baggage": _round(s["baggage_temp"]),
                         "tail": _round(s["tail_temp"]),
                         "err": s["error"],

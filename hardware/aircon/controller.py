@@ -224,6 +224,7 @@ class ACController:
             'cabin_temp':   temps.get('cabin'),
             'blower_temp':  temps.get('blower'),
             'exhaust_temp': temps.get('exhaust'),
+            'compressor_temp': temps.get('compressor'),
             'baggage_temp': temps.get('baggage'),
             'tail_temp':    temps.get('tail'),
             'delta':               self.delta,

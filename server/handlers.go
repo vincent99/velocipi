@@ -70,6 +70,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	go hub.sendMusicState(c)
 	go hub.sendMusicQueue(c)
 	go hub.sendAirConState(c)
+	go hub.sendBTState(c)
 
 	// Write pump: drains c.send and writes to the WebSocket connection.
 	go func() {
@@ -127,6 +128,11 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 				if err := json.Unmarshal(data, &mc); err == nil {
 					go mp.Control(music.ControlMsg{Action: mc.Action, Value: mc.Value, Str: mc.Str})
 				}
+			}
+		case "btControl":
+			var bm inboundBTControlMsg
+			if err := json.Unmarshal(data, &bm); err == nil {
+				go hub.handleBTControl(bm.Action, bm.Address)
 			}
 		}
 	}

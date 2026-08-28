@@ -19,6 +19,7 @@ COLOR_ACCENT_TEXT = lv.color_hex(0xFFFFFF)
 COLOR_DANGER = lv.color_hex(0xFF0000)
 COLOR_TRACK = lv.color_hex(0x9AA3B2)
 COLOR_COMPRESSOR_ON = lv.color_hex(0x0B1F4D)  # dark blue fill behind the current-temp cell while the compressor is running
+COLOR_HEATER_ON = lv.color_hex(0x4D1F0B)  # warm dark-orange fill behind the current-temp cell while the heater is on -- same treatment as COLOR_COMPRESSOR_ON, warm instead of cool
 # Mode/recirc button-cell touch feedback (see screens/widgets.py's
 # _wire_button): COLOR_HOVER fills the cell while it's touched but the
 # knob's push-button isn't down yet, COLOR_ACTIVE (reusing the existing

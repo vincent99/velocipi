@@ -5,6 +5,7 @@ import (
 	"github.com/vincent99/velocipi/server/hardware/aircon"
 	"github.com/vincent99/velocipi/server/hardware/airsensor"
 	"github.com/vincent99/velocipi/server/hardware/axis"
+	"github.com/vincent99/velocipi/server/hardware/btmedia"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/tpms"
 )
@@ -101,6 +102,19 @@ type AirConSampleMsg struct {
 	Sample aircon.TempSample `json:"sample"`
 }
 
+// BTDevicesMsg carries the full known Bluetooth device list (paired + discovered).
+type BTDevicesMsg struct {
+	Type    string               `json:"type"` // always "btDevices"
+	Devices []btmedia.DeviceInfo `json:"devices"`
+}
+
+// BTNowPlayingMsg carries the current AVRCP session state, or nil when no
+// device has an active AVRCP session.
+type BTNowPlayingMsg struct {
+	Type   string               `json:"type"` // always "btNowPlaying"
+	Player *btmedia.PlayerState `json:"player"`
+}
+
 // Inbound message types from websocket clients.
 
 type inboundMsg struct {
@@ -130,6 +144,11 @@ type inboundLEDMsg struct {
 
 type inboundNavigateMsg struct {
 	Path string `json:"path"` // URL path to navigate to, e.g. "/panel/test"
+}
+
+type inboundBTControlMsg struct {
+	Action  string `json:"action"`            // scan|stopScan|pair|connect|disconnect|forget|playPause|next|previous
+	Address string `json:"address,omitempty"` // required for pair/connect/disconnect/forget
 }
 
 // currentLEDStateMsg reads all four LED controllers and returns a full snapshot.

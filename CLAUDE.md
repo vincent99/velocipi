@@ -93,11 +93,7 @@ Each module is a standalone package; hardware.go provides the singleton accessor
 
 ### WebSocket message types
 
-**Outbound (server → client, JSON on `/ws`):** `ping`, `airReading`, `luxReading`, `tpms`, `ledState`
-
-**Inbound (client → server, JSON on `/ws`):** `reload`, `key` (`{eventType, key}`), `led` (`{state, rate}`)
-
-**Screen socket (`/screen`):** binary PNG frames only
+Full up-to-date table of every message type in both directions: see `README.md`'s "WebSocket API" section. Update that table (not this file) whenever a message type is added, removed, renamed, or changes shape.
 
 ### Quadrature encoder decoding
 
@@ -134,3 +130,17 @@ When implementing shutdown or cleanup sequences, ensure hardware resources (OLED
 - Lifecycle events (`EventLifecycleEvent`) **do** fire correctly, but only on `browserCtx` directly — listeners registered on derived child contexts miss the events entirely
 - `navigateTo()` in `hub.go` works around this: fires `page.Navigate` in a goroutine on `browserCtx`, registers the listener on `browserCtx`, waits for `networkIdle`
 - `chromedp.ListenTarget` does not return a cancel/remove function in this version (v0.14.2)
+
+### Bluetooth media remote (hardware/btmedia + hardware/bthid)
+
+- iOS routes AVRCP transport commands (Play/Pause/Next/...) and BLE HID-over-GATT (HOGP) input reports differently: AVRCP `Play` unconditionally switches iOS's active audio route to the sending device (confirmed even when resuming a session that same device just paused — no known accessory-side workaround), and a fully spec-correct HOGP peripheral (verified: bonds, full GATT/HID discovery, `StartNotify` all firing) was never routed into any system action at all, media key or plain keyboard letter. Only classic Bluetooth HID (BR/EDR, profile UUID `0x1124` — the same profile a real Bluetooth keyboard uses) reliably reaches iOS's system media control.
+- Because of this, `hardware/btmedia` only does device pairing/connection management and read-only AVRCP metadata (title/artist/album/status/position) — it deliberately has no transport-control methods. Actual Play/Pause/Next/Previous goes through `hardware/bthid`, which emulates a classic BT HID Consumer Control device.
+- `hardware/bthid` requires bluetoothd to run with `-P input` (BlueZ's built-in classic HID *host* plugin otherwise permanently claims profile UUID `0x1124`, colliding with registering the *device* role ourselves). `main.conf`'s `DisablePlugins` key doesn't do this on newer BlueZ (it's silently ignored — v5.82 logs `Unknown key DisablePlugins`); use a systemd override instead:
+  ```
+  # /etc/systemd/system/bluetooth.service.d/override.conf
+  [Service]
+  ExecStart=
+  ExecStart=/usr/libexec/bluetooth/bluetoothd -P input
+  ```
+  then `systemctl daemon-reload && systemctl restart bluetooth`. This also disables using a real external BT keyboard/mouse as Pi input, which nothing else in this project needs.
+- BlueZ's `ProfileManager1.RegisterProfile` refuses to register the same UUID twice — classic HID needs two L2CAP channels (control PSM `0x11`, interrupt PSM `0x13`) registered separately, so `bthid` registers the interrupt channel under a distinct placeholder UUID; only the control registration's `ServiceRecord` is ever actually published to remote SDP browsers.

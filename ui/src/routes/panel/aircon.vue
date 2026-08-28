@@ -20,7 +20,7 @@ import type { SelectOption } from '@/components/panel/PanelSelect.vue';
 
 void useWebSocket; // WS not used directly but needed for reactivity
 
-const { airConState, axisState, airConHistory } = useDeviceState();
+const { airConState, airConHistory } = useDeviceState();
 
 const state = computed(() => airConState.value);
 const connected = computed(() => state.value?.connected ?? false);
@@ -99,11 +99,6 @@ function fmt(v: number | null | undefined): string {
 const compLabel = computed(() => {
   const c = state.value?.compressor;
   return c != null ? c.toUpperCase() : '—';
-});
-
-const oatLabel = computed(() => {
-  const oat = axisState.value?.oatCelsius;
-  return oat != null ? ((oat * 9) / 5 + 32).toFixed(0) : '—';
 });
 
 const sparkData = computed(() =>
@@ -241,13 +236,13 @@ const sparkData = computed(() =>
       :model-value="fmt(state?.exhaustTemp)"
     />
 
-    <!-- Col 13–16, Row 4: Outside air temp (from Axis) -->
+    <!-- Col 13–16, Row 4: Compressor temp -->
     <PanelValue
       :col="13"
       :row="4"
       :col-span="4"
-      label="Outside"
-      :model-value="oatLabel"
+      label="Comp"
+      :model-value="fmt(state?.compressorTemp)"
     />
   </PanelGrid>
 </template>

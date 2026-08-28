@@ -5,7 +5,7 @@ compressor-hysteresis + 3-step fan speed logic are ported directly from that
 file so this behaves the same way the real unit would for anything driven
 over BLE.
 
-Thermal model: each of the 5 probes exponentially approaches a target
+Thermal model: each of the 6 probes exponentially approaches a target
 temperature that depends only on whether the compressor is on (cooling
 floor) or off (ambient ceiling) -- e.g. "temp += (target - temp) * rate"
 each tick. That's a asymptotic approach, so probes get cooler while the
@@ -13,6 +13,15 @@ compressor runs and warmer while it doesn't, capped at the ceiling/floor by
 construction ("warmer up to a point"), with each probe's own rate constant
 giving blower/exhaust (right at the vents) bigger, faster swings than
 baggage/tail (in the back, thermally lagged) -- like a real cabin.
+
+"compressor" (the probe on/near the compressor body itself, not to be
+confused with `compressor_on`/the "comp" wire field, which is its run
+state) uses this exact same simplified model too, purely for consistency
+with the other five -- a real compressor's own casing plausibly runs
+*hotter* while active (compressing refrigerant is exothermic), the
+opposite direction from this model's cooling-floor/ambient-ceiling target,
+but nothing in this codebase documents what that probe is actually
+expected to read, so this doesn't try to guess a more accurate model.
 """
 
 import random
@@ -32,6 +41,7 @@ AMBIENT_CEILING = 88.0
 PROBE_RATES = {
     "blower": 0.05,
     "exhaust": 0.04,
+    "compressor": 0.045,  # near the vents/refrigerant lines -- see module docstring for why this still uses the same cooling-floor model as the others
     "cabin": 0.015,
     "baggage": 0.006,
     "tail": 0.006,
@@ -180,6 +190,7 @@ class SimController:
             "cabin_temp": self.temps.get("cabin"),
             "blower_temp": self.temps.get("blower"),
             "exhaust_temp": self.temps.get("exhaust"),
+            "compressor_temp": self.temps.get("compressor"),
             "baggage_temp": self.temps.get("baggage"),
             "tail_temp": self.temps.get("tail"),
             "error": self.error,

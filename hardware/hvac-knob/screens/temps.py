@@ -1,7 +1,7 @@
 """Temps: a static grid of every temperature reading in client.state --
-current/panel/cabin/blower/exhaust/baggage/tail. Reached by swiping right
-from Home, swipe left to return -- see screens/__init__.py's App.__init__
-for the grid layout.
+current/panel/cabin/blower/exhaust/compressor/baggage/tail. Reached by
+swiping right from Home, swipe left to return -- see
+screens/__init__.py's App.__init__ for the grid layout.
 
 No knob or touch interaction at all (see App.poll_input(), which does
 nothing while this tile is active, same as the Info tile) -- purely a
@@ -16,16 +16,20 @@ import theme
 from .widgets import _fmt_temp, _label, _make_bare_tile, _transparent
 
 # (AirconState attribute name, label) pairs, in on-screen order -- 2/row,
-# Current left alone on its own final row (see __init__'s loop below) since
-# it's the one overall summary reading, the other six are individual sensor
-# placements (matches aircon_ble.py's AirconState fields and Go's
-# aircon.TempSample, minus OAT -- server-injected from Axis on the Pi side,
-# never reaches the knob at all, so there's nothing to show here for it).
+# 4 rows exactly. Current is last, paired with Compressor on the final row,
+# since it's the one overall summary reading and the other seven are
+# individual sensor placements; those seven are ordered to match
+# ../sensors.py's PROBE_NAMES physical order (cabin, blower, exhaust,
+# compressor, baggage, tail) with panel_temp inserted after cabin_temp
+# (matches aircon_ble.py's AirconState fields and Go's aircon.TempSample,
+# minus OAT -- server-injected from Axis on the Pi side, never reaches the
+# knob at all, so there's nothing to show here for it).
 _FIELDS = (
     ("cabin_temp", "Cabin"),
     ("panel_temp", "Panel"),
     ("blower_temp", "Blower"),
     ("exhaust_temp", "Exhaust"),
+    ("compressor_temp", "Compressor"),
     ("baggage_temp", "Baggage"),
     ("tail_temp", "Tail"),
     ("current_temp", "Current"),
@@ -33,7 +37,7 @@ _FIELDS = (
 
 # Same sizing rationale as settings.py's _GRID_W/_GRID_H -- clear of the
 # round bezel's narrower top/bottom band. Taller than Settings' (180) since
-# 7 fields at 2/row need 4 rows, not Settings' 4.
+# 8 fields at 2/row need 4 rows, not Settings' 4.
 _GRID_W = 240
 _GRID_H = 220
 

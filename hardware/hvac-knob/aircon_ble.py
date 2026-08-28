@@ -1,7 +1,13 @@
 """BLE GATT central for the AirCon controller — a MicroPython/aioble port of
 server/hardware/aircon/aircon.go's Client. Talks to the exact same 7
-characteristics (see ble_config.py), same wire format: UTF-8 strings, floats
-as "%.2f" decimal strings, JSON for the settings/status characteristics.
+characteristics (see aircon_ble_config.py), same wire format: UTF-8 strings,
+floats as "%.2f" decimal strings, JSON for the settings/status
+characteristics.
+
+AirCon-specific, as the name says -- see heater_ble.py for the second BLE
+peripheral this panel talks to (a completely different wire protocol) and
+ble_shared.py for the one thing genuinely shared between the two
+(serializing aioble.scan() calls).
 
 Requires `aioble` on the device (not part of stock MicroPython firmware —
 install with `mpremote mip install aioble`, see ../README.md). Targets the
@@ -17,7 +23,7 @@ AirconState are safe without locking — no two coroutines run truly
 concurrently, only interleaved at `await` points.
 
 AirconClient no longer connects to a hardcoded device name (see
-ble_config.py) -- it's constructed with whatever panel_settings.py has
+aircon_ble_config.py) -- it's constructed with whatever panel_settings.py has
 persisted (possibly ""), and set_device_name() (called by
 screens.ConnectTile once the user picks one from scan_for_aircons()'s
 results) both persists the new choice and wakes run() up to act on it.
@@ -30,8 +36,9 @@ import time
 import aioble
 import bluetooth
 
+import ble_shared
 import panel_settings
-from ble_config import (
+from aircon_ble_config import (
     AIRCON_SERVICE_UUID,
     UUID_MODE,
     UUID_FAN,
@@ -110,13 +117,6 @@ _HISTORY_MAX_POINTS = 180
 _DEFAULT_SETPOINT_MIN = 0.0
 _DEFAULT_SETPOINT_MAX = 100.0
 
-# Guards every aioble.scan() call -- both the reconnect loop's own scan
-# (_find_device) and the Connect screen's device picker (scan_for_aircons)
-# can be triggered independently, and aioble likely can't run two scans at
-# once; this makes sure they queue instead of overlapping.
-_scan_lock = asyncio.Lock()
-
-
 class AirconState:
     def __init__(self):
         self.connected = False
@@ -136,6 +136,7 @@ class AirconState:
         self.cabin_temp = None
         self.blower_temp = None
         self.exhaust_temp = None
+        self.compressor_temp = None
         self.baggage_temp = None
         self.tail_temp = None
         self.error = ""
@@ -190,6 +191,17 @@ class AirconClient:
         self.state_dirty = asyncio.Event()
         self.settings_dirty = asyncio.Event()
         self._chars = {}
+        # The live aioble connection object, or None whenever not
+        # connected -- set/cleared by _connect_and_run(), read by
+        # set_device_name() to force-disconnect a *different* device's
+        # still-live connection when the user picks a new one from
+        # screens.InfoTile's "change device" buttons (screens/__init__.py's
+        # App.request_reconnect()) rather than only from a fresh, nothing-
+        # picked-yet state. Without this, run()'s reconnect loop has no
+        # reason to ever revisit self.device_name while the *old*
+        # connection is still healthy -- it only re-reads device_name after
+        # a connection actually ends.
+        self._connection = None
         # Wakes run() immediately when set_device_name() gives it something
         # to connect to, instead of leaving it idling until whatever poll
         # interval it happened to be sleeping on.
@@ -269,10 +281,34 @@ class AirconClient:
         """Called by screens.ConnectTile when the user picks a device from
         the scan list. Persists it (so it's still picked after a reboot)
         and wakes run() if it was idling with no device chosen yet.
+
+        If a connection is already live (screens.InfoTile's "change
+        device" flow, unlike the original first-time-pairing flow, always
+        hits this case), also force-disconnects it -- run()'s loop only
+        re-reads self.device_name once its current connection ends, so
+        without this a change here would otherwise sit ignored for as long
+        as the old connection happens to stay healthy, which could be
+        indefinitely.
         """
         self.device_name = name
         panel_settings.set_aircon_device_name(name)
         self._name_event.set()
+        if self._connection is not None:
+            asyncio.create_task(self._disconnect_current())
+
+    async def _disconnect_current(self):
+        # NOT hardware-verified: aioble.DeviceConnection.disconnect() is
+        # this project's best guess at the method name/shape (matches
+        # aioble's own documented central-role API) -- every other aioble
+        # call site in this file was confirmed against real hardware
+        # first; this is the one exception, added for screens.InfoTile's
+        # "change device" buttons without a real device on hand to verify
+        # against. If picking a new device from that screen doesn't
+        # actually drop the old connection, check here first.
+        try:
+            await self._connection.disconnect()
+        except Exception as e:
+            print("aircon_ble: disconnect (for device change) failed: %s" % e)
 
     def setpoint_bounds(self):
         """Public (not a leading-underscore helper, unlike most of this
@@ -366,22 +402,37 @@ class AirconClient:
                 self._name_event.clear()
                 continue
 
-            device = await self._find_device()
-            if device is not None:
-                try:
+            # try/except wraps _find_device() too, not just
+            # _connect_and_run() -- confirmed on real hardware that
+            # _find_device()'s aioble.scan() can itself raise (OSError 16,
+            # a radio-busy collision with the *other* client's connect();
+            # see ble_shared.py -- this run() loop is now the backstop for
+            # whatever radio_lock doesn't manage to prevent). An earlier
+            # version only caught exceptions from _connect_and_run(),
+            # which let a scan failure escape run() entirely and silently
+            # kill this client's reconnect loop for the rest of the boot
+            # (surfaced as an unretrieved-task-exception traceback with no
+            # further reconnect attempts ever, not just one failed one).
+            try:
+                device = await self._find_device()
+                if device is not None:
                     await self._connect_and_run(device)
-                except Exception as e:
-                    print("aircon_ble: connection error:", e)
+            except Exception as e:
+                print("aircon_ble: connection error:", e)
             self.state.connected = False
             self._chars = {}
+            self._connection = None
             self._mark_state_dirty()
             await asyncio.sleep_ms(_RECONNECT_DELAY_MS)
 
     async def _find_device(self):
         print("aircon_ble: scanning for %r..." % (self.device_name,))
-        async with _scan_lock:
+        async with ble_shared.radio_lock:
             async with aioble.scan(
-                _SCAN_DURATION_MS, interval_us=30000, window_us=30000, active=True
+                _SCAN_DURATION_MS,
+                interval_us=ble_shared.SCAN_INTERVAL_US,
+                window_us=ble_shared.SCAN_WINDOW_US,
+                active=True,
             ) as scanner:
                 async for result in scanner:
                     if result.name() == self.device_name:
@@ -391,7 +442,7 @@ class AirconClient:
     async def scan_for_aircons(self, duration_ms=_PICKER_SCAN_DURATION_MS):
         """Scans for any BLE peripheral advertising AIRCON_SERVICE_UUID --
         not by name, since each physical controller can have its own custom
-        BLE_DEVICE_NAME (see ble_config.py's docstring) -- for
+        BLE_DEVICE_NAME (see aircon_ble_config.py's docstring) -- for
         screens.ConnectTile's device picker. Returns (found, other_count):
         `found` is a list of (name, aioble.Device) pairs, deduplicated and
         sorted by name (devices with no advertised name are skipped, since
@@ -415,9 +466,12 @@ class AirconClient:
         found = []
         other_addrs = set()
         other_count = 0
-        async with _scan_lock:
+        async with ble_shared.radio_lock:
             async with aioble.scan(
-                duration_ms, interval_us=30000, window_us=30000, active=True
+                duration_ms,
+                interval_us=ble_shared.SCAN_INTERVAL_US,
+                window_us=ble_shared.SCAN_WINDOW_US,
+                active=True,
             ) as scanner:
                 async for result in scanner:
                     name = result.name()
@@ -444,10 +498,20 @@ class AirconClient:
 
     async def _connect_and_run(self, device):
         print("aircon_ble: connecting...")
-        # NOT device.connect(..., mtu=256): confirmed on real hardware that
-        # this installed aioble build's connect() doesn't accept an mtu
-        # kwarg at all ("unexpected keyword argument 'mtu'").
-        connection = await device.connect(timeout_ms=5000)
+        # ble_shared.radio_lock, not just held for scanning -- see that
+        # module's own docstring: confirmed on real hardware that a
+        # connect() here racing the *other* client's scan() raises
+        # OSError 16, presumably the same "radio already busy with a GAP
+        # procedure" constraint scan-vs-scan already needed this lock for.
+        # Only held through connection establishment, not this
+        # connection's whole subsequent lifetime -- see that module's
+        # docstring for why that's deliberate.
+        async with ble_shared.radio_lock:
+            # NOT device.connect(..., mtu=256): confirmed on real hardware
+            # that this installed aioble build's connect() doesn't accept
+            # an mtu kwarg at all ("unexpected keyword argument 'mtu'").
+            connection = await device.connect(timeout_ms=5000)
+        self._connection = connection
         async with connection:
             # The fix for the settings/status JSON truncation (see
             # aioble.config(mtu=256) above): that call alone only sets the
@@ -665,6 +729,7 @@ class AirconClient:
         s.cabin_temp = raw.get("cabin")
         s.blower_temp = raw.get("blower")
         s.exhaust_temp = raw.get("exhaust")
+        s.compressor_temp = raw.get("comptemp")
         s.baggage_temp = raw.get("baggage")
         s.tail_temp = raw.get("tail")
         s.error = raw.get("err") or ""

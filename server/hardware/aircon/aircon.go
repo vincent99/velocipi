@@ -1,8 +1,8 @@
 // Package aircon exposes the AC controller's state/commands to the rest of
 // the server. It no longer talks BLE directly -- that connection now lives
-// entirely on the knob (hardware/aircon-knob/aircon_ble.py), which is
+// entirely on the knob (hardware/hvac-knob/aircon_ble.py), which is
 // already relaying commands and pushing state/settings over its own
-// USB-serial link to the Pi (hardware/knob, hardware/aircon-knob/
+// USB-serial link to the Pi (hardware/knob, hardware/hvac-knob/
 // serial_link.py). This package is just a thin State/History-shaped view
 // over that relay, so the rest of the server (server/aircon.go's WS
 // broadcast wiring, the /aircon/state and /aircon/set HTTP routes) didn't
@@ -54,15 +54,16 @@ func (sv *SettingValue) UnmarshalJSON(data []byte) error {
 
 // TempSample records all temperature readings at a point in time.
 type TempSample struct {
-	Time        time.Time `json:"time"`
-	CurrentTemp *float64  `json:"currentTemp,omitempty"`
-	CabinTemp   *float64  `json:"cabinTemp,omitempty"`
-	BlowerTemp  *float64  `json:"blowerTemp,omitempty"`
-	ExhaustTemp *float64  `json:"exhaustTemp,omitempty"`
-	BaggageTemp *float64  `json:"baggageTemp,omitempty"`
-	TailTemp    *float64  `json:"tailTemp,omitempty"`
-	PanelTemp   *float64  `json:"panelTemp,omitempty"`
-	OAT         *float64  `json:"oat,omitempty"` // outside air temp °F from Axis
+	Time           time.Time `json:"time"`
+	CurrentTemp    *float64  `json:"currentTemp,omitempty"`
+	CabinTemp      *float64  `json:"cabinTemp,omitempty"`
+	BlowerTemp     *float64  `json:"blowerTemp,omitempty"`
+	ExhaustTemp    *float64  `json:"exhaustTemp,omitempty"`
+	CompressorTemp *float64  `json:"compressorTemp,omitempty"`
+	BaggageTemp    *float64  `json:"baggageTemp,omitempty"`
+	TailTemp       *float64  `json:"tailTemp,omitempty"`
+	PanelTemp      *float64  `json:"panelTemp,omitempty"`
+	OAT            *float64  `json:"oat,omitempty"` // outside air temp °F from Axis
 }
 
 // State is the complete current aircon controller state, as last reported
@@ -82,6 +83,7 @@ type State struct {
 	CabinTemp         *float64 `json:"cabinTemp"`
 	BlowerTemp        *float64 `json:"blowerTemp"`
 	ExhaustTemp       *float64 `json:"exhaustTemp"`
+	CompressorTemp    *float64 `json:"compressorTemp"`
 	BaggageTemp       *float64 `json:"baggageTemp"`
 	TailTemp          *float64 `json:"tailTemp"`
 	Error             string   `json:"error"`
@@ -103,6 +105,7 @@ type wireState struct {
 	CabinTemp         *float64 `json:"cabin_temp"`
 	BlowerTemp        *float64 `json:"blower_temp"`
 	ExhaustTemp       *float64 `json:"exhaust_temp"`
+	CompressorTemp    *float64 `json:"compressor_temp"`
 	BaggageTemp       *float64 `json:"baggage_temp"`
 	TailTemp          *float64 `json:"tail_temp"`
 	Error             string   `json:"error"`
@@ -280,6 +283,7 @@ func (c *Client) handleState(raw json.RawMessage) {
 	c.state.CabinTemp = w.CabinTemp
 	c.state.BlowerTemp = w.BlowerTemp
 	c.state.ExhaustTemp = w.ExhaustTemp
+	c.state.CompressorTemp = w.CompressorTemp
 	c.state.BaggageTemp = w.BaggageTemp
 	c.state.TailTemp = w.TailTemp
 	c.state.Error = w.Error
@@ -353,15 +357,16 @@ func (c *Client) appendHistory() {
 		oat = c.oatProvider()
 	}
 	sample := TempSample{
-		Time:        time.Now(),
-		CurrentTemp: c.state.CurrentTemp,
-		CabinTemp:   c.state.CabinTemp,
-		BlowerTemp:  c.state.BlowerTemp,
-		ExhaustTemp: c.state.ExhaustTemp,
-		BaggageTemp: c.state.BaggageTemp,
-		TailTemp:    c.state.TailTemp,
-		PanelTemp:   &panel,
-		OAT:         oat,
+		Time:           time.Now(),
+		CurrentTemp:    c.state.CurrentTemp,
+		CabinTemp:      c.state.CabinTemp,
+		BlowerTemp:     c.state.BlowerTemp,
+		ExhaustTemp:    c.state.ExhaustTemp,
+		CompressorTemp: c.state.CompressorTemp,
+		BaggageTemp:    c.state.BaggageTemp,
+		TailTemp:       c.state.TailTemp,
+		PanelTemp:      &panel,
+		OAT:            oat,
 	}
 	c.history = append(c.history, sample)
 

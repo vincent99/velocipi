@@ -189,6 +189,13 @@ const sensorDefs: SensorDef[] = [
     color: '#FFB800',
     strokeDasharray: '4,3',
   },
+  // Vivid purple, short dash-dot
+  {
+    key: 'compressorTemp',
+    name: 'Compressor',
+    color: '#C77DFF',
+    strokeDasharray: '5,2,1,2',
+  },
   // Hot pink, dot-dash
   {
     key: 'panelTemp',
@@ -341,6 +348,12 @@ const graphSeries = computed<GraphSeries[]>(() => {
           <div class="ac-reading">
             <span class="ac-reading-lbl">Exhaust</span>
             <span class="ac-reading-val">{{ fmt(state?.exhaustTemp) }}</span>
+          </div>
+          <div class="ac-reading">
+            <!-- "Comp Temp", not "Compressor" -- that label's already taken
+                 by the on/off status reading above. -->
+            <span class="ac-reading-lbl">Comp Temp</span>
+            <span class="ac-reading-val">{{ fmt(state?.compressorTemp) }}</span>
           </div>
           <div class="ac-reading">
             <span class="ac-reading-lbl">Baggage</span>

@@ -12,6 +12,7 @@ import (
 	"github.com/vincent99/velocipi/server/dvr"
 	"github.com/vincent99/velocipi/server/hardware"
 	"github.com/vincent99/velocipi/server/hardware/axis"
+	"github.com/vincent99/velocipi/server/hardware/btmedia"
 	"github.com/vincent99/velocipi/server/hardware/led"
 	"github.com/vincent99/velocipi/server/hardware/oled"
 	"github.com/vincent99/velocipi/server/hardware/siyi"
@@ -352,6 +353,96 @@ func (h *Hub) runBrightnessLoop(ctx context.Context) {
 	}
 
 	b.Run(ctx)
+}
+
+// sendBTState sends the current BT device list and now-playing snapshot to a
+// single newly-connected client.
+func (h *Hub) sendBTState(c *client) {
+	bt := hardware.BTMedia()
+	if bt == nil {
+		return
+	}
+	h.sendOne(c, BTDevicesMsg{Type: "btDevices", Devices: bt.Devices()})
+	h.sendOne(c, BTNowPlayingMsg{Type: "btNowPlaying", Player: bt.Player()})
+}
+
+// sendOne marshals msg and sends it to a single client, dropping it silently
+// if the client's send buffer is full (same best-effort semantics as broadcastAll).
+func (h *Hub) sendOne(c *client, msg any) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
+	}
+}
+
+// runBTMediaLoop watches the BlueZ AVRCP client (if available) and
+// broadcasts device-list and now-playing changes as WS messages.
+func (h *Hub) runBTMediaLoop(ctx context.Context) {
+	bt := hardware.BTMedia()
+	if bt == nil {
+		return
+	}
+	bt.OnDeviceChange(func(devices []btmedia.DeviceInfo) {
+		h.broadcastAll(BTDevicesMsg{Type: "btDevices", Devices: devices})
+	})
+	bt.OnPlayerChange(func(p *btmedia.PlayerState) {
+		h.broadcastAll(BTNowPlayingMsg{Type: "btNowPlaying", Player: p})
+	})
+	bt.Run(ctx)
+}
+
+// handleBTControl dispatches an inbound btControl WebSocket message.
+// Device management (scan/pair/connect/disconnect/forget) goes through the
+// btmedia AVRCP client; transport control (playPause/next/previous) goes
+// through the bthid classic-HID client instead -- see hardware/bthid's
+// package doc for why. No-op if the relevant client isn't available (e.g.
+// off-Pi).
+func (h *Hub) handleBTControl(action, address string) {
+	var err error
+	switch action {
+	case "scan", "stopScan", "pair", "connect", "disconnect", "forget":
+		bt := hardware.BTMedia()
+		if bt == nil {
+			return
+		}
+		switch action {
+		case "scan":
+			err = bt.StartDiscovery()
+		case "stopScan":
+			err = bt.StopDiscovery()
+		case "pair":
+			err = bt.Pair(address)
+		case "connect":
+			err = bt.Connect(address)
+		case "disconnect":
+			err = bt.Disconnect(address)
+		case "forget":
+			err = bt.Forget(address)
+		}
+	case "playPause", "next", "previous":
+		hid := hardware.BTHID()
+		if hid == nil {
+			return
+		}
+		switch action {
+		case "playPause":
+			err = hid.PlayPause()
+		case "next":
+			err = hid.Next()
+		case "previous":
+			err = hid.Previous()
+		}
+	default:
+		log.Printf("btControl: unknown action %q", action)
+		return
+	}
+	if err != nil {
+		log.Printf("btControl: action %q error: %v", action, err)
+	}
 }
 
 // handleLEDMsg controls the expander LED from a websocket message.

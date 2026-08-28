@@ -298,6 +298,22 @@ async def main():
     client = aircon_ble.AirconClient(panel_settings.get_aircon_device_name())
     _checkpoint("client constructed")
 
+    # heater_ble doesn't re-import aioble/bluetooth (already loaded above)
+    # or re-touch aioble.config() (aircon_ble.py already set the shared
+    # radio's preferred MTU; see heater_ble.py's own module docstring for
+    # why this client doesn't need a larger one anyway) -- still deferred
+    # to here rather than module level, for the same splash-before-BLE
+    # ordering reasoning as aircon_ble above, even though the heap-
+    # fragmentation risk that originally motivated deferring aircon_ble was
+    # never reproduced with the current screens/ package.
+    import heater_ble
+
+    _checkpoint("after importing heater_ble")
+    heater_client = heater_ble.HeaterClient(
+        panel_settings.get_heater_device_name(), panel_settings.get_heater_password()
+    )
+    _checkpoint("heater_client constructed")
+
     link = serial_link.SerialLink(display, client)
 
     # The real screen construction (lv.tileview + widgets) was cleared of
@@ -317,9 +333,10 @@ async def main():
     _checkpoint("screens imported")
 
     scr = lv.screen_active()
-    app = screens.build(client, encoder, scr, checkpoint=_checkpoint)
+    app = screens.build(client, heater_client, encoder, scr, checkpoint=_checkpoint)
     _checkpoint("screens built")
     asyncio.create_task(client.run())
+    asyncio.create_task(heater_client.run())
 
     last_refresh_ms = 0
     last_tick_ms = time.ticks_ms()
@@ -367,8 +384,17 @@ async def main():
         # screens.App.poll_input()/HomeTile.handle_knob().
         app.poll_input()
 
-        if client.dirty.is_set() or time.ticks_diff(now, last_refresh_ms) >= _REFRESH_PERIOD_MS:
+        # heater_client.dirty (not just client.dirty) so a heater-only
+        # change -- e.g. its own status notification updating now_gear/
+        # fault_code, see heater_ble.py -- still triggers a redraw promptly
+        # rather than waiting out the rest of this refresh period.
+        if (
+            client.dirty.is_set()
+            or heater_client.dirty.is_set()
+            or time.ticks_diff(now, last_refresh_ms) >= _REFRESH_PERIOD_MS
+        ):
             client.dirty.clear()
+            heater_client.dirty.clear()
             last_refresh_ms = now
             app.refresh()
 

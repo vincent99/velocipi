@@ -4,7 +4,7 @@
 Advertises the same BLE GATT service the real RP2350 firmware in
 ../aircon/ does (see config.py), backed by an in-memory state machine +
 thermal model (controller.py) instead of real relays/sensors. Point
-../aircon-knob/ble_config.py at this device (it already matches by default
+../hvac-knob/ble_config.py at this device (it already matches by default
 -- same name, same placeholder-that-you-fill-in service UUID) to exercise
 the panel's full UI without the physical AC hardware.
 

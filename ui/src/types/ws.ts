@@ -185,6 +185,7 @@ export interface AirConState {
   cabinTemp: number | null;
   blowerTemp: number | null;
   exhaustTemp: number | null;
+  compressorTemp: number | null;
   baggageTemp: number | null;
   tailTemp: number | null;
   error: string;
@@ -196,6 +197,7 @@ export interface AirConTempSample {
   cabinTemp?: number;
   blowerTemp?: number;
   exhaustTemp?: number;
+  compressorTemp?: number;
   baggageTemp?: number;
   tailTemp?: number;
   panelTemp?: number;
@@ -217,6 +219,41 @@ export interface AirConSampleMsg {
   sample: AirConTempSample;
 }
 
+export interface BTDeviceInfo {
+  address: string;
+  name: string;
+  paired: boolean;
+  connected: boolean;
+  trusted: boolean;
+}
+
+export interface BTDevicesMsg {
+  type: 'btDevices';
+  devices: BTDeviceInfo[];
+}
+
+export interface BTTrackInfo {
+  title: string;
+  artist: string;
+  album: string;
+  genre: string;
+  trackNumber: number;
+  numberOfTracks: number;
+  duration: number; // ms
+}
+
+export interface BTPlayerState {
+  deviceAddress: string;
+  track: BTTrackInfo;
+  status: string; // 'playing' | 'paused' | 'stopped' | 'forward-seek' | 'reverse-seek' | 'error'
+  position: number; // ms
+}
+
+export interface BTNowPlayingMsg {
+  type: 'btNowPlaying';
+  player: BTPlayerState | null;
+}
+
 export type InboundWsMsg =
   | PingMsg
   | AirReadingMsg
@@ -236,7 +273,9 @@ export type InboundWsMsg =
   | MusicQueueMsg
   | AirConStateMsg
   | AirConHistoryMsg
-  | AirConSampleMsg;
+  | AirConSampleMsg
+  | BTDevicesMsg
+  | BTNowPlayingMsg;
 
 // Outbound messages (client → server, sent on /ws)
 
@@ -287,10 +326,26 @@ export interface MusicControlMsg {
   str?: string; // setRepeat: 'off'|'song'|'queue'; setShuffle: 'true'|'false'
 }
 
+export interface BTControlMsg {
+  type: 'btControl';
+  action:
+    | 'scan'
+    | 'stopScan'
+    | 'pair'
+    | 'connect'
+    | 'disconnect'
+    | 'forget'
+    | 'playPause'
+    | 'next'
+    | 'previous';
+  address?: string; // required for pair/connect/disconnect/forget
+}
+
 export type OutboundWsMsg =
   | ReloadMsg
   | KeyMsg
   | LEDControlMsg
   | NavigateMsg
   | SetLocalCameraMsg
-  | MusicControlMsg;
+  | MusicControlMsg
+  | BTControlMsg;
