@@ -20,34 +20,33 @@ Three real differences from AirconClient worth knowing before touching this:
      characteristic to reconcile self.state with whatever the controller
      actually accepted (e.g. a clamped setpoint). This protocol's single
      characteristic has no such request/response read semantics -- writes
-     are fire-and-forget, and status only ever arrives as an unsolicited
-     notification. So state.on/run_mode/run_param are purely optimistic
-     (whatever this client itself last commanded), not reconciled against
-     the device at all -- see HeaterState's own docstring. CMD_HANDSHAKE
-     (see _attempt_handshake()) is the one exception -- it's the only
-     command this client ever actually waits on a response for.
+     are fire-and-forget (ATT-acknowledged, see heater_ble_config.py's
+     frame-format comment on Write Request vs. Write Command, but not
+     reconciled at this protocol's own application layer), and status only
+     ever arrives as an unsolicited notification whose payload format
+     isn't decoded yet (see _notify_loop()). So state.on/run_mode/
+     run_param are purely optimistic (whatever this client itself last
+     commanded), not reconciled against the device at all -- see
+     HeaterState's own docstring.
   2. Pairing is opt-in and non-blocking (see screens/__init__.py's App):
      unlike the AirCon controller, which gates the whole panel (Home is
      unreachable without one), a missing/disconnected heater just means
      "heat" mode and auto mode's heating branch quietly do nothing --
      see screens/home.py.
   3. Password detection is a best-effort heuristic, not a confirmed
-     protocol feature. Some physical units apparently require a 4-digit
-     PIN (`CMD_HANDSHAKE`/`SUB_HANDSHAKE`, byte offsets and encoding taken
-     from the vendor app's `writeBufferData`/`uu()` functions -- see the
-     scratch/ doc) before accepting control commands; this client sends
-     that handshake on every fresh connection and waits briefly for an
-     explicit accept/reject. If nothing answers at all within
-     _HANDSHAKE_TIMEOUT_MS, the *first* time this device is ever probed
-     this session, that's read as "this unit doesn't gate on a password"
-     rather than "wrong password" -- deliberately optimistic, so units
-     that simply don't implement/answer this command (plausibly most of
-     them) aren't mistaken for password-protected ones and don't need a
-     PIN nobody has. Once an explicit reject has been seen even once,
-     though, later ambiguous timeouts stay conservative (password still
-     treated as required) rather than being reinterpreted as "must not be
-     needed after all" right after a failed attempt -- see
-     _attempt_handshake().
+     protocol feature -- and a weaker one than an earlier version of this
+     file assumed. This protocol version has no distinct handshake/login
+     command at all (confirmed via a real BLE capture -- see
+     heater_ble_config.py's frame-format comment): the password just rides
+     along on every frame. _attempt_handshake() sends a CMD_READ probe on
+     every fresh connection and waits briefly to see if *anything* comes
+     back, since the real notify payload's structure isn't decoded yet and
+     so can't be checked for an explicit accept/reject the way an earlier
+     version of this assumed a dedicated handshake response could be. That
+     means state.password_required can currently only ever resolve to
+     False -- there's no way yet to observe this device actively rejecting
+     a wrong password, only "responded" or "didn't" -- see
+     _attempt_handshake()'s own comment.
 
 NOT hardware-verified, in addition to everything heater_ble_config.py
 already flags: whether this board's BLE stack (aioble/the underlying
@@ -86,13 +85,6 @@ _RECONNECT_DELAY_MS = 5000
 # per refresh tick.
 _DEBOUNCE_MS = 600
 
-# Safety cap on _notify_loop's reassembly buffer, same purpose as
-# aircon_ble.py's _JSON_BUF_MAX: every real frame this protocol ever sends
-# or receives is well under this (see heater_ble_config.py's frame-format
-# comment -- a run-family status push is under 20 bytes), so a buffer this
-# large means a desync, not a legitimately large in-flight frame.
-_MAX_FRAME_LEN = 64
-
 # How long _attempt_handshake() waits for an explicit accept/reject before
 # giving up on this attempt -- see this module's docstring, point 3, for
 # what happens on that timeout. Generous relative to a single BLE
@@ -102,42 +94,36 @@ _MAX_FRAME_LEN = 64
 # turns out slower than this.
 _HANDSHAKE_TIMEOUT_MS = 3000
 
+# See scan_for_heaters()'s per-result diagnostic below.
+_DEBUG_SCAN_RESULTS = False
 
-def _checksum(buf, length):
-    """8-bit sum of buf[0:length-1], mod 256 -- see heater_ble_config.py's
-    frame-format comment. `length` is the frame's own declared total
-    length (bytes 4-5), i.e. the checksum covers everything through the
-    byte immediately before itself.
+
+def _checksum(buf):
+    """(sum(buf[0:7]) + 1) & 0xFF -- see heater_ble_config.py's
+    frame-format comment. Confirmed against ~10 independently captured
+    real frames, not a guess.
     """
-    total = 0
-    for i in range(length - 1):
-        total += buf[i]
-    return total & 0xFF
+    return (sum(buf[0:7]) + 1) & 0xFF
 
 
-def _encode_frame(cmd1, cmd2, payload=b""):
-    length = 8 + len(payload) + 1  # header(8) + payload + checksum
-    buf = bytearray(length)
+def _encode_frame(password, cmd, param1=0, param2=0):
+    """Fixed 8 bytes always -- see heater_ble_config.py's frame-format
+    comment. The password rides along on every frame (bytes 2-3, base-100
+    split, high byte first: byte2=password//100, byte3=password%100 --
+    confirmed exactly against the real capture for password 1234 ->
+    bytes (12, 34)) -- there's no separate handshake/login frame in this
+    protocol version.
+    """
+    buf = bytearray(8)
     buf[0] = cfg.HEAD_1
     buf[1] = cfg.HEAD_2
-    buf[2] = cfg.PROTOCOL_VERSION
-    buf[3] = 0  # sequence number -- always 0, no multi-packet writes needed here
-    buf[4] = length & 0xFF
-    buf[5] = (length >> 8) & 0xFF
-    buf[6] = cmd1
-    buf[7] = cmd2
-    buf[8 : 8 + len(payload)] = payload
-    buf[length - 1] = _checksum(buf, length)
+    buf[2] = password // 100
+    buf[3] = password % 100
+    buf[4] = cmd
+    buf[5] = param1 & 0xFF
+    buf[6] = param2 & 0xFF
+    buf[7] = _checksum(buf)
     return bytes(buf)
-
-
-def _encode_password(password):
-    """CMD_HANDSHAKE's payload -- matches the vendor app's own encoding
-    exactly (writeBufferData in the decompiled JS, see the scratch/ doc):
-    NOT a 2-byte little-endian integer, a base-100 split -- byte0 =
-    password % 100, byte1 = password // 100 (e.g. 1234 -> (34, 12)).
-    """
-    return bytes((password % 100, password // 100))
 
 
 class HeaterState:
@@ -222,12 +208,11 @@ class HeaterClient:
         # rather than each having their own key the way AirconClient's
         # mode/fan/setpoint/circ/panel each do independently).
         self._pending = {}
-        # Set while a handshake response is being awaited (see
-        # _attempt_handshake()); _apply_notification() sets it (and the
-        # matching event) when a CMD_HANDSHAKE frame arrives, so the two
-        # coroutines only ever hand off through instance state, no shared
-        # queue needed for what's always at most one outstanding handshake
-        # at a time.
+        # Set while a handshake probe is being awaited (see
+        # _attempt_handshake()); _notify_loop() sets it (and the matching
+        # event) on any raw notification arriving, so the two coroutines
+        # only ever hand off through instance state, no shared queue needed
+        # for what's always at most one outstanding probe at a time.
         self._handshake_event = None
         self._handshake_success = None
 
@@ -382,32 +367,20 @@ class HeaterClient:
                         addr = bytes(result.device.addr)
                     except Exception:
                         addr = None
-                    addr_str = addr.hex() if addr is not None else "?"
-                    # TEMPORARY diagnostic -- not gated behind a debug flag
-                    # on purpose, so this shows up over `make repl` without
-                    # needing a rebuild: prints every advertisement this
-                    # scan sees, matched or not, so a "picker never finds
-                    # the sim, but does report N other devices" report can
-                    # be read directly off this instead of guessed at.
-                    # svcs added after an initial round of this only
-                    # logging name/addr wasn't conclusive on its own (every
-                    # nearby device with a real name showed up fine, but
-                    # neither sim's short name did, and this Mac can't
-                    # scan its own advertisements to cross-check directly
-                    # -- see ../heater-sim/README.md's macOS platform note)
-                    # -- cfg.SERVICE_UUID showing up on an entry with
-                    # name=None would confirm the name specifically is
-                    # being dropped from the packet (not the whole
-                    # advertisement); if cfg.SERVICE_UUID never appears on
-                    # *any* entry at all, that's a different, bigger
-                    # problem than a dropped name. Remove once
-                    # scan_for_heaters() is confirmed reliably finding a
-                    # real/sim heater on real hardware.
-                    try:
-                        svcs = list(result.services())
-                    except Exception as e:
-                        svcs = "?(%s)" % e
-                    print("heater_ble: scan result: name=%r addr=%s svcs=%s" % (name, addr_str, svcs))
+                    # Per-result diagnostic (name/addr/advertised services)
+                    # confirmed scan_for_heaters() reliably finding a real
+                    # heater on real hardware -- disabled now that it's
+                    # served its purpose, not deleted, in case a future scan
+                    # issue needs the same visibility again. Flip
+                    # _DEBUG_SCAN_RESULTS to re-enable over `make repl`
+                    # without needing to reconstruct this from scratch.
+                    if _DEBUG_SCAN_RESULTS:
+                        addr_str = addr.hex() if addr is not None else "?"
+                        try:
+                            svcs = list(result.services())
+                        except Exception as e:
+                            svcs = "?(%s)" % e
+                        print("heater_ble: scan result: name=%r addr=%s svcs=%s" % (name, addr_str, svcs))
                     matches = name and name.startswith(cfg.NAME_PREFIX) and not any(
                         name.startswith(p) for p in cfg.NAME_EXCLUDE_PREFIXES
                     )
@@ -437,6 +410,32 @@ class HeaterClient:
             connection = await device.connect(timeout_ms=5000)
         self._connection = connection
         async with connection:
+            # Confirmed via a real BLE capture of the vendor iOS app's own
+            # connection: it negotiates MTU 247 (Client Rx MTU 527, Server
+            # Rx MTU 247), while this connection otherwise sits at the BLE
+            # default of 23 (20 usable bytes) -- and this heater's status
+            # notification payload is ~50 bytes, well over that. Without
+            # this exchange, the device never sends a single notification
+            # at all (not truncated/garbled -- completely silent, confirmed
+            # against real hardware with a standalone script identical in
+            # every other respect to what's below), consistent with its
+            # firmware just dropping a notification it can't fit in one
+            # packet rather than fragmenting or truncating it. Requesting
+            # 247 to match the app exactly rather than guessing a smaller
+            # value that "should" be enough -- connection.exchange_mtu()
+            # (unlike aircon_ble.py's own MTU dance for its completely
+            # separate connection) returns the negotiated value directly,
+            # no manual IRQ-less sleep-and-hope needed on this build.
+            try:
+                mtu = await connection.exchange_mtu(247)
+                print("heater_ble: mtu=%r" % (mtu,))
+            except Exception as e:
+                print("heater_ble: exchange_mtu failed: %s" % e)
+
+            # Earlier attempt here: pairing (bond=True, io=NO_INPUT_OUTPUT),
+            # on the theory that this device only exposes FFE0 to a bonded
+            # central. Confirmed WRONG on real hardware -- see git history
+            # -- and reverted; the MTU exchange above was the actual fix.
             service = await connection.service(_SVC)
             if service is None:
                 print("heater_ble: service not found")
@@ -476,12 +475,12 @@ class HeaterClient:
         print("heater_ble: disconnected")
 
     async def _attempt_handshake(self):
-        """Sends CMD_HANDSHAKE with the current password and waits up to
-        _HANDSHAKE_TIMEOUT_MS for the device's own accept/reject, resolving
-        state.password_required -- see this module's docstring, point 3,
-        for exactly what each outcome (accept / reject / no response at
-        all) means and why "no response" is read differently the first
-        time a device is probed than on a later retry. Also tracks
+        """Sends a CMD_READ probe (password embedded, like every frame this
+        protocol version sends) and waits up to _HANDSHAKE_TIMEOUT_MS to see
+        whether the device responds at all, resolving state.
+        password_required -- see this module's docstring, point 3, for why
+        that can currently only ever end up False (no confirmed way to
+        observe an explicit reject yet). Also tracks
         state.password_check_pending for the duration of the attempt (see
         HeaterState's own docstring for why that's a separate field from
         password_required itself). Called once right after every fresh
@@ -495,7 +494,22 @@ class HeaterClient:
         # this coroutine as a task -- see that method's own comment for
         # why both places matter. Harmless to set again here either way.
         self.state.password_check_pending = True
-        await self._write_frame(cfg.CMD_HANDSHAKE, cfg.SUB_HANDSHAKE, _encode_password(self.password))
+        # No distinct handshake/login command in this protocol version --
+        # the password rides along on every frame instead (see
+        # heater_ble_config.py's frame-format comment) -- so this sends a
+        # CMD_READ query as a probe and treats "did anything at all come
+        # back" as the accept signal. _handshake_success is set by
+        # _notify_loop on any raw notification arriving while this event
+        # is pending, not by parsing an explicit accept/reject field the
+        # way the old (never actually spoken by this unit) v2.1 guess did
+        # -- the real notify payload's structure isn't decoded yet (see
+        # _notify_loop's own comment), so there's currently no way to
+        # observe an explicit *reject* at all, only "responded" or
+        # "didn't". That means state.password_required can only ever
+        # resolve to False here, never True -- if this unit does reject
+        # wrong passwords somehow, we can't see it until that payload
+        # format is reverse-engineered.
+        await self._write_frame(cfg.CMD_READ)
         try:
             # asyncio.wait_for() (seconds, not wait_for_ms()) -- NOT
             # hardware-verified which of the two this aioble-adjacent
@@ -510,20 +524,14 @@ class HeaterClient:
             pass
         self._handshake_event = None
 
-        if self._handshake_success is True:
-            self.state.password_required = False
-        elif self._handshake_success is False:
-            self.state.password_required = True
-        elif self.state.password_required is None:
-            # No response at all, and nothing has ever explicitly
-            # rejected a handshake on this device before -- assume it
-            # simply doesn't gate on a password rather than demanding a
-            # PIN nobody has. If a later attempt *does* get an explicit
-            # reject, this branch stops applying (state.password_required
-            # is no longer None) and a subsequent timeout stays
-            # conservative instead -- see this module's docstring, point 3.
+        if self._handshake_success is True or self.state.password_required is None:
             self.state.password_required = False
         self.state.password_check_pending = False
+        # TEMPORARY diagnostic while getting this protocol working against
+        # real hardware for the first time -- remove once handshake
+        # behavior is confirmed reliable.
+        print("heater_ble: handshake resolved: success=%r password_required=%r" % (
+            self._handshake_success, self.state.password_required))
         self._mark_dirty()
 
     # --- receive -----------------------------------------------------------
@@ -546,6 +554,29 @@ class HeaterClient:
             except Exception as e:
                 print("heater_ble: notify loop ending: %s" % e)
                 return
+            # TEMPORARY diagnostic -- raw bytes as they arrive, before
+            # _drain_frames()'s HEAD_1/HEAD_2 resync below (built for this
+            # protocol's own *outgoing* v1 frame shape) silently discards
+            # anything that doesn't match. Confirmed via a real BLE capture
+            # that this unit's actual status notifications reliably DO
+            # arrive now (see _connect_and_run's MTU-exchange comment --
+            # that was the actual blocker, not this protocol version) but
+            # DON'T start with HEAD_1/HEAD_2 at all -- they're a still-
+            # undeciphered ~50-byte payload starting 0xda 0x07 instead, so
+            # _drain_frames()/_handle_frame()/_apply_notification() below
+            # still never fire on real data. Left in place (rather than
+            # ripped out) so a future decode of that payload has this
+            # raw-bytes trail to work from -- this is currently the only
+            # way any of this device's real responses are visible at all.
+            print("heater_ble: notify raw: %s" % (bytes(data).hex(),))
+            # Signals _attempt_handshake()'s probe on ANY arrival, not on a
+            # successfully-parsed frame -- see that method's own comment
+            # for why: the real notify payload doesn't fit this protocol's
+            # v1 frame shape (below) at all, so waiting for
+            # _apply_notification() to fire would never resolve.
+            if self._handshake_event is not None:
+                self._handshake_success = True
+                self._handshake_event.set()
             try:
                 buf += data
                 self._drain_frames(buf)
@@ -554,104 +585,96 @@ class HeaterClient:
                 buf = bytearray()
 
     def _drain_frames(self, buf):
+        """Looks for this protocol's own v1 frame shape (HEAD_1/HEAD_2,
+        fixed 8 bytes) inside the notify stream -- see _notify_loop's own
+        comment for why this never matches anything on real hardware, even
+        though real notifications do reliably arrive now (the device's
+        actual status payload just doesn't use this shape at all). Kept
+        rather than removed: harmless no-op against real data as it
+        stands, and immediately useful again if a future decode finds this
+        protocol's request shape reused for responses after all.
+        """
         while True:
             # Resync: drop leading bytes until buf starts with HEAD_1/
-            # HEAD_2 or is too short to tell yet. A stray fragment left
-            # over from a desync (or this notify stream simply starting
-            # mid-frame, right after subscribing) both look the same from
-            # here -- neither is recoverable byte-by-byte, only by finding
-            # the next real header.
+            # HEAD_2 or is too short to tell yet.
             while len(buf) >= 2 and not (buf[0] == cfg.HEAD_1 and buf[1] == cfg.HEAD_2):
                 del buf[0]
-            if len(buf) < 6:
-                return  # not enough yet to even read the declared length
-            total_len = buf[4] | (buf[5] << 8)
-            if total_len < 9 or total_len > _MAX_FRAME_LEN:
-                # Not a real frame length for this protocol (see
-                # heater_ble_config.py -- every real frame is small) --
-                # drop just the bogus header byte and keep resyncing,
-                # rather than waiting forever for a length that will never
-                # arrive.
-                del buf[0]
-                continue
-            if len(buf) < total_len:
-                return  # wait for the rest of this frame
-            frame = bytes(buf[:total_len])
-            del buf[:total_len]
-            self._handle_frame(frame, total_len)
+            if len(buf) < 8:
+                return  # not enough yet for a full fixed-size frame
+            frame = bytes(buf[:8])
+            del buf[:8]
+            self._handle_frame(frame)
 
-    def _handle_frame(self, frame, total_len):
-        if _checksum(frame, total_len) != frame[total_len - 1]:
-            print("heater_ble: checksum mismatch, dropping frame")
+    def _handle_frame(self, frame):
+        if _checksum(frame) != frame[7]:
+            # TEMPORARY diagnostic (see _write_frame()'s matching one).
+            print("heater_ble: checksum mismatch, dropping frame: %s" % (bytes(frame).hex(),))
             return
-        raw_cmd1, cmd2 = frame[6], frame[7]
-        # The device always echoes cmd1+128 on the way back, whether this
-        # is a direct ack of something this client sent or an unprompted
-        # periodic status push -- see heater_ble_config.py's frame-format
-        # comment.
-        cmd1 = raw_cmd1 - 128 if raw_cmd1 >= 128 else raw_cmd1
-        self._apply_notification(cmd1, cmd2, frame)
+        # TEMPORARY diagnostic, same reasoning as above.
+        print("heater_ble: frame in: %s" % (bytes(frame).hex(),))
+        self._apply_notification(frame[4], frame[5], frame[6], frame)
 
-    def _apply_notification(self, cmd1, cmd2, frame):
-        if cmd1 == cfg.CMD_HANDSHAKE:
-            # Only meaningful while _attempt_handshake() is actually
-            # awaiting one -- a stray/duplicate handshake response arriving
-            # outside that window (nothing currently listening) is just
-            # ignored, same as any other notification this client doesn't
-            # have an active use for right now.
-            if self._handshake_event is not None:
-                # Absolute frame-byte offset 8 -- matches the vendor app's
-                # own success check (uu(): `1==e[8+o]`, o=0 in the
-                # unencrypted case this client always uses).
-                self._handshake_success = len(frame) > 8 and frame[8] == 1
-                self._handshake_event.set()
-            return
-        if cmd1 != cfg.CMD_RUN:
-            return
-        # Absolute frame-byte offsets (not offsets into the payload) --
-        # see heater_ble_config.py's module docstring for exactly how
-        # confident to be in these two fields specifically. Deliberately
-        # NOT touching self.state.on/run_mode/run_param here -- see this
-        # module's own docstring, point 1, for why those stay purely
-        # optimistic instead of trusting this decode.
-        if len(frame) > 16:
-            self.state.now_gear = frame[13]
-            self.state.fault_code = frame[16]
-            self._mark_dirty()
+    def _apply_notification(self, cmd, param1, param2, frame):
+        # Status-push field layout is still undeciphered -- see
+        # _notify_loop's own comment for why this realistically never
+        # fires against real data yet. now_gear/fault_code decoding
+        # (frame[13]/frame[16] from the old v2.1 guess) has been dropped
+        # entirely rather than kept: those offsets were reconstructed from
+        # a frame shape this unit has now been confirmed to not actually
+        # speak at all, so they're not just unverified, they're
+        # definitely wrong for this protocol version.
+        pass
 
     # --- send ----------------------------------------------------------------
 
-    async def _write_frame(self, cmd1, cmd2, payload=b""):
+    async def _write_frame(self, cmd, param1=0, param2=0):
         if self._char is None:
             return False
+        frame = _encode_frame(self.password, cmd, param1, param2)
+        # TEMPORARY diagnostic, same reasoning as _handle_frame()'s -- lets
+        # a "frame out" line be matched up against whatever (if anything)
+        # comes back as "frame in"/"checksum mismatch"/"notify raw", and
+        # against a real session's BLE capture.
+        print("heater_ble: frame out: %s" % (frame.hex(),))
         try:
-            await self._char.write(_encode_frame(cmd1, cmd2, payload), response=False)
+            # response=True (ATT Write Request), not Write Command --
+            # confirmed via a real BLE capture that the vendor app always
+            # does this and gets a Write Response back for every write;
+            # this client previously used response=False (Write Command)
+            # and never got anything back from the real device at all --
+            # see heater_ble_config.py's frame-format comment.
+            await self._char.write(frame, response=True)
             return True
         except Exception as e:
             print("heater_ble: write failed: %s" % e)
             return False
 
-    def _apply_run(self, run_mode, run_param, remain_run_time=0):
+    def _apply_run(self, run_mode, run_param):
         """Optimistic local update (picked up on the very next redraw, see
-        aircon_ble.py's set_*() methods for the same pattern) + a
-        debounced write of the full {run_mode, run_param, remain_run_time}
-        triple -- this protocol has no delta/partial update, so every
-        change (a heat-level bump, a new auto target, a plain power-on)
-        resends the complete state, same as the vendor app itself always
-        does (see the scratch/ doc's "Adjust while running" note).
+        aircon_ble.py's set_*() methods for the same pattern) + a debounced
+        commit of mode+level/temp+power-on -- see _commit_run()'s own
+        comment for why that's three separate writes, not one combined
+        frame the way an earlier version of this (guessing at a different,
+        wrong protocol version) assumed.
 
-        power_on()/power_off()/set_heat_level()/set_auto_target() all
-        share the single "run" debounce key (not one key per field, unlike
-        AirconClient) -- they're all mutually exclusive commands to the
-        exact same underlying run_mode/run_param/remain_run_time triple,
-        so whichever one the user did most recently should always win
-        outright, not partially blend with an older pending one.
+        power_on()/set_heat_level()/set_auto_target() all share the single
+        "run" debounce key (not one key per field, unlike AirconClient) --
+        they're all mutually exclusive commands to the exact same
+        underlying run_mode/run_param, so whichever one the user did most
+        recently should always win outright, not partially blend with an
+        older pending one. power_off() also shares this key, for the same
+        reason.
 
         Refuses outright (no optimistic update either) while
         state.password_required is True -- if the device is known to be
         rejecting unauthenticated commands, applying an optimistic "on"
         update anyway would show the panel lying about what the heater is
-        actually doing.
+        actually doing. NOT currently reachable in practice -- see
+        _attempt_handshake()'s own comment: this protocol version gives no
+        way yet to observe an explicit reject, only "responded" or
+        "didn't", so password_required can only ever resolve to False.
+        Kept as a guard regardless, in case that changes once the status
+        payload format is decoded.
         """
         if self.state.password_required:
             print("heater_ble: password required, refusing to send run command")
@@ -660,12 +683,26 @@ class HeaterClient:
         self.state.run_mode = run_mode
         self.state.run_param = run_param
         self._mark_dirty()
-        remain_lo = remain_run_time & 0xFF
-        remain_hi = (remain_run_time >> 8) & 0xFF
-        payload = bytes((run_mode & 0xFF, run_param & 0xFF, remain_lo, remain_hi))
-        self._debounce("run", self._write_frame(cfg.CMD_RUN, cfg.SUB_RUN_ON, payload))
+        self._debounce("run", self._commit_run(run_mode, run_param))
 
-    async def power_on(self, run_mode=None, run_param=None, remain_run_time=0):
+    async def _commit_run(self, run_mode, run_param):
+        """Three separate writes, not one combined frame -- see
+        heater_ble_config.py's frame-format comment: this protocol's
+        CMD_ON_OFF carries no mode/gear/temp payload of its own (unlike the
+        single combined frame an earlier, wrong protocol-version guess
+        assumed); mode and gear/temp are set via their own dedicated
+        commands instead, confirmed as independent writes in the real
+        capture. Mode/param sent before the power-on write -- an
+        unverified but sensible ordering for a unit that's currently off,
+        so it (hopefully) already knows what to do the moment it powers on
+        rather than momentarily starting at some other last-remembered
+        setting.
+        """
+        await self._write_frame(cfg.CMD_SET_MODE, run_mode)
+        await self._write_frame(cfg.CMD_SET_GEAR_OR_TEMP, run_param)
+        await self._write_frame(cfg.CMD_ON_OFF, 1)
+
+    async def power_on(self, run_mode=None, run_param=None):
         """Powers on with an explicit run_mode/run_param, or -- if either is
         omitted -- resumes whatever this client last commanded (falling
         back to RUN_MODE_GEAR at HEAT_LEVEL_MIN if nothing ever has been,
@@ -679,7 +716,7 @@ class HeaterClient:
             run_mode = self.state.run_mode or cfg.RUN_MODE_GEAR
         if run_param is None:
             run_param = self.state.run_param or cfg.HEAT_LEVEL_MIN
-        self._apply_run(run_mode, run_param, remain_run_time)
+        self._apply_run(run_mode, run_param)
 
     async def power_off(self):
         if self.state.password_required:
@@ -687,7 +724,7 @@ class HeaterClient:
             return
         self.state.on = False
         self._mark_dirty()
-        self._debounce("run", self._write_frame(cfg.CMD_RUN, cfg.SUB_RUN_OFF))
+        self._debounce("run", self._write_frame(cfg.CMD_ON_OFF, 0))
 
     async def set_heat_level(self, level):
         """"heat" mode's knob dial -- manual heat output level (RUN_MODE_GEAR),
