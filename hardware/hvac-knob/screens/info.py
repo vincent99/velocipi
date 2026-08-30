@@ -7,9 +7,16 @@ the grid layout.
 """
 
 import lvgl as lv
-
 import theme
-from .widgets import _label, _make_bare_tile, _make_button_cell, _set_visible, _transparent, _wire_button
+
+from .widgets import (
+    _label,
+    _make_bare_tile,
+    _make_button_cell,
+    _set_visible,
+    _transparent,
+    _wire_button,
+)
 
 # "Just a constant somewhere" -- this screen is the only thing that reads
 # it, so it lives here rather than in its own module. Bump by hand on
@@ -42,19 +49,33 @@ class InfoTile:
         col.set_style_pad_all(theme.SPACE_LG, 0)
         col.set_flex_flow(lv.FLEX_FLOW.COLUMN)
         # main_place=START (not CENTER, used by widgets._make_tile's other
-        # caller, History): the error label below needs the title/
-        # version lines packed at the top so its flex_grow(1) can actually
-        # claim whatever's left of the tile underneath them, not share
-        # space in a centered block with them. cross_place=CENTER is what
+        # caller, History): the error label below needs the title packed
+        # at the top so its flex_grow(1) can actually claim whatever's
+        # left of the tile underneath it, not share space in a centered
+        # block with it. cross_place=CENTER is what
         # actually centers each line horizontally for a COLUMN flow --
         # confirmed on real hardware that leaving this at START (as an
         # earlier version of this file did) put every label flush against
         # the left edge of the round display instead.
-        col.set_flex_align(lv.FLEX_ALIGN.START, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER)
+        col.set_flex_align(
+            lv.FLEX_ALIGN.START, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER
+        )
 
-        title = _label(col, "AirCon", font=theme.FONT_TITLE, color=theme.COLOR_TEXT)
-        knob_version = _label(col, "Knob v%s" % KNOB_VERSION, font=theme.FONT_BUTTON_LABEL, color=theme.COLOR_TEXT_MUTED)
-        self.controller_version_label = _label(col, font=theme.FONT_BUTTON_LABEL, color=theme.COLOR_TEXT_MUTED)
+        title = _label(
+            col, "AirCon v%s" % KNOB_VERSION, font=theme.FONT_TITLE, color=theme.COLOR_TEXT
+        )
+        # Nudges the title down off the very top edge, where the round
+        # display's narrow top chord doesn't have much horizontal room --
+        # "AirCon v1.0" is wider than the old bare "AirCon" (now folded
+        # together instead of a separate "Knob v1.0" line below it, see
+        # KNOB_VERSION's own comment and this method's docstring). Deliberately
+        # modest -- SPACE_MD, not SPACE_LG -- so the two device buttons below
+        # still end up net higher than they sat in the old three-line layout
+        # (title/knob-version/buttons): dropping the whole knob-version line
+        # frees more vertical space than this alone spends, and the rest of
+        # it simply falls through to col's normal flex reflow, no separate
+        # per-button adjustment needed.
+        title.set_style_pad_top(theme.SPACE_MD, 0)
 
         # Two device buttons, AirCon then Heater -- see refresh() for what
         # each line shows; click handling is the same widgets._wire_button()
@@ -65,14 +86,28 @@ class InfoTile:
         # gives these the same border/radius/touch-feedback styling, just
         # sized for 3 lines of text instead of an icon+label pair.
         self.aircon_cell = _make_button_cell(col, _DEVICE_BUTTON_W, _DEVICE_BUTTON_H)
-        self.aircon_kind_label = _label(self.aircon_cell, "AirCon", font=theme.FONT_TINY, color=theme.COLOR_TEXT_MUTED)
-        self.aircon_name_label = _label(self.aircon_cell, font=theme.FONT_BODY, color=theme.COLOR_TEXT)
+        self.aircon_kind_label = _label(
+            self.aircon_cell,
+            "AirCon",
+            font=theme.FONT_TINY,
+            color=theme.COLOR_TEXT_MUTED,
+        )
+        self.aircon_name_label = _label(
+            self.aircon_cell, font=theme.FONT_BODY, color=theme.COLOR_TEXT
+        )
         self.aircon_status_label = _label(self.aircon_cell, font=theme.FONT_TINY)
         _wire_button(self.aircon_cell, encoder, lambda: self.on_reconnect("aircon"))
 
         self.heater_cell = _make_button_cell(col, _DEVICE_BUTTON_W, _DEVICE_BUTTON_H)
-        self.heater_kind_label = _label(self.heater_cell, "Heater", font=theme.FONT_TINY, color=theme.COLOR_TEXT_MUTED)
-        self.heater_name_label = _label(self.heater_cell, font=theme.FONT_BODY, color=theme.COLOR_TEXT)
+        self.heater_kind_label = _label(
+            self.heater_cell,
+            "Heater",
+            font=theme.FONT_TINY,
+            color=theme.COLOR_TEXT_MUTED,
+        )
+        self.heater_name_label = _label(
+            self.heater_cell, font=theme.FONT_BODY, color=theme.COLOR_TEXT
+        )
         self.heater_status_label = _label(self.heater_cell, font=theme.FONT_TINY)
         _wire_button(self.heater_cell, encoder, lambda: self.on_reconnect("heater"))
 
@@ -95,8 +130,6 @@ class InfoTile:
         # lines at full tile width and would otherwise read ragged-left.
         for label in (
             title,
-            knob_version,
-            self.controller_version_label,
             self.aircon_kind_label,
             self.aircon_name_label,
             self.aircon_status_label,
@@ -107,45 +140,69 @@ class InfoTile:
         ):
             label.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
 
+    def _refresh_device(self, client, name_label, status_label, version=None):
+        """Shared by both device rows below -- AirCon and heater are both
+        optional/skippable now (see screens/__init__.py's module
+        docstring), so their Info display is fully symmetric: a picked-and-
+        connected device shows its name + "Connected", a picked-but-
+        currently-unreachable one shows its name + "Disconnected", and a
+        never-picked/explicitly-skipped/gave-up-waiting one (App._
+        DEVICE_CONNECT_TIMEOUT_MS/_HEATER_PASSWORD_TIMEOUT_MS) shows "Not
+        configured" with no status text -- there's no device name to show
+        in that last case, and neither "Connected" nor "Disconnected"
+        would be accurate.
+
+        `version`, if given (only ever passed for the AirCon -- the heater
+        has no equivalent firmware-version field to report), is appended to
+        "Connected" as " - vX.Y" -- folded into this same line instead of
+        its own standalone label (see __init__, which used to have a
+        separate self.controller_version_label above these buttons; dropped
+        so the two device buttons could move up into that space).
+        """
+        if client.device_name:
+            name_label.set_text(client.device_name)
+            if client.state.connected:
+                text = "Connected"
+                if version:
+                    text += " - v%s" % version
+                status_label.set_text(text)
+                status_label.set_style_text_color(theme.COLOR_TEXT, 0)
+            else:
+                status_label.set_text("Disconnected")
+                status_label.set_style_text_color(theme.COLOR_DANGER, 0)
+        else:
+            name_label.set_text("Not configured")
+            status_label.set_text("")
+
     def refresh(self):
         s = self.client.state
-        self.controller_version_label.set_text("Controller v%s" % (s.controller_version or "--"))
 
-        # AirCon is always configured by the time Home (and therefore
-        # Info) is reachable at all -- screens/__init__.py's App gates
-        # Home entirely on it -- so this is really only ever showing the
-        # device's name and (in practice, almost always) "Connected"; see
-        # that module's own docstring for why the heater's equivalent
-        # varies far more in practice.
-        self.aircon_name_label.set_text(self.client.device_name or "Not configured")
-        if s.connected:
-            self.aircon_status_label.set_text("Connected")
-            self.aircon_status_label.set_style_text_color(theme.COLOR_TEXT, 0)
-        else:
-            self.aircon_status_label.set_text("Disconnected")
-            self.aircon_status_label.set_style_text_color(theme.COLOR_DANGER, 0)
+        self._refresh_device(
+            self.client,
+            self.aircon_name_label,
+            self.aircon_status_label,
+            version=s.controller_version,
+        )
+        self._refresh_device(
+            self.heater_client, self.heater_name_label, self.heater_status_label
+        )
 
+        # Combines the AirCon's own state.error with the heater reporting a
+        # nonzero fault_code (see heater_ble.HeaterState's own docstring
+        # for how confident to be in that byte) -- both show here the same
+        # way, and both together if somehow both are true at once.
         hs = self.heater_client.state
-        if self.heater_client.device_name:
-            self.heater_name_label.set_text(self.heater_client.device_name)
-            if hs.connected:
-                self.heater_status_label.set_text("Connected")
-                self.heater_status_label.set_style_text_color(theme.COLOR_TEXT, 0)
-            else:
-                self.heater_status_label.set_text("Disconnected")
-                self.heater_status_label.set_style_text_color(theme.COLOR_DANGER, 0)
-        else:
-            # Either explicitly skipped (panel_settings.get_heater_skipped())
-            # or App gave up waiting on it (screens/__init__.py's
-            # _HEATER_CONNECT_TIMEOUT_MS/_HEATER_PASSWORD_TIMEOUT_MS) --
-            # either way there's no device name to show, and neither
-            # "Connected" nor "Disconnected" would be accurate.
-            self.heater_name_label.set_text("Not configured")
-            self.heater_status_label.set_text("")
-
-        _set_visible(self.error_label, bool(s.error))
+        messages = []
         if s.error:
-            # "Error" heading first, then the actual message -- the wire
+            messages.append(s.error)
+        if hs.connected and hs.fault_code:
+            messages.append("Heater fault #%d" % hs.fault_code)
+
+        _set_visible(self.error_label, bool(messages))
+        if messages:
+            # "Error" heading first, then the actual message(s) -- the wire
             # value in state.error is just the bare message text, no label
-            # of its own.
-            self.error_label.set_text("Error\n%s" % s.error)
+            # of its own; a heater fault has no decoded meaning at all yet
+            # (see heater_ble_config.py's NOTIFY_OFF_FAULT comment), just a
+            # raw code.
+            self.error_label.set_text("Error\n%s" % "\n".join(messages))

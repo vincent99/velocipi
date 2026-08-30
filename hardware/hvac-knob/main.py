@@ -102,16 +102,6 @@ _LED_RED = (hal.LED_MAX_PCT, 0, 0)
 _LED_BLUE = (0, 0, hal.LED_MAX_PCT)
 _LED_WHITE = (hal.LED_MAX_PCT, hal.LED_MAX_PCT, hal.LED_MAX_PCT)
 
-# Hold the knob's push-button continuously for this long, on any screen, and
-# main()'s loop reboots the panel -- a physical-only escape hatch for a
-# wedged UI that doesn't depend on BLE, touch, or anything else that might
-# itself be part of what's wedged. Deliberately handled here at the
-# top-level loop rather than inside screens/, since it needs to work
-# regardless of which tile is active or whether a touch point is also down
-# (unlike the Home tile's mode/recirc buttons, which require touch+button
-# together -- see screens/widgets.py's _wire_button docstring).
-_REBOOT_HOLD_MS = 5000
-
 # See _init_watchdog(). Kept as a module global (rather than threaded
 # through every function that might want to feed it) because machine.WDT
 # can't be stopped once created, so there's only ever at most one for the
@@ -227,16 +217,21 @@ def _show_splash():
 def _led_rgb_for(state, brightness_pct):
     """Same priority as home.HomeTile.refresh()'s row1 fill logic (error,
     then compressor-on, then neutral) -- except neutral is solid white
-    here rather than transparent/off, since these are physical always-lit
-    status LEDs, not a UI highlight that should disappear when there's
-    nothing to call out, and a lost BLE connection counts as an error too
-    (row1 doesn't need that case explicitly -- DisconnectedTile takes over
-    the whole display whenever state.connected is False, see
-    screens/__init__.py's App.refresh(), so row1 isn't even visible then;
-    the LEDs have no such "different screen" to fall back on). Scaled by
-    brightness_pct (clamped to hal.LED_MIN_PCT/hal.LED_MAX_PCT -- see
-    hal.get_brightness_pct()) so the LEDs track the same dimming the Pi
-    pushes down for the LCD backlight, not a fixed always-max brightness.
+    here rather than transparent/off, since absent a user-dialed-down
+    brightness_pct these are physical always-lit status LEDs, not a UI
+    highlight that should disappear when there's nothing to call out, and a
+    lost BLE connection counts as an error too (row1 doesn't need that case
+    explicitly -- DisconnectedTile takes over the whole display whenever
+    state.connected is False, see screens/__init__.py's App.refresh(), so
+    row1 isn't even visible then; the LEDs have no such "different screen"
+    to fall back on). Scaled by brightness_pct (0-100, hal.
+    get_led_brightness_pct() -- the neopixels' own user-set brightness, see
+    screens.settings.SettingsTile's "LEDs" field -- clamped there already,
+    not re-clamped here) -- deliberately independent of the LCD backlight's
+    own brightness (hal.get_brightness_pct(), which the Pi drives instead,
+    see serial_link.py's _cmd_set_brightness()); 0 here means the LEDs go
+    fully dark, not just dim, which the backlight's own equivalent
+    (_BACKLIGHT_MIN_PCT) deliberately never allows.
     """
     if not state.connected or state.error:
         color = _LED_RED
@@ -244,8 +239,7 @@ def _led_rgb_for(state, brightness_pct):
         color = _LED_BLUE
     else:
         color = _LED_WHITE
-    pct = min(max(brightness_pct, hal.LED_MIN_PCT), hal.LED_MAX_PCT)
-    return tuple(c * pct // 100 for c in color)
+    return tuple(c * brightness_pct // 100 for c in color)
 
 
 async def main():
@@ -256,6 +250,14 @@ async def main():
 
     rgb_leds = hal.init_rgb_leds()
     _checkpoint("rgb leds initialized")
+
+    # Loads the persisted neopixel brightness (screens.settings.
+    # SettingsTile's "LEDs" field, panel_settings.get_led_brightness_pct(),
+    # default 100) into hal's live value before the main loop's first
+    # _led_rgb_for() call -- without this the LEDs would sit at hal.py's own
+    # module-load-time default (also 100, but only coincidentally matching
+    # what's actually persisted) until the very first Settings-screen edit.
+    hal.set_led_brightness_pct(panel_settings.get_led_brightness_pct())
 
     lv.init()
     _checkpoint("lv.init()")
@@ -343,7 +345,6 @@ async def main():
     last_heartbeat_ms = 0
     heartbeat_on = True  # matches init_board_power()'s initial state
     last_led_rgb = None  # forces the first tick's LED write to actually happen
-    btn_hold_start_ms = None
     while True:
         now = time.ticks_ms()
         if _wdt is not None:
@@ -362,20 +363,6 @@ async def main():
             last_heartbeat_ms = now
             heartbeat_on = not heartbeat_on
             heartbeat_pin.value(0 if heartbeat_on else 1)  # active-low
-
-        # Long-press-to-reboot: see _REBOOT_HOLD_MS's comment above. A
-        # plain continuous read of button_pressed() (not an edge-detected
-        # one like App.poll_input() does for Connect/Disconnected's bare
-        # knob push), tracked independently of anything screens/ is doing
-        # with the same button state this same tick.
-        if encoder.button_pressed():
-            if btn_hold_start_ms is None:
-                btn_hold_start_ms = now
-            elif time.ticks_diff(now, btn_hold_start_ms) >= _REBOOT_HOLD_MS:
-                print("main: knob held for %dms, rebooting" % _REBOOT_HOLD_MS)
-                machine.reset()
-        else:
-            btn_hold_start_ms = None
 
         # Polled every loop iteration (not just on the ~250ms refresh
         # cadence below) so turning the knob feels immediate: it reads and
@@ -402,7 +389,7 @@ async def main():
         # unless it actually changed) rather than only on the screen's own
         # refresh cadence above, so a brightness push takes effect on the
         # LEDs immediately instead of waiting for the next state change.
-        led_rgb = _led_rgb_for(client.state, hal.get_brightness_pct())
+        led_rgb = _led_rgb_for(client.state, hal.get_led_brightness_pct())
         if led_rgb != last_led_rgb:
             last_led_rgb = led_rgb
             rgb_leds.fill(led_rgb)

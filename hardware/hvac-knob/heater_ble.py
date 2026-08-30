@@ -16,18 +16,21 @@ for-byte port of anything -- there's no Go/C++ reference implementation for
 this protocol anywhere in this repo, unlike the AirCon side.
 
 Three real differences from AirconClient worth knowing before touching this:
-  1. No read-back. AirconClient's set_*() methods write, then re-read the
-     characteristic to reconcile self.state with whatever the controller
-     actually accepted (e.g. a clamped setpoint). This protocol's single
-     characteristic has no such request/response read semantics -- writes
-     are fire-and-forget (ATT-acknowledged, see heater_ble_config.py's
-     frame-format comment on Write Request vs. Write Command, but not
-     reconciled at this protocol's own application layer), and status only
-     ever arrives as an unsolicited notification whose payload format
-     isn't decoded yet (see _notify_loop()). So state.on/run_mode/
-     run_param are purely optimistic (whatever this client itself last
-     commanded), not reconciled against the device at all -- see
-     HeaterState's own docstring.
+  1. No read-back, mostly. AirconClient's set_*() methods write, then
+     re-read the characteristic to reconcile self.state with whatever the
+     controller actually accepted (e.g. a clamped setpoint). This
+     protocol's single characteristic has no such request/response read
+     semantics -- writes are fire-and-forget (ATT-acknowledged, see
+     heater_ble_config.py's frame-format comment on Write Request vs.
+     Write Command, but not reconciled at this protocol's own application
+     layer), and status only arrives as an unsolicited notification
+     instead (decoded -- see heater_ble_config.py's NOTIFY_XOR_KEY comment
+     for the full field layout and how confident to be in each one).
+     state.on is reconciled against that decode (see _apply_status());
+     run_mode/run_param stay purely optimistic (whatever this client
+     itself last commanded) since the status payload's mode/gear-or-temp
+     fields aren't confidently decoded yet -- see HeaterState's own
+     docstring.
   2. Pairing is opt-in and non-blocking (see screens/__init__.py's App):
      unlike the AirCon controller, which gates the whole panel (Home is
      unreachable without one), a missing/disconnected heater just means
@@ -48,20 +51,13 @@ Three real differences from AirconClient worth knowing before touching this:
      a wrong password, only "responded" or "didn't" -- see
      _attempt_handshake()'s own comment.
 
-NOT hardware-verified, in addition to everything heater_ble_config.py
-already flags: whether this board's BLE stack (aioble/the underlying
-`bluetooth` module in this lvgl_micropython build) can hold two independent
-central connections open at once at all -- one to the AirCon controller,
-one to this heater. ../README.md's "Still open" list already documents a
-DIFFERENT single-central constraint (the AirCon controller itself accepting
-only one central at a time, panel vs. the Pi) -- this is a separate
-concern: whether the ESP32's *own* radio/stack can be central to two
-different peripherals simultaneously. Most NimBLE-based ports support this
-(configurable connection limit, commonly >1), but this specific custom
-firmware build's config isn't confirmed. If pairing a heater makes the
-AirCon connection itself flaky or vice versa, this is the first thing to
-suspect -- check with `make repl` by watching both clients' connect/
-disconnect logs together.
+Confirmed on real hardware: this board's BLE stack (aioble/the underlying
+`bluetooth` module in this lvgl_micropython build) holds two independent
+central connections open at once fine -- one to the AirCon controller, one
+to this heater -- with neither connection making the other flaky.
+../README.md's "Still open" list documents a DIFFERENT single-central
+constraint (the AirCon controller itself accepting only one central at a
+time, panel vs. the Pi); that one's unrelated and still applies.
 """
 
 import asyncio
@@ -94,8 +90,12 @@ _DEBOUNCE_MS = 600
 # turns out slower than this.
 _HANDSHAKE_TIMEOUT_MS = 3000
 
-# See scan_for_heaters()'s per-result diagnostic below.
-_DEBUG_SCAN_RESULTS = False
+# See scan_for_heaters()'s per-result diagnostic below. Temporarily True
+# again while debugging heater-sim's own name-matching being unreliable
+# (see that method's own docstring's FALLBACK paragraph) -- flip back to
+# False once that's confirmed fixed (or the real cause turns out to be
+# something else entirely and this narrows it down).
+_DEBUG_SCAN_RESULTS = True
 
 
 def _checksum(buf):
@@ -129,20 +129,40 @@ def _encode_frame(password, cmd, param1=0, param2=0):
 class HeaterState:
     def __init__(self):
         self.connected = False
-        # Optimistic only -- whatever this client itself last commanded,
-        # not reconciled against the device (see this module's own
-        # docstring, point 1). Starts at the safe "definitely off" default
-        # rather than guessing.
+        # Starts at the safe "definitely off" default rather than
+        # guessing. Optimistically set by this client's own set_*() calls,
+        # same as run_mode/run_param below, but -- unlike those two -- also
+        # reconciled against the device's own reported power state on every
+        # status push (see HeaterClient._apply_status()): decoded, cheap,
+        # and means a power change made some other way (the physical
+        # remote, a fault shutdown) shows up here too, not just changes
+        # this client itself made.
         self.on = False
+        # NOT confirmed against real hardware -- see _apply_status()'s own
+        # comment. Best-guess placeholder for the post-shutdown "purging
+        # residual heat before it's fully off" state these heaters
+        # commonly have -- unlike a typical interlock, this unit accepts a
+        # fresh power-on command even while cooling off (confirmed), it
+        # just takes it a few minutes to finish the cycle on its own if
+        # left alone. screens/home.py shows an indicator on the main dial
+        # while this is true, purely informational.
+        self.cooling_off = False
         self.run_mode = None  # last-commanded cfg.RUN_MODE_* constant, or None before ever set
         self.run_param = None  # last-commanded gear level (RUN_MODE_GEAR) or target deg C (RUN_MODE_THERMOSTAT)
-        # Best-effort telemetry decoded from the device's own status
-        # notifications (see HeaterClient._apply_notification()) -- unlike
-        # on/run_mode/run_param above, these two are NOT fed back into any
-        # control decision, only shown if screens/home.py wants to display
-        # them, precisely because this protocol's run_state/fault encoding
-        # isn't confidently understood yet (see heater_ble_config.py).
+        # Informational only, decoded from the device's own status pushes
+        # (see HeaterClient._apply_status()) -- NOT fed back into any
+        # control decision (see run_mode/run_param above for the fields
+        # that matter for control), only shown if screens/home.py wants to
+        # display it.
         self.now_gear = None
+        # 0 = no fault, decoded from NOTIFY_OFF_FAULT -- see that
+        # constant's own comment in heater_ble_config.py for exactly how
+        # confident to be in this (short version: the byte position is a
+        # guess, "confirmed" only in the narrow sense that it was 0x00 in
+        # every real sample captured so far -- no capture has ever caught
+        # an actual fault to check the *nonzero* case against). Shown as
+        # an error on the panel the same way the AirCon's own state.error
+        # is -- see screens/home.py's refresh() and screens/info.py.
         self.fault_code = None
         # Tri-state, set by HeaterClient._attempt_handshake() -- see this
         # module's docstring, point 3, for the detection heuristic:
@@ -344,11 +364,31 @@ class HeaterClient:
     async def scan_for_heaters(self, duration_ms=_PICKER_SCAN_DURATION_MS):
         """Scans for any BLE peripheral whose advertised name matches
         cfg.NAME_PREFIX (and none of cfg.NAME_EXCLUDE_PREFIXES) -- not by
-        service UUID, unlike AirconClient.scan_for_aircons(), since this
-        heater's service UUID is a generic one shared with unrelated
-        devices (see heater_ble_config.py's module docstring). Same
-        (found, other_count) return shape as scan_for_aircons() though, so
-        screens.ConnectTile can drive either client identically.
+        service UUID as the primary filter, unlike AirconClient.
+        scan_for_aircons(), since this heater's service UUID (cfg.
+        SERVICE_UUID, 0xFFE0) is a generic one shared with unrelated
+        devices in the wild (see heater_ble_config.py's module docstring).
+        Same (found, other_count) return shape as scan_for_aircons() though,
+        so screens.ConnectTile can drive either client identically.
+
+        FALLBACK: also matches any device advertising cfg.SERVICE_UUID
+        whose name *doesn't* match the prefix (including no name at all) --
+        added because ../heater-sim/ (a `bless`/CoreBluetooth peripheral,
+        see its own README) was confirmed NOT reliably reaching this scan
+        by name alone on real hardware, despite advertising a short
+        (<10-char) name the same proven way ../aircon-sim/ does (see
+        heater-sim/config.py's BLE_DEVICE_NAME comment) -- CoreBluetooth's
+        macOS peripheral-mode advertising is suspected (not confirmed) to
+        sometimes drop/mangle the local name specifically for a service
+        UUID in the SIG-reserved 16-bit range (0xFFE0, unlike aircon-sim's
+        own fully-custom 128-bit one), which _DEBUG_SCAN_RESULTS below
+        would show directly if re-enabled. A real heater unit's name is
+        controlled by its own firmware, not this workaround, so this only
+        risks pulling in unrelated real-world 0xFFE0 peripherals (cheap
+        "HM-10 style" BLE modules exist for all sorts of unrelated
+        products) as extra, harmless entries in the picker's list --
+        nothing here auto-selects any of them, the user still has to pick
+        one off the roller.
         """
         seen = set()
         found = []
@@ -367,27 +407,47 @@ class HeaterClient:
                         addr = bytes(result.device.addr)
                     except Exception:
                         addr = None
+                    try:
+                        svcs = list(result.services())
+                    except Exception as e:
+                        svcs = []
+                        svcs_err = e
+                    else:
+                        svcs_err = None
                     # Per-result diagnostic (name/addr/advertised services)
                     # confirmed scan_for_heaters() reliably finding a real
                     # heater on real hardware -- disabled now that it's
                     # served its purpose, not deleted, in case a future scan
                     # issue needs the same visibility again. Flip
                     # _DEBUG_SCAN_RESULTS to re-enable over `make repl`
-                    # without needing to reconstruct this from scratch.
+                    # without needing to reconstruct this from scratch --
+                    # this is also the fastest way to confirm/refute the
+                    # macOS-advertising theory in this method's own
+                    # docstring, by checking whether a running heater-sim
+                    # ever shows up here with an empty/wrong name but
+                    # svcs=[UUID('0000ffe0-...')].
                     if _DEBUG_SCAN_RESULTS:
                         addr_str = addr.hex() if addr is not None else "?"
-                        try:
-                            svcs = list(result.services())
-                        except Exception as e:
-                            svcs = "?(%s)" % e
-                        print("heater_ble: scan result: name=%r addr=%s svcs=%s" % (name, addr_str, svcs))
-                    matches = name and name.startswith(cfg.NAME_PREFIX) and not any(
+                        print(
+                            "heater_ble: scan result: name=%r addr=%s svcs=%s"
+                            % (name, addr_str, svcs if svcs_err is None else "?(%s)" % svcs_err)
+                        )
+                    name_matches = name and name.startswith(cfg.NAME_PREFIX) and not any(
                         name.startswith(p) for p in cfg.NAME_EXCLUDE_PREFIXES
                     )
-                    if matches:
-                        if name not in seen:
-                            seen.add(name)
-                            found.append((name, result.device))
+                    svc_matches = not name_matches and _SVC in svcs
+                    if name_matches or svc_matches:
+                        # Falls back to the address for the roller's display
+                        # text when svc_matches fired with no usable name --
+                        # see this method's own docstring's FALLBACK
+                        # paragraph. Never actually empty in practice (name
+                        # is falsy in exactly the cases addr took over for),
+                        # but "" would otherwise be indistinguishable from
+                        # "no entry at all" on screens.ConnectTile's roller.
+                        display_name = name or ("Heater (%s)" % (addr.hex() if addr else "?"))
+                        if display_name not in seen:
+                            seen.add(display_name)
+                            found.append((display_name, result.device))
                         continue
                     if addr is None or addr not in other_addrs:
                         if addr is not None:
@@ -555,25 +615,16 @@ class HeaterClient:
                 print("heater_ble: notify loop ending: %s" % e)
                 return
             # TEMPORARY diagnostic -- raw bytes as they arrive, before
-            # _drain_frames()'s HEAD_1/HEAD_2 resync below (built for this
-            # protocol's own *outgoing* v1 frame shape) silently discards
-            # anything that doesn't match. Confirmed via a real BLE capture
-            # that this unit's actual status notifications reliably DO
-            # arrive now (see _connect_and_run's MTU-exchange comment --
-            # that was the actual blocker, not this protocol version) but
-            # DON'T start with HEAD_1/HEAD_2 at all -- they're a still-
-            # undeciphered ~50-byte payload starting 0xda 0x07 instead, so
-            # _drain_frames()/_handle_frame()/_apply_notification() below
-            # still never fire on real data. Left in place (rather than
-            # ripped out) so a future decode of that payload has this
-            # raw-bytes trail to work from -- this is currently the only
-            # way any of this device's real responses are visible at all.
+            # _drain_frames()'s resync below. Kept even now that the format
+            # is decoded: cheap, and still the fastest way to eyeball
+            # what's coming in without waiting on _apply_status()'s own
+            # (much narrower) prints.
             print("heater_ble: notify raw: %s" % (bytes(data).hex(),))
             # Signals _attempt_handshake()'s probe on ANY arrival, not on a
-            # successfully-parsed frame -- see that method's own comment
-            # for why: the real notify payload doesn't fit this protocol's
-            # v1 frame shape (below) at all, so waiting for
-            # _apply_notification() to fire would never resolve.
+            # successfully-parsed frame -- simpler and just as reliable
+            # given every real notification observed so far has been a
+            # well-formed status push; no observed case yet where "arrived
+            # but didn't parse" needs telling apart from "didn't arrive".
             if self._handshake_event is not None:
                 self._handshake_success = True
                 self._handshake_event.set()
@@ -585,45 +636,67 @@ class HeaterClient:
                 buf = bytearray()
 
     def _drain_frames(self, buf):
-        """Looks for this protocol's own v1 frame shape (HEAD_1/HEAD_2,
-        fixed 8 bytes) inside the notify stream -- see _notify_loop's own
-        comment for why this never matches anything on real hardware, even
-        though real notifications do reliably arrive now (the device's
-        actual status payload just doesn't use this shape at all). Kept
-        rather than removed: harmless no-op against real data as it
-        stands, and immediately useful again if a future decode finds this
-        protocol's request shape reused for responses after all.
+        """Looks for this protocol's status-push shape (NOTIFY_RAW_HEAD_1/2,
+        fixed NOTIFY_LEN bytes, XOR-obfuscated -- see heater_ble_config.py's
+        NOTIFY_XOR_KEY comment for the full field layout and how confident
+        to be in each one) inside the notify stream. Resyncs on the raw
+        (pre-XOR) header bytes rather than decoding incrementally -- cheap,
+        and that header is fixed regardless of the rest of the payload (see
+        NOTIFY_RAW_HEAD_1/2's own comment for why).
         """
         while True:
-            # Resync: drop leading bytes until buf starts with HEAD_1/
-            # HEAD_2 or is too short to tell yet.
-            while len(buf) >= 2 and not (buf[0] == cfg.HEAD_1 and buf[1] == cfg.HEAD_2):
+            while len(buf) >= 2 and not (
+                buf[0] == cfg.NOTIFY_RAW_HEAD_1 and buf[1] == cfg.NOTIFY_RAW_HEAD_2
+            ):
                 del buf[0]
-            if len(buf) < 8:
+            if len(buf) < cfg.NOTIFY_LEN:
                 return  # not enough yet for a full fixed-size frame
-            frame = bytes(buf[:8])
-            del buf[:8]
-            self._handle_frame(frame)
+            frame = bytes(buf[: cfg.NOTIFY_LEN])
+            del buf[: cfg.NOTIFY_LEN]
+            self._handle_status_frame(frame)
 
-    def _handle_frame(self, frame):
-        if _checksum(frame) != frame[7]:
-            # TEMPORARY diagnostic (see _write_frame()'s matching one).
-            print("heater_ble: checksum mismatch, dropping frame: %s" % (bytes(frame).hex(),))
-            return
-        # TEMPORARY diagnostic, same reasoning as above.
-        print("heater_ble: frame in: %s" % (bytes(frame).hex(),))
-        self._apply_notification(frame[4], frame[5], frame[6], frame)
+    def _handle_status_frame(self, frame):
+        decoded = bytes(
+            b ^ cfg.NOTIFY_XOR_KEY[i % len(cfg.NOTIFY_XOR_KEY)] for i, b in enumerate(frame)
+        )
+        # TEMPORARY diagnostic -- remove once this decode's been live
+        # against real hardware long enough to trust without watching it.
+        print("heater_ble: status: %s" % (decoded.hex(),))
+        self._apply_status(decoded)
 
-    def _apply_notification(self, cmd, param1, param2, frame):
-        # Status-push field layout is still undeciphered -- see
-        # _notify_loop's own comment for why this realistically never
-        # fires against real data yet. now_gear/fault_code decoding
-        # (frame[13]/frame[16] from the old v2.1 guess) has been dropped
-        # entirely rather than kept: those offsets were reconstructed from
-        # a frame shape this unit has now been confirmed to not actually
-        # speak at all, so they're not just unverified, they're
-        # definitely wrong for this protocol version.
-        pass
+    def _apply_status(self, decoded):
+        """Reconciles state.on against the device's own reported power
+        state (unlike run_mode/run_param, which stay purely optimistic --
+        see this module's own docstring, point 1 -- on/off is cheap to
+        reconcile now that it's decoded, and doing so means a manual power
+        change made some other way -- the physical remote, a fault
+        shutdown -- shows up here too, not just changes this client itself
+        made). now_gear is informational only, never fed back into a
+        control decision -- see HeaterState's own docstring.
+
+        state.cooling_off: NOT confirmed against real hardware -- only 0
+        (off) and 1 (on) have ever actually been observed in
+        NOTIFY_OFF_ON's byte across every real capture so far, since none
+        of them happened to catch a real cool-off period. Best-guess
+        placeholder: treats any *other* value as "cooling off" rather than
+        picking one specific number, on the theory that whatever it turns
+        out to be, it's very unlikely to also be 0 or 1. Confirm (and
+        replace with the real value) next time real hardware is on hand:
+        power the unit on then off and watch heater_ble: status: ... 's
+        NOTIFY_OFF_ON byte during the minutes afterward.
+
+        state.fault_code: also NOT confirmed -- see heater_ble_config.py's
+        NOTIFY_OFF_FAULT comment for exactly what the guess is based on
+        (that byte's always been 0x00, i.e. no real fault has ever been
+        captured to confirm the nonzero case against).
+        """
+        s = self.state
+        on_byte = decoded[cfg.NOTIFY_OFF_ON]
+        s.on = on_byte == 1
+        s.cooling_off = on_byte not in (0, 1)
+        s.fault_code = decoded[cfg.NOTIFY_OFF_FAULT]
+        s.now_gear = decoded[cfg.NOTIFY_OFF_GEAR] + 1
+        self._mark_dirty()
 
     # --- send ----------------------------------------------------------------
 
@@ -631,10 +704,10 @@ class HeaterClient:
         if self._char is None:
             return False
         frame = _encode_frame(self.password, cmd, param1, param2)
-        # TEMPORARY diagnostic, same reasoning as _handle_frame()'s -- lets
-        # a "frame out" line be matched up against whatever (if anything)
-        # comes back as "frame in"/"checksum mismatch"/"notify raw", and
-        # against a real session's BLE capture.
+        # TEMPORARY diagnostic, same reasoning as _handle_status_frame()'s
+        # -- lets a "frame out" line be matched up against whatever comes
+        # back as "notify raw"/"status", and against a real session's BLE
+        # capture.
         print("heater_ble: frame out: %s" % (frame.hex(),))
         try:
             # response=True (ATT Write Request), not Write Command --

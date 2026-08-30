@@ -92,78 +92,72 @@ class SimBLEServer:
         raw = bytes(value)
         logger.info("write request: %s", raw.hex())
         try:
-            cmd1, cmd2, payload = protocol.decode_frame(raw)
+            password, cmd, param1, param2 = protocol.decode_frame(raw)
         except protocol.FrameError as e:
             logger.warning("bad frame, ignoring: %s", e)
             return
-        try:
-            self._dispatch(cmd1, cmd2, payload)
-        except Exception:
-            logger.exception("dispatch failed for cmd1=%d cmd2=%d payload=%r", cmd1, cmd2, payload)
-
-    def _dispatch(self, cmd1, cmd2, payload):
-        if cmd1 == config.CMD_RUN:
-            if cmd2 == config.SUB_RUN_OFF:
-                logger.info("-> power off")
-                self.ctrl.power_off()
-            elif cmd2 == config.SUB_RUN_ON:
-                if len(payload) < 4:
-                    logger.warning("SUB_RUN_ON payload too short: %r", payload)
-                    return
-                run_mode, run_param = payload[0], payload[1]
-                remain_run_time = payload[2] | (payload[3] << 8)
-                logger.info(
-                    "-> power on run_mode=%d run_param=%d remain_run_time=%d",
-                    run_mode,
-                    run_param,
-                    remain_run_time,
-                )
-                self.ctrl.power_on(run_mode, run_param, remain_run_time)
-            else:
-                logger.info("unhandled CMD_RUN cmd2=%d payload=%r", cmd2, payload)
-        elif cmd1 == config.CMD_INFO and cmd2 == config.SUB_INFO_MAC:
-            # Real device would answer with MAC/HW/SW version/part number/
-            # mode-capability bitmask -- heater_ble.py's client never sends
-            # this query (see its module docstring, point 1: no read-back),
-            # so there's nothing exercising this path today. Logged, not
-            # implemented, so it's visible if that ever changes.
-            logger.info("CMD_INFO/SUB_INFO_MAC query received (not implemented in this sim)")
-        elif cmd1 == config.CMD_ATTR and cmd2 == config.SUB_ATTR_QUERY:
-            logger.info("CMD_ATTR/SUB_ATTR_QUERY query received (not implemented in this sim)")
-        elif cmd1 == config.CMD_HANDSHAKE and cmd2 == config.SUB_HANDSHAKE:
-            self._handle_handshake(payload)
-        else:
-            logger.info("unhandled cmd1=%d cmd2=%d payload=%r", cmd1, cmd2, payload)
-
-    def _handle_handshake(self, payload):
-        """CMD_HANDSHAKE/SUB_HANDSHAKE -- see ../hvac-knob/heater_ble.py's
-        _attempt_handshake()/_encode_password() for the client side of
-        this exact exchange (this sim's payload decoding is that
-        function's inverse).
-
-        If this sim wasn't started with --password (config.ctrl.password
-        is None), it deliberately does NOT respond at all here, matching
-        how most real units apparently behave (never seen replying to this
-        command) and exercising the client's "no response at all -> this
-        unit must not gate on a password" heuristic -- see that module's
-        own docstring, point 3. Only responds (accept or explicit reject)
-        when this sim was actually configured to require one.
-        """
-        if self.ctrl.password is None:
+        # Every frame carries a password in this protocol version -- see
+        # protocol.py's decode_frame() docstring -- checked here, per
+        # frame, rather than via a dedicated handshake command this
+        # protocol version doesn't have. NOT hardware-verified what a real
+        # unit actually does on a wrong password (silently ignore, like
+        # this does? some explicit reject we just can't decode yet? see
+        # ../hvac-knob/heater_ble.py's module docstring, point 3) -- this
+        # is a documented guess, not a confirmed behavior.
+        if self.ctrl.password is not None and password != self.ctrl.password:
             logger.info(
-                "CMD_HANDSHAKE received -- no --password configured for this "
-                "sim, not responding at all (see this method's own docstring)"
+                "wrong password (got %04d, want %04d) -- ignoring, no response",
+                password,
+                self.ctrl.password,
             )
             return
-        if len(payload) < 2:
-            logger.warning("CMD_HANDSHAKE payload too short: %r", payload)
+        try:
+            self._dispatch(cmd, param1, param2)
+        except Exception:
+            logger.exception("dispatch failed for cmd=%d param1=%d param2=%d", cmd, param1, param2)
+
+    def _dispatch(self, cmd, param1, param2):
+        if cmd == config.CMD_READ:
+            logger.info("-> read/poll")
+        elif cmd == config.CMD_SET_MODE:
+            logger.info("-> set mode=%d", param1)
+            self.ctrl.set_mode(param1)
+        elif cmd == config.CMD_ON_OFF:
+            if param1:
+                logger.info("-> power on")
+                self.ctrl.power_on()
+            else:
+                logger.info("-> power off")
+                self.ctrl.power_off()
+        elif cmd == config.CMD_SET_GEAR_OR_TEMP:
+            logger.info("-> set gear/temp=%d", param1)
+            self.ctrl.set_gear_or_temp(param1)
+        else:
+            logger.info("unhandled cmd=%d param1=%d param2=%d (not implemented in this sim)", cmd, param1, param2)
             return
-        # Inverse of heater_ble.py's _encode_password(): byte0 = pw % 100,
-        # byte1 = pw // 100.
-        candidate = payload[1] * 100 + payload[0]
-        ok = candidate == self.ctrl.password
-        logger.info("CMD_HANDSHAKE candidate=%04d -- %s", candidate, "accepted" if ok else "REJECTED")
-        self._send_frame(protocol.encode_response(config.CMD_HANDSHAKE, config.SUB_HANDSHAKE, bytes([1 if ok else 0])))
+        # Every recognized command gets an immediate status push in
+        # response -- confirmed in the real capture for all four of these
+        # (CMD_READ included: it's a poll, and every real one observed was
+        # followed shortly by a notification).
+        self.push(force=True, cmd_echo=cmd)
+
+    # ── push state → characteristic, notify only what changed ─────────────
+
+    def push(self, force=False, cmd_echo=config.CMD_READ):
+        """cmd_echo defaults to CMD_READ for the background loop's
+        unprompted periodic pushes (see controller.py's run()), which have
+        no real triggering command to echo -- NOT hardware-verified what a
+        real unit's own unprompted pushes actually echo in that byte, if
+        anything in particular; see protocol.py's encode_status() for
+        which fields this sim actually encodes vs. leaves zeroed.
+        """
+        s = self.ctrl.get_state()
+        data = protocol.encode_status(cmd_echo, s["on"], s["now_gear"], fault_code=s["fault_code"])
+
+        if not force and self._last_sent == data:
+            return
+        self._last_sent = data
+        self._send_frame(data)
 
     def _send_frame(self, frame):
         char = self.server.get_characteristic(config.BLE_CHAR_UUID)
@@ -171,39 +165,3 @@ class SimBLEServer:
             return
         char.value = bytearray(frame)
         self.server.update_value(config.BLE_SVC_UUID, config.BLE_CHAR_UUID)
-
-    # ── push state → characteristic, notify only what changed ─────────────
-
-    def push(self, force=False):
-        s = self.ctrl.get_state()
-        # Absolute frame-byte offsets 8-17, matching
-        # ../hvac-knob/heater_ble_config.py's documented status-frame
-        # layout (mainboard_type@8, mesh_sub_devices_num@9, run_state@10,
-        # run_mode@11, run_param@12, now_gear@13, run_step@14,
-        # fault_display@15, fault_code@16, temp_unit@17) -- this sim only
-        # actually varies now_gear/fault_code/run_mode/run_param (the
-        # fields heater_ble.py's client either reads directly off a
-        # notification or that are simply useful to see in this sim's own
-        # logs); the rest are fixed placeholders. See
-        # heater_ble.py's _apply_notification() for exactly which of these
-        # the client itself currently consumes (now_gear and fault_code
-        # only -- run_state/run_mode/run_param stay client-side-optimistic
-        # by design, see that module's docstring point 1).
-        payload = bytearray(10)
-        payload[0] = 0  # mainboard_type -- unused by this sim
-        payload[1] = 0  # mesh_sub_devices_num -- unused by this sim
-        payload[2] = 1 if s["on"] else 0  # run_state -- NOT hardware-verified encoding, see heater_ble_config.py
-        payload[3] = s["run_mode"] & 0xFF
-        payload[4] = s["run_param"] & 0xFF
-        payload[5] = s["now_gear"] & 0xFF
-        payload[6] = 0  # run_step -- unused by this sim
-        payload[7] = 0  # fault_display -- unused by this sim
-        payload[8] = s["fault_code"] & 0xFF
-        payload[9] = 0  # temp_unit -- 0 = Celsius, this sim always reports Celsius
-
-        data = bytearray(protocol.encode_response(config.CMD_RUN, 0, bytes(payload)))
-
-        if not force and self._last_sent == data:
-            return
-        self._last_sent = data
-        self._send_frame(data)

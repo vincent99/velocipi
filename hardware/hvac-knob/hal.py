@@ -38,15 +38,32 @@ _POWER_LIGHT_PIN = 40
 _LED_PIN = 48
 _LED_COUNT = 5
 
-# Public (no leading underscore): main.py's _led_rgb_for() also uses these
+# Public (no leading underscore): main.py's _led_rgb_for() also uses this
 # to scale its red/blue/white base colors -- full 0-255 RGB output measured
 # painfully bright in person, so each channel is capped at LED_MAX_PCT
 # instead, which conveniently also makes 100% brightness == rgb(100,100,100),
 # a direct 1:1 read against the brightness percentage itself.
-# LED_MIN_PCT keeps them from going fully dark at the lowest brightness
-# setting, same reasoning as _BACKLIGHT_MIN_PCT below.
-LED_MIN_PCT = 1
 LED_MAX_PCT = 100
+
+# The 5 status LEDs' own brightness (0-100), independent of the LCD
+# backlight's (_brightness_pct/set_brightness() below, which the Pi drives
+# over serial_link -- see serial_link.py's _cmd_set_brightness()) --
+# user-set locally via screens.settings.SettingsTile's "LEDs" field and
+# persisted via panel_settings.get/set_led_brightness_pct(). Unlike the
+# backlight (which floors at _BACKLIGHT_MIN_PCT so the screen never goes
+# fully black), 0 here is a real, selectable "LEDs off" -- explicitly
+# requested, not an oversight, so there's no floor constant to match
+# _BACKLIGHT_MIN_PCT's.
+_led_brightness_pct = 100
+
+
+def set_led_brightness_pct(pct):
+    global _led_brightness_pct
+    _led_brightness_pct = min(max(pct, 0), LED_MAX_PCT)
+
+
+def get_led_brightness_pct():
+    return _led_brightness_pct
 
 WIDTH = 240
 HEIGHT = 240
@@ -148,10 +165,12 @@ def _init_touch():
 _BACKLIGHT_MIN_PCT = 1
 _BACKLIGHT_MAX_PCT = 100
 
-# Last percentage passed to set_brightness() -- main.py's _led_rgb_for()
-# scales the RGB status LEDs by this too (see get_brightness_pct()), so
-# they dim/brighten together with the backlight instead of staying at a
-# fixed, possibly painfully-bright level in a dark cabin.
+# Last percentage passed to set_brightness() -- the LCD backlight only.
+# Deliberately NOT read by main.py's _led_rgb_for() (see
+# set_led_brightness_pct() above) -- an earlier version of this scaled the
+# RGB status LEDs by this same value, so they'd dim/brighten together with
+# the backlight, but the LEDs now have their own independent, locally-set
+# brightness instead.
 _brightness_pct = 100
 
 

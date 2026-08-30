@@ -444,6 +444,53 @@ else:
         )
         check("arc.remove_flag(CLICKABLE)", lambda: arc.remove_flag(lv.obj.FLAG.CLICKABLE), search_in=arc, search_term="flag")
 
+    print("\n=== six ring-segment arcs, padded gaps (HomeTile's radial mode menu) ===")
+    print("(API-existence only -- this can't verify the *visual* result, i.e.")
+    print(" whether six of these actually render as six distinct ring segments")
+    print(" with a visible gap between each and no rounded-cap bleed between")
+    print(" neighbors. An earlier near-full-radius version of this menu (width")
+    print(" 110 out of a 236 diameter, no arc_rounded call) rendered on real")
+    print(" hardware as big overlapping blobs instead -- see screens/home.py's")
+    print(" _init_mode_menu() for the fix this now exercises; check on-device")
+    print(" once real hardware is available.)")
+    menu_parent = check("lv.obj(parent) (menu container)", lambda: lv.obj(tile_parent))
+    if menu_parent is not None:
+        wedge = check("lv.arc(menu_parent) (wedge)", lambda: lv.arc(menu_parent))
+        if wedge is not None:
+            check("wedge.set_bg_angles(0,54)", lambda: wedge.set_bg_angles(0, 54), search_in=wedge, search_term="angle")
+            # A narrow ring (not near-full-radius) drawn inward from the
+            # wedge's own outer edge -- see _MENU_RING_WIDTH's comment in
+            # screens/home.py for why this (plus the padding above and
+            # arc_rounded below) replaced the earlier full-radius-wedge
+            # design.
+            check(
+                "wedge.set_style_arc_width(50, MAIN)",
+                lambda: wedge.set_style_arc_width(50, lv.PART.MAIN),
+                search_in=wedge,
+                search_term="width",
+            )
+            # Suppresses the separate INDICATOR layer an arc draws by
+            # default (this menu only wants each wedge's MAIN track
+            # visible) -- 0 width, not a color/opa trick.
+            check(
+                "wedge.set_style_arc_width(0, INDICATOR)",
+                lambda: wedge.set_style_arc_width(0, lv.PART.INDICATOR),
+                search_in=wedge,
+                search_term="width",
+            )
+            # Disables the arc's default rounded end-caps -- the actual fix
+            # for the "big overlapping blobs" bug (see this section's own
+            # print() above), by analogy with the already-confirmed-working
+            # line.set_style_line_rounded(False, 0) in screens/disconnected.py.
+            # NOT independently confirmed to exist on this binding until this
+            # runs on real hardware.
+            check(
+                "wedge.set_style_arc_rounded(False, MAIN)",
+                lambda: wedge.set_style_arc_rounded(False, lv.PART.MAIN),
+                search_in=wedge,
+                search_term="round",
+            )
+
     print("\n=== lv.chart (screens/history.py's HistoryTile graph) ===")
     chart = check("lv.chart(parent)", lambda: lv.chart(tile_parent), search_in=lv, search_term="chart")
     if chart is not None:

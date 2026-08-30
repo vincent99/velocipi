@@ -2,19 +2,21 @@
 ../aircon-sim/controller.py's SimController, but for the heater's
 run_mode/run_param model instead of the AirCon's mode/fan/setpoint one, and
 with no thermal model: unlike the AirCon (whose cabin temp is what
-../hvac-knob/screens/home.py's auto mode actually reads to decide whether
-to heat), the heater client (../hvac-knob/heater_ble.py) doesn't consume
-any temperature field from this device at all today -- only now_gear and
-fault_code (see _apply_notification() there) -- so simulating a thermal
-response here wouldn't exercise anything on the panel side. If you extend
-heater_ble.py to read more of the status frame, this is the file to extend
-alongside it.
+../hvac-knob/screens/home.py's auto mode actually reads), the heater client
+(../hvac-knob/heater_ble.py) doesn't consume any temperature field from
+this device at all today -- only on/off and now_gear (see _apply_status()
+there) -- so simulating a thermal response here wouldn't exercise anything
+on the panel side.
 
-power_on()/power_off() are called directly from ble_server.py's write
-dispatch -- no validation-and-reject the way ../aircon-sim/controller.py's
-set_*() methods do (returning False on a bad value); this simulator instead
-clamps anything out of range, since the point here is exercising the panel,
-not fuzzing this simulator's own input handling.
+Command shape matches the real v1 protocol (see ../hvac-knob/
+heater_ble_config.py): CMD_ON_OFF carries no mode/gear/temp payload of its
+own -- set_mode()/set_gear_or_temp() persist independently of power_on()/
+power_off(), matching the real device's own confirmed behavior (three
+separate writes on a real "turn on at level N" from the panel, not one
+combined command). No validation-and-reject the way ../aircon-sim/
+controller.py's set_*() methods do (returning False on a bad value); this
+simulator instead clamps anything out of range, since the point here is
+exercising the panel, not fuzzing this simulator's own input handling.
 """
 
 import config
@@ -25,39 +27,50 @@ class SimHeaterController:
         self.on = False
         self.run_mode = config.DEFAULT_RUN_MODE
         self.run_param = config.DEFAULT_RUN_PARAM
-        self.remain_run_time = 0
+        # Static for this sim's whole lifetime -- there's no simulated
+        # fault condition that clears itself, just a fixed value seeded at
+        # startup (main.py's --fault) for exercising the panel's error
+        # display. See heater_ble_config.py's NOTIFY_OFF_FAULT comment for
+        # why this is a guess, not a confirmed byte.
+        self.fault_code = fault_code
         # now_gear mirrors run_param whenever run_mode is gear -- a real
         # unit's "actual current gear" can plausibly lag a commanded one by
         # a tick or two; this sim doesn't bother modeling that lag, it's
-        # just always in sync.
+        # just always in sync. 1-indexed, matching HEAT_LEVEL_MIN/MAX --
+        # only converted to the wire's 0-indexed form at protocol.py's own
+        # encode_status() boundary.
         self.now_gear = config.DEFAULT_RUN_PARAM
-        self.fault_code = fault_code
         # None (the default, and main.py's --password's own default) means
-        # this simulated unit doesn't require a password at all -- and,
-        # importantly, doesn't answer CMD_HANDSHAKE at all either (see
-        # ble_server.py's _dispatch()), matching how most real units
-        # apparently behave and exercising ../hvac-knob/heater_ble.py's
-        # client-side "no response -> assume no password gate" heuristic.
-        # An int 0-9999 means this unit *does* require a password, and
-        # ble_server.py checks handshake attempts against it directly.
+        # this simulated unit doesn't require a password at all -- every
+        # frame is accepted regardless of its embedded password bytes (see
+        # ble_server.py's _on_write()). An int 0-9999 means this unit
+        # *does* require one, and ble_server.py checks every incoming
+        # frame's embedded password against it directly -- there's no
+        # separate handshake/login frame in this protocol version to check
+        # instead (unlike this sim's own earlier, wrong protocol guess).
         self.password = password
 
         self.on_change = None  # set by the BLE glue
 
-    def power_on(self, run_mode, run_param, remain_run_time=0):
-        if run_mode == config.RUN_MODE_GEAR:
-            run_param = min(max(run_param, config.HEAT_LEVEL_MIN), config.HEAT_LEVEL_MAX)
-            self.now_gear = run_param
-        elif run_mode == config.RUN_MODE_THERMOSTAT:
-            run_param = min(max(run_param, config.THERMOSTAT_TEMP_MIN_C), config.THERMOSTAT_TEMP_MAX_C)
+    def power_on(self):
         self.on = True
-        self.run_mode = run_mode
-        self.run_param = run_param
-        self.remain_run_time = remain_run_time & 0xFFFF
         self._notify()
 
     def power_off(self):
         self.on = False
+        self._notify()
+
+    def set_mode(self, run_mode):
+        self.run_mode = run_mode
+        self._notify()
+
+    def set_gear_or_temp(self, value):
+        if self.run_mode == config.RUN_MODE_GEAR:
+            value = min(max(value, config.HEAT_LEVEL_MIN), config.HEAT_LEVEL_MAX)
+            self.now_gear = value
+        elif self.run_mode == config.RUN_MODE_THERMOSTAT:
+            value = min(max(value, config.THERMOSTAT_TEMP_MIN_C), config.THERMOSTAT_TEMP_MAX_C)
+        self.run_param = value
         self._notify()
 
     def get_state(self):
@@ -65,7 +78,6 @@ class SimHeaterController:
             "on": self.on,
             "run_mode": self.run_mode,
             "run_param": self.run_param,
-            "remain_run_time": self.remain_run_time,
             "now_gear": self.now_gear,
             "fault_code": self.fault_code,
         }

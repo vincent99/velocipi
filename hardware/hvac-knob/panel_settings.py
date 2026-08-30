@@ -1,7 +1,8 @@
 """Persists the panel's own settings -- which AirCon controller and which
-heater to connect to -- to flash, independent of either device's own
-settings (the AirCon's live in aircon_ble.AirconState.settings, synced over
-BLE from its 0006 settings characteristic; the heater has no equivalent).
+heater to connect to, and the neopixel status LEDs' own brightness -- to
+flash, independent of either device's own settings (the AirCon's live in
+aircon_ble.AirconState.settings, synced over BLE from its 0006 settings
+characteristic; the heater has no equivalent).
 
 Same minimal try/except-on-load pattern as ../aircon/storage.py.
 """
@@ -28,14 +29,30 @@ def _update(key, value):
 
 def get_aircon_device_name():
     """Returns the previously-picked AirCon's BLE device name, or "" if
-    none has been chosen yet. main.py/screens.App treat "" as "go straight
-    to the Connect screen on startup" -- see screens.App.__init__.
+    none has been chosen (either never asked, or explicitly skipped -- see
+    get_aircon_skipped()). Distinct from get_aircon_skipped() the same way
+    the heater's own pair below are -- see that function's docstring for
+    why "" alone can't tell "never asked" apart from "asked, said no".
     """
     return _load().get("aircon_device_name", "")
 
 
 def set_aircon_device_name(name):
     _update("aircon_device_name", name)
+
+
+def get_aircon_skipped():
+    """True once the user has explicitly chosen "no AirCon" on the Connect
+    screen (screens.ConnectTile's skip entry) rather than ever picking one.
+    Mirrors get_heater_skipped() exactly -- see that function's own
+    docstring; both devices are optional and skippable the same way now
+    (screens/__init__.py's App no longer treats the AirCon as mandatory).
+    """
+    return bool(_load().get("aircon_skipped", False))
+
+
+def set_aircon_skipped(skipped):
+    _update("aircon_skipped", skipped)
 
 
 def get_heater_device_name():
@@ -75,6 +92,25 @@ def get_heater_skipped():
 
 def set_heater_skipped(skipped):
     _update("heater_skipped", skipped)
+
+
+def get_led_brightness_pct():
+    """Returns the previously-set neopixel status-LED brightness (0-100,
+    see screens.settings.SettingsTile's "LEDs" field), or 100 if never
+    changed -- matching hal.py's own _led_brightness_pct module-load-time
+    default, so a fresh install with no panel_settings.json on record
+    starts at the same brightness either way. Independent of the LCD
+    backlight's own brightness (hal.set_brightness()/get_brightness_pct()),
+    which the Pi drives over serial_link instead -- see hal.py's own
+    set_led_brightness_pct() comment for why these two are deliberately
+    separate.
+    """
+    v = _load().get("led_brightness_pct")
+    return v if isinstance(v, int) else 100
+
+
+def set_led_brightness_pct(pct):
+    _update("led_brightness_pct", pct)
 
 
 def get_heater_password():

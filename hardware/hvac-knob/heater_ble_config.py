@@ -24,12 +24,15 @@ which had guessed the *other* frame format the app's JS actually builds --
 see the scratch doc's "v1 protocol" section: that JS has no outgoing
 builder for what the real unit turned out to actually speak, so it could
 only ever have been reconstructed by capturing a live session, not by
-further static analysis). Still NOT independently confirmed: HEAT_LEVEL_MIN/
-MAX (no real unit's gear count has been read back yet -- see that
-constant's own comment) and the exact meaning of the status notification
-payload (a still-undeciphered ~25-byte blob, doesn't start with HEAD_1/
-HEAD_2 -- see heater_ble.py's _notify_loop for the raw-bytes logging
-left in place to reverse-engineer that in a follow-up pass).
+further static analysis). The status NOTIFY_* format (see below) is
+likewise now confirmed, decoded from two independent captures (a fresh
+first-ever pairing, and a later reconnect) by diffing successive payloads
+against the specific command that preceded each one and testing the
+scratch doc's "optional password/XOR layer" theory -- see NOTIFY_XOR_KEY's
+own comment. HEAT_LEVEL_MIN/MAX are confirmed against this real unit's
+actual gear count. Still NOT independently confirmed: the
+temperature-related notify fields (see NOTIFY_OFF_GEAR's own comment for
+exactly what's confirmed vs. not).
 """
 
 # Standard BLE-SIG "UART bridge" service, shared with a whole family of
@@ -124,7 +127,7 @@ RUN_MODE_THERMOSTAT = (
 RUN_MODE_VENT = 3  # "aMode": ventilation only (fan, no heat) -- unused by this codebase
 RUN_MODE_HIGH = 4  # "stMode": high-heat boost -- unused by this codebase
 
-# The available range of gear levels
+# Confirmed against real hardware -- this unit's actual gear range is 1-10.
 HEAT_LEVEL_MIN = 1
 HEAT_LEVEL_MAX = 10
 
@@ -135,3 +138,72 @@ HEAT_LEVEL_MAX = 10
 # always works in Celsius internally, see heater_ble.py.set_auto_target()).
 THERMOSTAT_TEMP_MIN_C = 8
 THERMOSTAT_TEMP_MAX_C = 36
+
+# --- Status notification format ------------------------------------------
+#
+# Confirmed via BLE capture: NOT the same shape as this file's own outgoing
+# frames above -- fixed 48 bytes, XOR-obfuscated with a repeating 15-byte
+# keystream. This matches the scratch doc's "Optional password/XOR layer"
+# note ("default all-frames key 'passwordA2409PW'") almost exactly, except
+# this key is applied to every byte of the *notify* direction specifically
+# (not outgoing writes, which this client's own captures confirm travel in
+# the clear -- see the frame-format comment above) and this analysis found
+# no evidence of the per-device password being combined into it at all
+# (decoding worked cleanly with the bare key against two different units'
+# worth of captures... well, the same unit, but two independently-captured
+# sessions with different connections/central identities).
+#
+# Decoded (raw bytes XOR NOTIFY_XOR_KEY, repeating from index 0):
+#   byte 0-1  : 0xAA 0x66 -- fixed header, distinct from this protocol's
+#               own app->device frames (0xAA 0x55) -- matches the scratch
+#               doc's "0xAA, 0x55|0x66" note exactly once you realize it's
+#               describing two different directions, not two alternate
+#               unit variants.
+#   byte 2    : echoes whichever cmd (CMD_* above) most recently
+#               triggered/preceded this push. Not read by this client.
+#   byte 3    : power state, 1=on 0=off -- CONFIRMED against real hardware
+#               across two independently-captured on->off transitions,
+#               exactly matching this client's own CMD_ON_OFF writes.
+#   byte 4    : NOT confirmed -- best-guess fault/error code slot, 0=no
+#               fault. Real basis for the guess: this byte was 0x00 in
+#               *every* sample across both real captures, with zero
+#               exceptions -- consistent with "no fault occurred during
+#               either capture" (true) rather than telling us what a real
+#               nonzero value would look like. Position is a guess too
+#               (grouped right after the cmd echo and right before power
+#               state, both confirmed fields) -- there's no capture of an
+#               actual fault condition to confirm this against. Treat any
+#               nonzero value read here with real skepticism until that
+#               happens.
+#   byte 5    : current gear level, 0-indexed (add 1 to compare against
+#               this file's 1-indexed HEAT_LEVEL_MIN/MAX) -- CONFIRMED
+#               against two independent CMD_SET_GEAR_OR_TEMP(gear) writes
+#               while in RUN_MODE_GEAR, in two different captures.
+#   byte 8    : moves when RUN_MODE changes (0x30 in RUN_MODE_GEAR, 0x33 in
+#               RUN_MODE_THERMOSTAT in testing) but NOT decoded -- only two
+#               data points, no confirmed formula.
+#   byte 9    : moves in the expected direction after a
+#               CMD_SET_GEAR_OR_TEMP(temp_f) write while in
+#               RUN_MODE_THERMOSTAT, but NOT decoded -- doesn't match a
+#               plain Fahrenheit->Celsius conversion of the commanded
+#               value in one capture, and drifted gradually one step per
+#               poll rather than jumping straight to a fixed value in the
+#               other (possibly a slowly-converging measured value, not a
+#               direct echo of the target). Needs more real samples --
+#               ideally one where a target is set once and then polled
+#               repeatedly for a while with nothing else changing -- before
+#               trusting any formula here.
+#   remainder : constant across every sample captured in both sessions
+#               (best guess: device identity/version/reserved fields) --
+#               not decoded.
+NOTIFY_XOR_KEY = b"passwordA2409PW"
+NOTIFY_LEN = 48
+# The raw (pre-XOR) bytes actually on the wire for byte 0-1 above -- fixed,
+# since XOR-ing a constant header with the start of a constant key is
+# itself constant. Used to resync the notify stream without needing to
+# XOR-decode incrementally byte-by-byte first.
+NOTIFY_RAW_HEAD_1 = 0xAA ^ NOTIFY_XOR_KEY[0]
+NOTIFY_RAW_HEAD_2 = 0x66 ^ NOTIFY_XOR_KEY[1]
+NOTIFY_OFF_ON = 3
+NOTIFY_OFF_FAULT = 4
+NOTIFY_OFF_GEAR = 5

@@ -39,6 +39,24 @@ COLOR_BUTTON_OUTLINE = lv.color_hex(0x3A3F4A)
 # across both UIs.
 COLOR_MODIFIED = lv.color_hex(0x3B82F6)
 
+# home.HomeTile's radial mode-select menu -- one flat shade per (category,
+# state) pair rather than a single base color + an opacity style (arc_opa
+# isn't proven working anywhere in this codebase yet -- see
+# check_lvgl_api.py -- so this avoids relying on it for a screen this
+# central). heat modes (heat/heat_auto) red, AC modes (fan/cool/auto) blue,
+# off neutral gray -- SELECTED is the bright shade (currently highlighted
+# by the knob), AVAILABLE the darker mid-tone (selectable, not currently
+# highlighted), DISABLED darker still and shared across categories (that
+# mode's device isn't connected -- not selectable at all, so which
+# category it would've been doesn't matter).
+COLOR_MODE_HEAT_SELECTED = lv.color_hex(0xE0453A)
+COLOR_MODE_HEAT_AVAILABLE = lv.color_hex(0x6B231C)
+COLOR_MODE_AC_SELECTED = lv.color_hex(0x3B82F6)
+COLOR_MODE_AC_AVAILABLE = lv.color_hex(0x1C3B6B)
+COLOR_MODE_NEUTRAL_SELECTED = lv.color_hex(0x6A7080)
+COLOR_MODE_NEUTRAL_AVAILABLE = lv.color_hex(0x3A3F4A)
+COLOR_MODE_DISABLED = lv.color_hex(0x121317)
+
 SPACE_XS = 2
 SPACE_SM = 4
 SPACE_MD = 8

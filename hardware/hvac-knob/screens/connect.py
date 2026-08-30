@@ -5,16 +5,17 @@ this fits into the overall screen flow and interaction model.
 Generalized from an AirCon-only screen to work for either device kind --
 screens/__init__.py's App now owns two independent instances of this class
 (aircon_connect_tile/heater_connect_tile), differing only in which client
-they drive, what label they show, and whether skipping is offered (the
-heater is optional and non-blocking, see App's module docstring; the
-AirCon is not, and keeps its exact original mandatory-picker behavior).
+they drive and what label they show. Both are optional and skippable now
+(see App's module docstring) -- an earlier version of this screen treated
+the AirCon as mandatory with no skip option at all; that constraint is
+gone.
 """
 
 import asyncio
 
 import lvgl as lv
-
 import theme
+
 from .widgets import _label, _make_screen, _set_visible
 
 # lv.ANIM/lv.ROLLER_MODE don't exist as nested enum-group classes on this
@@ -55,10 +56,10 @@ class ConnectTile:
         scan_for_aircons or client.scan_for_heaters) so this class never
         has to know which kind of client it has. `label` is the device
         kind shown in the title/status text ("AirCon"/"Heater").
-        `allow_skip`, if set, prepends a "Skip -- No <label>" entry to the
+        `allow_skip`, if set, prepends a "(No <label>)" entry to the
         roller that calls `on_skip()` instead of client.set_device_name()
-        when selected -- used for the heater (optional) but not the AirCon
-        (mandatory, unchanged from this screen's original behavior).
+        when selected -- both the AirCon and heater set this now (see
+        screens/__init__.py's App.__init__).
         """
         self.client = client
         self.label = label
@@ -87,12 +88,14 @@ class ConnectTile:
         self.roller.set_options("", _ROLLER_MODE_NORMAL)
 
         self._results = []  # [(name, aioble.Device), ...], see *Client.scan_for_*()
-        self._active = False  # True while this is the shown screen -- see on_show()/on_hide()
+        self._active = (
+            False  # True while this is the shown screen -- see on_show()/on_hide()
+        )
 
     def _option_labels(self):
         options = []
         if self._allow_skip:
-            options.append("Skip -- No %s" % self.label)
+            options.append("(No %s)" % self.label)
         options += [name for name, _dev in self._results]
         return options
 
@@ -111,7 +114,9 @@ class ConnectTile:
         _set_visible(self.spinner, not self._allow_skip)
         _set_visible(self.roller, self._allow_skip)
         if self._allow_skip:
-            self.roller.set_options("\n".join(self._option_labels()), _ROLLER_MODE_NORMAL)
+            self.roller.set_options(
+                "\n".join(self._option_labels()), _ROLLER_MODE_NORMAL
+            )
             self.roller.set_selected(0, _ANIM_OFF)
         self.status_label.set_text("Scanning for %s..." % self.label)
         asyncio.create_task(self._scan_loop())
@@ -153,13 +158,16 @@ class ConnectTile:
             # Keep whatever's currently highlighted in range rather than
             # resetting to the top of the list every pass.
             idx = min(self.roller.get_selected(), self._option_count() - 1)
-            self.roller.set_options("\n".join(self._option_labels()), _ROLLER_MODE_NORMAL)
+            self.roller.set_options(
+                "\n".join(self._option_labels()), _ROLLER_MODE_NORMAL
+            )
             self.roller.set_selected(max(idx, 0), _ANIM_OFF)
             if self._results:
                 self.status_label.set_text("")
             elif other_count:
                 self.status_label.set_text(
-                    "%d other device%s found" % (other_count, "" if other_count == 1 else "s")
+                    "%d other device%s found"
+                    % (other_count, "" if other_count == 1 else "s")
                 )
             else:
                 self.status_label.set_text("Scanning for %s..." % self.label)
@@ -168,7 +176,8 @@ class ConnectTile:
             _set_visible(self.roller, False)
             if other_count:
                 self.status_label.set_text(
-                    "%d other device%s found" % (other_count, "" if other_count == 1 else "s")
+                    "%d other device%s found"
+                    % (other_count, "" if other_count == 1 else "s")
                 )
             else:
                 self.status_label.set_text("Scanning for %s..." % self.label)

@@ -137,7 +137,7 @@ below for why that last one matters) all need to be on `PATH`.
 | `Makefile` | `make help` for the full list — install/sync/dev/repl/reset/check, precompiling `screens/` to `.mpy`, flashing firmware, installing `aioble`. |
 | `aircon_ble_config.py` | AirCon service / characteristic UUIDs — edit this first. No longer has a device *name* constant — see "Connect / Disconnected screens" below. Renamed from `ble_config.py` now that there's a second BLE peripheral in play (the heater) with its own, differently-shaped config file. |
 | `aircon_ble.py` | `aioble`-based BLE GATT central for the AirCon controller; mirrors `server/hardware/aircon/aircon.go` and `../temp_knob/firmware/src/aircon_ble.cpp`. Unaffected by the LVGL switch — BLE and graphics are independent. `AirconClient` takes the device name to connect to (persisted by `panel_settings.py`) rather than a hardcoded constant, and can `scan_for_aircons()` for `screens.ConnectTile`'s picker. |
-| `heater_ble_config.py` / `heater_ble.py` | The second BLE peripheral: a white-label parking-heater platform, completely unrelated protocol to the AirCon's (one binary framed protocol over a single characteristic, not one characteristic per field), reconstructed from decompiling its Android app — see `../../scratch/airheater-ble-protocol.md` and `heater_ble_config.py`'s own module docstring for the full story and every "NOT hardware-verified" caveat that implies. `HeaterClient` mirrors `AirconClient`'s shape closely (`scan_for_heaters()`, `set_device_name()`, a `run()` reconnect loop) so `screens.ConnectTile` can drive either client generically — see "Connect / Disconnected screens" below. Pairing is optional and non-blocking, unlike the AirCon's (see `screens/__init__.py`'s module docstring) — a missing/disconnected heater just means Home's "heat" mode and "auto" mode's heating branch quietly do nothing. |
+| `heater_ble_config.py` / `heater_ble.py` | The second BLE peripheral: a white-label parking-heater platform, completely unrelated protocol to the AirCon's (one binary framed protocol over a single characteristic, not one characteristic per field), reconstructed from decompiling its Android app — see `../../scratch/airheater-ble-protocol.md` and `heater_ble_config.py`'s own module docstring for the full story and every "NOT hardware-verified" caveat that implies. `HeaterClient` mirrors `AirconClient`'s shape closely (`scan_for_heaters()`, `set_device_name()`, a `run()` reconnect loop) so `screens.ConnectTile` can drive either client generically — see "Connect / Disconnected screens" below. Pairing is optional and non-blocking, symmetric with the AirCon's own (see `screens/__init__.py`'s module docstring) — a missing/disconnected heater just means Home's heat/heat_auto modes aren't reachable (Disconnected shows instead if the dial's currently on one of them), not a full-screen takeover regardless of what's selected. |
 | `ble_shared.py` | The one thing genuinely shared between `aircon_ble.py` and `heater_ble.py`: an `asyncio.Lock()` (`radio_lock`) serializing every `aioble.scan()` call across both clients' reconnect loops and both Connect screens' pickers, *and* each client's own `device.connect()` — confirmed on real hardware that a connect racing the other client's scan raises `OSError 16` — plus the scan interval/window constants both use. |
 | `panel_settings.py` | Persists the panel's own settings — which AirCon controller and which heater to connect to — to flash, independent of either device's own settings (the AirCon's live in `aircon_ble.AirconState.settings`, synced over BLE; the heater has no equivalent). |
 | `hal.py` | Display/touch setup via lvgl_micropython's built-in `gc9a01`/`cst816s` drivers. Touch self-registers as an LVGL pointer indev; the rotary encoder is returned as a plain `encoder.Encoder` object for the `screens/` package to poll directly, not wired through an `lv.indev`/`lv.group`. |
@@ -357,22 +357,28 @@ actual hands-on debugging on real hardware afterward.
    "unretrieved task exception" traceback naming `_find_device`, that's
    the bug this was; it shouldn't happen anymore, but if it does, that's
    the first thing to suspect.
-4. **The heater protocol itself** — entirely reconstructed from decompiling
-   the vendor's Android app (no vendor documentation exists at all), never
-   tested against a live unit. See `../../scratch/airheater-ble-protocol.md`
-   and `heater_ble_config.py`'s module docstring for exactly what's
-   confirmed vs. a documented best guess (frame format and UUIDs are
-   fairly confident; the exact `run_mode` numbering, heat-level range, and
-   whether your specific unit even speaks this exact frame version rather
-   than an older one are not).
-5. **Heater password detection** (added alongside password entry support)
-   — whether a unit requires a password is inferred from whether
-   `CMD_HANDSHAKE` comes back explicitly rejected, not from any documented
-   "this unit is password-protected" flag (none is known to exist) — see
-   `heater_ble.py`'s module docstring, point 3, for the full heuristic and
-   its deliberately-asymmetric handling of "no response at all". Tested
-   against `../heater-sim/` (its `--password` flag), not yet against a
-   real password-protected unit.
+4. **The heater protocol itself** — the write side (frame format, UUIDs,
+   checksum, the "v1" header, Write Request vs. Write Command, the MTU
+   exchange needed for notifications to arrive at all) is now CONFIRMED
+   against a real unit via a BLE capture of the vendor iOS app, after an
+   earlier version's entirely-decompiled-JS guess turned out to be the
+   wrong protocol variant. The status *notification* payload is also now
+   decoded for power state and gear level (same capture-and-diff method),
+   but most of its ~48 bytes (mode, temperature-related fields, any fault/
+   run-state beyond plain on/off) are still undeciphered — see
+   `heater_ble_config.py`'s `NOTIFY_XOR_KEY` comment for exactly what's
+   confirmed vs. not, and `HEAT_LEVEL_MIN`/`MAX`'s own comment (now
+   confirmed 1-10 against this real unit).
+5. **Heater password detection** — this protocol version has no distinct
+   handshake/login command at all (the password rides along on every
+   frame instead); whether a unit actively rejects a wrong one currently
+   can't be observed at all (no confirmed decode of an explicit reject in
+   the status payload — see point 4), so `password_required` can in
+   practice currently only ever resolve to `False`. See `heater_ble.py`'s
+   module docstring, point 3, for the full (now much weaker than an
+   earlier version assumed) heuristic. The password screen itself is
+   still built and reachable, just not yet observed to actually trigger
+   on real hardware.
 6. **`aioble.DeviceConnection.disconnect()`** (added for Info's "change
    device" buttons) — every other aioble call site in `aircon_ble.py`/
    `heater_ble.py` was confirmed against real hardware before this;
@@ -383,6 +389,59 @@ actual hands-on debugging on real hardware afterward.
    shape, not independently verified. If picking a new device from Info
    doesn't actually drop the old connection, see
    `AirconClient`/`HeaterClient._disconnect_current()`.
+7. **`arc.set_style_arc_rounded(False, ...)`** (Home's radial mode menu,
+   `screens/home.py`'s `_init_mode_menu()`) — assumed to exist by analogy
+   with the already-confirmed-working `line.set_style_line_rounded(False,
+   0)` (`screens/disconnected.py`), since this is the property actually
+   suspected of causing an earlier near-full-radius version of this same
+   menu to render as overlapping rounded blobs instead of six distinct
+   wedges on real hardware. Not independently confirmed — if the ring
+   segments still bleed into each other visually (or this raises
+   `AttributeError` outright), this call is the first thing to suspect;
+   `check_lvgl_api.py`'s "six ring-segment arcs" section exercises the
+   call but, same as the rest of that file, can only confirm the API
+   exists, not what it actually looks like rendered.
+8. **Holding the knob's button continuously while also touching Home's
+   mode/recirc cell** (or Info's device buttons) for
+   `screens.App._COOLDOWN_HOLD_MS` or longer — untested interaction
+   between two independent input paths: `screens.widgets._wire_button()`
+   only delivers its own click on a touch RELEASED event, while
+   `screens.App.poll_input()`'s cooldown-hold tracking fires on a plain
+   elapsed-time check independent of any touch state at all. If cooldown
+   triggers mid-touch (swapping away from whatever screen the touch
+   started on) and the finger lifts only after the cooldown screen's own
+   display window has already ended, it's not confirmed whether LVGL still
+   delivers that stale RELEASED/CLICKED pair to the original (by-then
+   possibly hidden, possibly still-visible-again) widget, or drops it. Not
+   reproduced or worked around — a real physical press+hold this long on a
+   button cell is an unusual gesture to begin with (the mechanical
+   coupling here means "touching" and "holding the button" are normally
+   the same action, and holding *anything* for 5+ seconds without lifting
+   is already outside this screen's ordinary tap-driven interaction
+   model), but if a mode/recirc click or device-button click appears to
+   fire unexpectedly right after a cooldown ends, this is the first thing
+   to suspect.
+9. **../heater-sim/'s name-based discoverability** — despite advertising a
+   short (<10-char) name (`BLE_DEVICE_NAME = "BYD-Sim"`) the same proven
+   way `../aircon-sim/` does, this sim was confirmed NOT reliably found by
+   `heater_ble.HeaterClient.scan_for_heaters()`'s name-prefix filter on
+   real hardware. Root cause not confirmed — leading theory is that
+   CoreBluetooth's macOS peripheral-mode advertising drops or mangles the
+   local name specifically when the service UUID falls in the SIG-reserved
+   16-bit range (`heater_ble_config.SERVICE_UUID`, 0xFFE0 — unlike
+   `aircon-sim`'s own fully-custom 128-bit one, which has no such range to
+   fall into), but this is unverified; `heater_ble.py`'s
+   `_DEBUG_SCAN_RESULTS` (temporarily `True` again) would show directly
+   whether a running heater-sim ever turns up with an empty/wrong name but
+   `SERVICE_UUID` present in its advertised services, confirming or
+   refuting this. Worked around rather than root-caused so far:
+   `scan_for_heaters()` now also matches any device advertising
+   `SERVICE_UUID` whose name doesn't match the prefix (including no name
+   at all), falling back to `"Heater (<addr>)"` for the picker's display
+   text when there's no usable name — see that method's own docstring for
+   the full reasoning, including why this is considered an acceptable
+   real-world tradeoff (extra, harmless roller entries for unrelated
+   0xFFE0 peripherals, never an auto-selected one).
 
 ## Screens
 
@@ -395,6 +454,7 @@ actual hands-on debugging on real hardware afterward.
 | `screens/disconnected.py` | Disconnected (AirCon and Heater both). |
 | `screens/heater_password.py` | Heater password entry — see "Connect / Disconnected screens" below. |
 | `screens/info.py` | Info ("about" + device status/re-pairing). |
+| `screens/cooldown.py` | Cooldown — full-screen takeover from holding the knob's button, see "Cooldown screen" below. |
 
 On power-up, a full-screen splash (`images/splash.bin`, converted from
 `aircon.png`) shows for ~2 seconds before anything else happens — including
@@ -406,42 +466,95 @@ tile strip:
 
 - **Home** (center) — the only screen with real controls right now:
   - An outer dial gauge rings almost the whole panel edge. It's
-    knob-adjustable: off→low/medium/high (not wrapping) when mode is
-    off/fan/cool, heat level (not wrapping, `heater_ble_config.HEAT_LEVEL_MIN`/
-    `MAX`) when mode is heat, or setpoint (bounded by the controller's
-    BLE-reported `setpoint_min`/`setpoint_max` settings) when mode is auto.
-    Cycling the mode button through all five (off/fan/cool/heat/auto) is
-    the only way in or out of "heat" — see `screens/home.py`'s `MODES`
-    comment for why this fifth mode is tracked locally on the panel rather
-    than through the AirCon controller's own BLE mode characteristic (it
-    has no slot for it). Auto mode also continuously compares the setpoint
-    against current cabin temp every refresh and turns the heater on/off
-    (in its own thermostat mode, targeting the same setpoint) whenever
-    heating -- not cooling -- is what's actually needed; see
-    `screens/home.py`'s `_update_auto_heat()`.
-  - Inside the gauge, a 3-row grid: current cabin temp; mode and
-    recirculation cells (act as buttons — tap-and-press to cycle through
-    their options, see "Interaction model" below); setpoint (auto mode) or
-    heat level (heat mode) and current fan speed. The bottom row's
-    background turns dark blue while the compressor is running, or warm
-    dark-orange while the heater is on (either from heat mode or auto
-    mode's heating branch).
+    knob-adjustable: low/medium/high (not wrapping) when mode is fan/cool,
+    heat level (not wrapping, `heater_ble_config.HEAT_LEVEL_MIN`/`MAX`)
+    when mode is heat, setpoint (bounded by the controller's BLE-reported
+    `setpoint_min`/`setpoint_max` settings) when mode is auto (AC-only
+    cooling), or a target temperature (bounded by
+    `heater_ble_config.THERMOSTAT_TEMP_MIN_C`/`MAX_C`, converted to
+    Fahrenheit) when mode is heat_auto.
+  - The mode button opens a radial picker instead of cycling through
+    modes directly — six ring segments (not full-radius pie wedges — an
+    earlier version tried that and it rendered as overlapping rounded
+    blobs on real hardware, see `screens/home.py`'s `_init_mode_menu()`)
+    arranged clockwise starting from Off at 6 o'clock (deliberately —
+    reads as the "lowest"/gravity position): Off, Fan, Cool, `[ac] Auto`,
+    `[heat] Auto`, Heat (see `screens/home.py`'s `MODES`/
+    `_MENU_START_ANGLE`). Each segment shows just its mode's icon, with the
+    ring's clear center (roughly the inner half of the circle) showing the
+    currently-highlighted mode's name instead of a label per segment.
+    Heat/heat_auto segments are red, fan/cool/auto (AC) segments blue, Off
+    neutral gray; a segment for a currently-disconnected device's mode is
+    greyed out and unselectable. Once open, turning the knob moves the
+    highlighted segment among whatever's selectable (bare knob-turn, no
+    touch needed — same as Connect's picker) and pressing the button
+    confirms; swiping away from Home closes it without changing anything.
+    "heat"/"heat_auto" are tracked
+    locally on the panel (`screens/home.py`'s `_mode_is_local`), not
+    through the AirCon controller's own BLE mode characteristic (it has no
+    slot for either). Selecting Off turns both the AC and the heater off;
+    switching among fan/cool/auto leaves the heater running (or not)
+    exactly as it already was — its on/off state is only ever touched by
+    entering heat/heat_auto or Off, never as a side effect of an unrelated
+    AC-mode change. heat_auto sets the heater to its own thermostat mode
+    with the dial's target temperature and otherwise leaves it alone — the
+    heater's own firmware owns on/off cycling and hysteresis around that
+    target, unlike an earlier version of this screen which drove that
+    itself from a client-side comparison against cabin temp.
+  - Inside the gauge, a 3-row grid: current cabin temp (plus a small
+    "Cooling Off" indicator when the heater's own post-shutdown purge
+    state is detected — see `heater_ble.HeaterState.cooling_off`'s own
+    "NOT confirmed against real hardware" caveat); mode and recirculation
+    cells (act as buttons — tap-and-press, see "Interaction model" below;
+    the mode cell opens the radial menu above instead of cycling); setpoint
+    (auto/heat_auto) or heat level (heat mode) and current fan speed. The
+    top row's background turns dark blue while the compressor is running,
+    or warm dark-orange while the heater is on — independent of which mode
+    is currently displayed/selected, since the heater can legitimately
+    keep running while the dial is parked on an AC mode.
   - Swipe down → History, up → Settings, right → Temps.
 - **History** (swipe down from Home, up to return) — placeholder.
-- **Settings** (swipe up from Home, down to return) — placeholder. (The
-  previous per-setting slider list moved out of the way for this — not
-  gone, just not rebuilt into the new layout yet.)
+- **Settings** (swipe up from Home, down to return) — a knob-driven grid
+  (`screens.settings.SettingsTile`) of 9 tunables: the 8 the AirCon
+  controller's BLE "settings" characteristic reports (Delta, Med/High
+  Delta, Temp/Auto/Fan Rate, Min/Max Temp — values shown with a unit
+  suffix, "°" for a temperature or temperature delta, "s" for a
+  seconds-denominated interval) plus one purely local one, "LEDs" — the
+  panel's own 5 neopixel status LEDs' brightness, 0-100% in 10% steps
+  (`hal.get/set_led_brightness_pct()`, persisted via `panel_settings.get/
+  set_led_brightness_pct()`), independent of the LCD backlight's own
+  brightness (which the Pi drives instead, see `serial_link.py`'s
+  `_cmd_set_brightness()`) — 0% turns the LEDs fully dark, not just dim.
+  Laid out as 5 rows of 1/2/3/2/1 fields (Delta alone; Med/High Delta;
+  Temp/Auto/Fan Rate; Min/Max Temp; LEDs alone) rather than a uniform
+  grid, roughly matching the round panel's own available width at each
+  row's height — the lone-field rows sit at the top/bottom, where the
+  circle is narrowest, and the 3-field row sits in the middle, where it's
+  widest. Turning the knob moves a highlighted-cell selection (NAVIGATE);
+  pressing the button enters ACTIVE on that cell, where the knob adjusts
+  its value locally (0.5/detent for the 8 BLE fields, 10%/detent for
+  LEDs) without writing/applying it yet; a second press commits it (a BLE
+  write for the 8 wire fields, straight to `hal`/`panel_settings` for
+  LEDs) and returns to NAVIGATE. Swiping away to Home mid-ACTIVE discards
+  the pending edit instead (`SettingsTile.cancel_active()`).
 - **Temps** (swipe right from Home, left to return) — placeholder. (Same
   deal: the previous cabin/blower/exhaust/baggage/tail readout moved out of
   the way, not gone.)
-- **Info** (swipe left from Home, right to return) — app/controller
-  identification, whatever error the controller last reported, and two
-  buttons (same touch+knob-button "click" as Home's mode/recirc cells --
-  see "Interaction model" below) showing which AirCon and which heater are
-  currently configured (device name, or "Not configured") and whether each
-  is connected right now. Clicking either reopens that device's Connect
-  screen (`screens.App.request_reconnect()`) so a different one can be
-  picked, even long after initial setup -- unlike the AirCon's original
+- **Info** (swipe left from Home, right to return) — a header reading
+  "AirCon v1.0" (`screens.info.KNOB_VERSION` — this panel's own firmware
+  version, folded into the title itself rather than a separate "Knob v1.0"
+  line an earlier version of this screen had below it), whatever error the
+  controller last reported, and two buttons (same touch+knob-button
+  "click" as Home's mode/recirc cells -- see "Interaction model" below)
+  showing which AirCon and which heater are currently configured (device
+  name, or "Not configured") and whether each is connected right now — the
+  AirCon's own line reads "Connected - v1.0" (its BLE-reported firmware
+  version folded into the same line the same way, not a separate
+  standalone line the way an earlier version of this screen had one); the
+  heater has no equivalent version field to report. Clicking
+  either button reopens that device's Connect screen
+  (`screens.App.request_reconnect()`) so a different one can be picked,
+  even long after initial setup -- unlike the AirCon's original
   first-boot-only Connect screen, this is a real, repeatable "change
   device" control. Picking a new device disconnects whatever was
   previously connected first (`aircon_ble.AirconClient.set_device_name()`/
@@ -452,7 +565,11 @@ tile strip:
   choosing to reconsider that decision. Home becomes reachable again once
   the newly-picked device connects (and, for a newly-picked heater, clears
   its own password check if it has one -- the same screens you'd see
-  during initial pairing).
+  during initial pairing). Also reachable in steady state directly from
+  either red-X Disconnected screen's knob push -- see "Connect /
+  Disconnected screens" below -- so a device dropping never traps the user
+  into re-pairing specifically that device when what they wanted was to
+  pick a different one, or neither.
 
 ### Connect / Disconnected screens
 
@@ -462,43 +579,43 @@ full-screen in place of the tileview instead. `screens.connect.ConnectTile`/
 per device kind, told apart by a `label` and, for Connect, which client's
 scan method to call) — `App` owns two independent pairs,
 `aircon_connect_tile`/`aircon_disconnected_tile` and
-`heater_connect_tile`/`heater_disconnected_tile`, sequenced one after the
-other and gating Home very differently:
+`heater_connect_tile`/`heater_disconnected_tile`. Both devices are optional
+and skippable now, symmetrically (`panel_settings.get_aircon_skipped()`/
+`get_heater_skipped()`) — an earlier version of this treated the AirCon as
+mandatory, gating the entire panel on it; that's gone.
 
-- **AirCon (mandatory, unchanged)** — based on whether a device has been
-  picked (`panel_settings.get_aircon_device_name()`) and whether
-  `aircon_ble.AirconClient` currently has a live connection
-  (`client.state.connected`). Home is unreachable without one connected,
-  full stop, exactly as before this file had any notion of a second
-  device.
-- **Heater (optional, asked once)** — shown, at most once per boot, right
-  after the AirCon connects, and possibly spanning up to three screens in
-  sequence before Home: pick a device (or skip), wait for it to connect
-  (and its password handshake, if any, to resolve — see "Password screen"
-  below), then -- only if that handshake came back rejected -- enter a
-  password. If no heater has ever been picked *and* the user hasn't
-  explicitly skipped pairing one (`panel_settings.get_heater_skipped()`),
-  `heater_connect_tile` appears with a synthetic "Skip — No Heater" entry
-  at the top of its roller (`screens.ConnectTile`'s `allow_skip`/
-  `on_skip`) alongside any heaters found — picking Skip persists that
-  choice and is never asked again. Picking a real heater moves to
-  `heater_disconnected_tile` ("Connecting…") the same way the AirCon does,
-  covering both the BLE connection itself and its handshake resolving
-  (`heater_ble.HeaterState.password_required` going from `None` to a real
-  `True`/`False`, usually within a few seconds) — up to
-  `screens.App._HEATER_CONNECT_TIMEOUT_MS` (15s) combined, past which
-  `App` gives up waiting and shows Home anyway (heater's own
-  `HeaterClient.run()` reconnect loop keeps retrying in the background
-  regardless). If the handshake explicitly rejected, `heater_password_tile`
-  appears next instead of Home — see "Password screen" below. Once this
-  whole sequence resolves one way or another (skip, successful connect
-  with no password needed, a correct password entered, or either give-up
-  timeout), `screens.App._heater_setup_done` latches permanently for the
-  rest of this boot — the heater is never gated on again, and a later drop
-  (or a later rejected handshake, e.g. if the unit's PIN gets changed on
-  the device itself) just means `screens/home.py`'s "heat" mode / auto
-  mode's heating branch quietly do nothing rather than a full-screen
-  takeover.
+- **Initial setup (once per boot)** — AirCon first, then heater, each the
+  same shape: pick a device (or skip — `screens.ConnectTile`'s synthetic
+  "Skip — No AirCon"/"Skip — No Heater" roller entry, `allow_skip`/
+  `on_skip`), wait for it to connect (`screens.App._DEVICE_CONNECT_TIMEOUT_MS`,
+  15s, past which `App` gives up waiting and moves on regardless — both
+  clients' own `run()` reconnect loops keep retrying in the background
+  either way), and — heater only — also wait for its password handshake to
+  resolve (`heater_ble.HeaterState.password_required` going from `None` to
+  a real `True`/`False`), entering a PIN via `heater_password_tile` if it
+  came back rejected (see "Password screen" below, `_HEATER_PASSWORD_TIMEOUT_MS`
+  gates that phase separately, 90s). Once both devices have resolved one
+  way or another, `screens.App._setup_done` latches permanently for the
+  rest of this boot.
+- **Steady state (after setup)** — Home is reachable as long as whatever
+  the currently-selected mode needs (`screens/home.py`'s `MODE_DEVICE`) is
+  connected; "off" needs neither. A mode's required device dropping (or
+  neither device being connected at all, regardless of mode) shows
+  Disconnected instead of a full-screen takeover being reserved for one
+  specific device — `aircon_disconnected_tile`/`heater_disconnected_tile`
+  are reused for this exactly as they were during setup, whichever's
+  actually the problem (or `aircon_disconnected_tile` as a generic
+  fallback if both are down for a mode that needs neither, e.g. "off" at a
+  cold boot with both skipped). Pressing the knob on either screen at this
+  point jumps to Info instead of forcing that one device's Connect
+  picker — Info's own device buttons (`screens.App.request_reconnect()`)
+  already cover "pick a different device", and going straight to one
+  specific device's picker would trap the user into re-pairing exactly the
+  device that happened to be down, even if what they actually wanted was
+  the *other* one, or neither. `refresh()`'s steady-state gate has a
+  matching carve-out so it doesn't immediately bounce back to Disconnected
+  while Info is being viewed this way (whether reached through this or an
+  ordinary swipe).
 
 Both Connect screens work identically otherwise: a knob-driven picker.
 `AirconClient.scan_for_aircons()` scans for any BLE peripheral advertising
@@ -527,29 +644,31 @@ pressing the button picks it, persisting the choice
 background, with white "Connecting…"/"Disconnected [label]" text (on its
 own red background box) centered on top (the AirCon's `label` is `""`,
 reproducing the original bare "Connecting…"/"Disconnected" text exactly —
-only the heater's says "Connecting… Heater"/"Disconnected Heater").
-Says "Connecting…" until that device's BLE connection has been established
-at least once this boot, "Disconnected" for any drop after that — tracked
-independently per device (`screens.App._ever_connected` for the AirCon;
-the heater's `heater_disconnected_tile` is always shown with
-`ever_connected=False`, since — per the one-time-gate design above — it's
-now structurally impossible for that screen to ever be shown again after
-the heater's first successful connect of a boot, so it never has anything
-but "Connecting…" to say). Pressing the knob on either Disconnected screen
-goes to that same device's Connect screen, to pick a different one.
+only the heater's says "Connecting… Heater"/"Disconnected Heater"). Says
+"Connecting…" until `screens.App._setup_done` first latches True (i.e.
+initial setup has completed at least once this boot, one way or another),
+"Disconnected" for any drop after that — a single shared
+`screens.App._ever_connected` flag now, not tracked per device, since both
+device kinds can reach either screen at either phase (setup or steady
+state) symmetrically. Pressing the knob on either Disconnected screen goes
+to that same device's Connect screen during setup, or to Info in steady
+state (see "Connect / Disconnected screens" above) to pick a different
+device from there.
 
 **Password screen** (`screens.heater_password.HeaterPasswordTile`, heater
 only — the AirCon controller has no equivalent) — some physical heater
-units apparently require a 4-digit PIN before accepting control commands;
-whether yours does is detected, not configured, by sending a handshake
-(`heater_ble_config.CMD_HANDSHAKE`) after every fresh connection and
-reading whether it comes back explicitly rejected (see `heater_ble.py`'s
-module docstring, point 3, for exactly what "detected" means here — it's a
-best-effort heuristic reconstructed from a decompiled app, not a confirmed
-protocol feature, and units that simply never answer this command at all
-are deliberately read as "no password needed" rather than mistaken for
-password-protected ones). This screen only ever appears after an explicit
-rejection. Four digit cells plus a "Done" cell, one focused at a time
+units apparently require a 4-digit PIN before accepting control commands.
+This protocol version has no distinct handshake/login command at all (the
+password rides along on every frame instead, see
+`heater_ble_config.py`'s frame-format comment) — whether a password's
+actually required is a much weaker heuristic than an earlier version of
+this assumed: `heater_ble.HeaterClient` sends a `CMD_READ` probe on every
+fresh connection and waits briefly to see if *anything* comes back, since
+there's currently no confirmed way to decode an explicit reject out of the
+status payload (see `heater_ble.py`'s module docstring, point 3). In
+practice this means `password_required` can currently only ever resolve to
+`False` — this screen is built and wired up, but nothing observed on real
+hardware so far has actually triggered it. Four digit cells plus a "Done" cell, one focused at a time
 (purple fill, same `theme.COLOR_ACTIVE` used elsewhere for "actively
 engaged") — turning the knob changes the focused digit's value (0-9,
 wrapping); pressing the knob advances focus to the next digit, or, once
@@ -562,12 +681,28 @@ has no dedicated Skip control of its own (a 6th cycle position past "Done"
 didn't compose cleanly with "pressing while on Done submits" — see that
 module's own docstring) — instead, `App` gives it its own generous
 give-up timeout (`screens.App._HEATER_PASSWORD_TIMEOUT_MS`, 90s, separate
-from `_HEATER_CONNECT_TIMEOUT_MS` since entering a PIN is an active user
+from `_DEVICE_CONNECT_TIMEOUT_MS` since entering a PIN is an active user
 task, not a passive wait for hardware) after which Home becomes reachable
 anyway — deliberately **not** persisted via
 `panel_settings.set_heater_skipped()` the way the Connect screen's own
 Skip is, so a give-up here is offered again next boot rather than silenced
 forever (see that function's own docstring for the reasoning).
+
+### Cooldown screen
+
+Holding the knob's push-button continuously for 5 seconds
+(`screens.App._COOLDOWN_HOLD_MS`), on any screen, triggers a full-screen
+"Cooldown" takeover (`screens.cooldown.CooldownTile`) for 5 more seconds
+(`screens.App._COOLDOWN_DISPLAY_MS`) before returning to whatever's
+normally shown. Not a real HVAC mode of its own — purely a UI screen, plus
+(`screens/home.py`'s `MODE_COOLDOWN_TARGET`) a mode transition applied to
+whatever was selected going in: Auto (AC) and Cool both drop to Fan (keep
+circulating air, stop actively cooling); Heat and Heat Auto both drop to
+Off (a heater left running unattended is judged the higher-risk case of
+the two); Fan and Off are left alone. This replaces an earlier
+long-press gesture on this same button (`main.py`'s old
+`_REBOOT_HOLD_MS`, same 5-second hold, same "works on any screen"
+scope) that rebooted the panel outright instead.
 
 ### Interaction model
 
