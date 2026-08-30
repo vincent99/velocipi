@@ -179,7 +179,7 @@ class SimController:
 
     def get_state(self):
         return {
-            "version": config.VERSION,
+            "version": config.AC_VERSION,
             "mode": self.mode,
             "fan": self.fan,
             "setpoint": self.setpoint,

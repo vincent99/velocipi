@@ -697,7 +697,7 @@ class AirconClient:
             return
         # Each entry is a bare [value, default] 2-element array (not a
         # {"v":.., "d":..} object) to keep this characteristic's JSON
-        # payload compact -- see aircon-sim/ble_server.py's
+        # payload compact -- see ../hvac-sim/ble_server.py's
         # _unwrap_settings() docstring for the full reasoning. Keys
         # themselves are also terse wire names now (e.g. "set_min", not
         # "setpoint_min" -- see that same file's SETTINGS_WIRE_KEYS): this
@@ -850,7 +850,7 @@ class AirconClient:
         # only ever fires once per explicit user commit (see
         # screens/settings.py's SettingsTile), not once per knob detent
         # during a continuous drag. The settings characteristic's own
-        # push-on-change (see aircon-sim/ble_server.py's push()) reconciles
+        # push-on-change (see ../hvac-sim/ble_server.py's push_ac()) reconciles
         # this the same way it already does for every other settings write.
         sv = self.state.settings.get(key)
         if sv is not None:

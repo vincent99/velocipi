@@ -90,12 +90,12 @@ _DEBOUNCE_MS = 600
 # turns out slower than this.
 _HANDSHAKE_TIMEOUT_MS = 3000
 
-# See scan_for_heaters()'s per-result diagnostic below. Temporarily True
-# again while debugging heater-sim's own name-matching being unreliable
-# (see that method's own docstring's FALLBACK paragraph) -- flip back to
-# False once that's confirmed fixed (or the real cause turns out to be
-# something else entirely and this narrows it down).
-_DEBUG_SCAN_RESULTS = True
+# See scan_for_heaters()'s per-result diagnostic below -- disabled again
+# now that it served its purpose confirming the real cause behind that
+# method's own docstring's FALLBACK paragraph (a same-machine concurrent-
+# BLE-peripheral-advertiser conflict on the *sim* side, not anything wrong
+# with this scan itself -- see ../hvac-sim/'s README for the actual fix).
+_DEBUG_SCAN_RESULTS = False
 
 
 def _checksum(buf):
@@ -373,22 +373,24 @@ class HeaterClient:
 
         FALLBACK: also matches any device advertising cfg.SERVICE_UUID
         whose name *doesn't* match the prefix (including no name at all) --
-        added because ../heater-sim/ (a `bless`/CoreBluetooth peripheral,
-        see its own README) was confirmed NOT reliably reaching this scan
-        by name alone on real hardware, despite advertising a short
-        (<10-char) name the same proven way ../aircon-sim/ does (see
-        heater-sim/config.py's BLE_DEVICE_NAME comment) -- CoreBluetooth's
-        macOS peripheral-mode advertising is suspected (not confirmed) to
-        sometimes drop/mangle the local name specifically for a service
-        UUID in the SIG-reserved 16-bit range (0xFFE0, unlike aircon-sim's
-        own fully-custom 128-bit one), which _DEBUG_SCAN_RESULTS below
-        would show directly if re-enabled. A real heater unit's name is
-        controlled by its own firmware, not this workaround, so this only
-        risks pulling in unrelated real-world 0xFFE0 peripherals (cheap
-        "HM-10 style" BLE modules exist for all sorts of unrelated
-        products) as extra, harmless entries in the picker's list --
-        nothing here auto-selects any of them, the user still has to pick
-        one off the roller.
+        originally added while chasing a report of the desktop heater
+        simulator never reaching this scan at all. That turned out to be a
+        same-Mac Bluetooth radio limitation, not a name/matching bug here:
+        two separate simulator processes (the AC one and the heater one,
+        each with their own bless/CoreBluetooth peripheral manager) don't
+        reliably coexist advertising at once, each logging a clean local
+        "did start advertising" while only one at a time actually reached
+        the air -- fixed by merging both into one process/one peripheral
+        (see ../hvac-sim/'s README, "Why one combined process, not two
+        separate ones"), not by anything in this method. This fallback is
+        kept anyway, on its own merits: a real heater unit's name is
+        controlled by its own firmware, not this client, so falling back to
+        matching its service UUID directly is a reasonable safety net
+        regardless -- the only cost is possibly surfacing unrelated
+        real-world 0xFFE0 peripherals (cheap "HM-10 style" BLE modules
+        exist for all sorts of unrelated products) as extra, harmless
+        entries in the picker's list; nothing here auto-selects any of
+        them, the user still has to pick one off the roller.
         """
         seen = set()
         found = []
@@ -416,16 +418,13 @@ class HeaterClient:
                         svcs_err = None
                     # Per-result diagnostic (name/addr/advertised services)
                     # confirmed scan_for_heaters() reliably finding a real
-                    # heater on real hardware -- disabled now that it's
-                    # served its purpose, not deleted, in case a future scan
+                    # heater on real hardware, and separately confirmed this
+                    # method's own docstring's FALLBACK paragraph's actual
+                    # root cause -- disabled again now that both have served
+                    # their purpose, not deleted, in case a future scan
                     # issue needs the same visibility again. Flip
                     # _DEBUG_SCAN_RESULTS to re-enable over `make repl`
-                    # without needing to reconstruct this from scratch --
-                    # this is also the fastest way to confirm/refute the
-                    # macOS-advertising theory in this method's own
-                    # docstring, by checking whether a running heater-sim
-                    # ever shows up here with an empty/wrong name but
-                    # svcs=[UUID('0000ffe0-...')].
+                    # without needing to reconstruct this from scratch.
                     if _DEBUG_SCAN_RESULTS:
                         addr_str = addr.hex() if addr is not None else "?"
                         print(

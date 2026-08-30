@@ -26,7 +26,7 @@ lv.group_create() failed with a huge garbage allocation size right after
 lv.init() when aircon_ble was imported at module level, despite that exact
 call succeeding fine in check_lvgl_api.py (which never imports
 aircon_ble/aioble/bluetooth at all). That didn't reproduce with the current
-screens/ package -- real BLE and the desktop simulator (../aircon-sim/)
+screens/ package -- real BLE and the desktop simulator (../hvac-sim/)
 both now work end-to-end -- but the splash-before-BLE ordering is worth
 keeping regardless, so the import stays deferred here.
 

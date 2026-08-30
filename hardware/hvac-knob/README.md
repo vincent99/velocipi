@@ -61,9 +61,9 @@ deletes in favor of these).
    change the BLE side, and `aioble` still isn't bundled): `make
    install-aioble`.
 5. **AirCon identity**: `aircon_ble_config.py` already matches the real
-   controller firmware's `../aircon/config.py` (and
-   `../aircon-sim/config.py`, the desktop simulator — see that directory if
-   you want to test the panel without the physical AC hardware). If you
+   controller firmware's `../aircon/config.py` (and `../hvac-sim/config.py`,
+   the desktop AC+heater simulator — see that directory if you want to test
+   the panel without the physical AC hardware). If you
    ever change the device name or UUIDs on the real controller, update all
    three to match, plus the Pi's `.env` (`AirConConfig.DeviceName`/
    `ServiceUUID` in `server/config/config.go`) if it's connecting too.
@@ -333,7 +333,7 @@ actual hands-on debugging on real hardware afterward.
 1. **`aioble` API surface** — targets the central-role connect/subscribe flow
    documented in micropython-lib's `aioble` README/examples at the time of
    writing; a newer release may have renamed something. Confirmed working
-   end-to-end against both a live AirCon controller and `../aircon-sim/`.
+   end-to-end against both a live AirCon controller and `../hvac-sim/`.
    One narrower piece is still unverified: `scan_for_aircons()`'s
    `result.device.addr`-based dedup of non-matching devices (for its "N
    other devices found" count) — falls back to an undeduplicated count if
@@ -421,27 +421,15 @@ actual hands-on debugging on real hardware afterward.
    model), but if a mode/recirc click or device-button click appears to
    fire unexpectedly right after a cooldown ends, this is the first thing
    to suspect.
-9. **../heater-sim/'s name-based discoverability** — despite advertising a
-   short (<10-char) name (`BLE_DEVICE_NAME = "BYD-Sim"`) the same proven
-   way `../aircon-sim/` does, this sim was confirmed NOT reliably found by
-   `heater_ble.HeaterClient.scan_for_heaters()`'s name-prefix filter on
-   real hardware. Root cause not confirmed — leading theory is that
-   CoreBluetooth's macOS peripheral-mode advertising drops or mangles the
-   local name specifically when the service UUID falls in the SIG-reserved
-   16-bit range (`heater_ble_config.SERVICE_UUID`, 0xFFE0 — unlike
-   `aircon-sim`'s own fully-custom 128-bit one, which has no such range to
-   fall into), but this is unverified; `heater_ble.py`'s
-   `_DEBUG_SCAN_RESULTS` (temporarily `True` again) would show directly
-   whether a running heater-sim ever turns up with an empty/wrong name but
-   `SERVICE_UUID` present in its advertised services, confirming or
-   refuting this. Worked around rather than root-caused so far:
-   `scan_for_heaters()` now also matches any device advertising
-   `SERVICE_UUID` whose name doesn't match the prefix (including no name
-   at all), falling back to `"Heater (<addr>)"` for the picker's display
-   text when there's no usable name — see that method's own docstring for
-   the full reasoning, including why this is considered an acceptable
-   real-world tradeoff (extra, harmless roller entries for unrelated
-   0xFFE0 peripherals, never an auto-selected one).
+9. **`scan_for_heaters()`'s `SERVICE_UUID` fallback match** (added while
+   chasing a report of the desktop heater simulator never being found at
+   all) — the actual root cause turned out to be a same-Mac Bluetooth
+   radio limitation on the simulator side, not anything about this scan
+   itself (two separate simulator processes don't reliably coexist
+   advertising at once — see `../hvac-sim/`'s README, "Why one combined
+   process, not two separate ones", and that method's own docstring's
+   FALLBACK paragraph for the full story). The fallback match itself is
+   kept regardless, on its own merits, not as an unconfirmed workaround.
 
 ## Screens
 

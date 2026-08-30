@@ -1,6 +1,6 @@
 """Settings: a knob-driven grid of tunables -- 8 BLE-backed ones the
-AirCon controller's "settings" characteristic reports (see aircon-sim/
-ble_server.py's SETTINGS_WIRE_KEYS for the full list and wire-key naming)
+AirCon controller's "settings" characteristic reports (see ../hvac-sim/
+ble_server.py's AC_SETTINGS_WIRE_KEYS for the full list and wire-key naming)
 plus one purely local one, the panel's own neopixel status-LED brightness
 (hal.get/set_led_brightness_pct(), persisted via panel_settings.get/
 set_led_brightness_pct() -- independent of the LCD backlight's own
@@ -55,8 +55,8 @@ from .widgets import _label, _make_bare_tile, _transparent
 # "72.0°", "5.0s") -- "°" for a temperature or a temperature *delta* alike
 # (this dial only ever moves in Fahrenheit elsewhere in this app too, see
 # home.py's _fmt_temp), "s" for anything that's a wire *_interval under the
-# hood, i.e. a duration in seconds (confirmed against ../aircon-sim/
-# controller.py's use of each as an asyncio.sleep()/now-comparison bound,
+# hood, i.e. a duration in seconds (confirmed against ../hvac-sim/
+# ac_controller.py's use of each as an asyncio.sleep()/now-comparison bound,
 # not just guessed from the "Rate" label).
 _FIELDS = (
     ("delta", "Delta", "\xb0"),
@@ -167,7 +167,7 @@ class SettingsTile:
                 # of these settings (deltas, thresholds, intervals-in-
                 # seconds, setpoint bounds) make sense negative, matching
                 # the controllers' own server-side validation (e.g.
-                # ../aircon-sim/controller.py's set_settings(), "delta"'s
+                # ../hvac-sim/ac_controller.py's set_settings(), "delta"'s
                 # `if v >= 0`).
                 self._pending_value = max(0.0, self._pending_value + delta * _STEP)
         else:

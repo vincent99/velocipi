@@ -7,12 +7,9 @@ shape), just from the peripheral (server) side instead of the central
 authoritative byte-by-byte documentation this implements.
 
 Both directions are fixed-length (8 bytes app->device, 48 bytes
-device->app) -- unlike this sim's own earlier (wrong) assumption of a
-variable-length app->device frame with an explicit length field, there's no
-reassembly-buffer concern here at all: every GATT write this simulator's
-client (heater_ble.py) ever sends is exactly 8 bytes, well under the
-default ATT MTU, so each GATT write request `ble_server.py` receives
-already contains one complete frame.
+device->app) -- every GATT write this simulator's client (heater_ble.py)
+ever sends is exactly 8 bytes, well under the default ATT MTU, so each GATT
+write request ble_server.py receives already contains one complete frame.
 """
 
 import config
@@ -38,10 +35,9 @@ def decode_frame(frame):
 
     The password (bytes 2-3, base-100 split, high byte first) rides along
     on every frame in this protocol version -- there's no separate
-    handshake/login frame the way this sim's own earlier (wrong) protocol
-    guess had -- so it's returned here rather than decoded by a dedicated
-    function; ble_server.py's caller checks it against whatever password
-    (if any) this sim was configured to require.
+    handshake/login frame -- so it's returned here rather than decoded by a
+    dedicated function; ble_server.py's caller checks it against whatever
+    password (if any) this sim was configured to require.
     """
     frame = bytes(frame)
     if len(frame) != 8:
@@ -63,13 +59,12 @@ def encode_status(cmd_echo, on, gear, fault_code=0):
 
     Encodes what's confirmed against real hardware (header, cmd echo,
     on/off, gear -- 0-indexed on the wire, `gear` here is this sim's own
-    1-indexed controller.py value, converted at this boundary) plus
-    fault_code, which is NOT confirmed (see heater_ble_config.py's
-    NOTIFY_OFF_FAULT comment -- included anyway so --fault has something
-    real to exercise on the panel side). Everything else (mode,
-    temperature-related fields, the mostly-constant "remainder") is left
-    zeroed rather than guessed at, since this sim has no confirmed
-    encoding for any of it.
+    1-indexed heat_controller.py value, converted at this boundary) plus
+    fault_code, which is NOT confirmed (see config.py's NOTIFY_OFF_FAULT
+    comment -- included anyway so --heat-fault has something real to
+    exercise on the panel side). Everything else (mode, temperature-related
+    fields, the mostly-constant "remainder") is left zeroed rather than
+    guessed at, since this sim has no confirmed encoding for any of it.
     """
     decoded = bytearray(config.NOTIFY_LEN)
     decoded[0] = 0xAA
