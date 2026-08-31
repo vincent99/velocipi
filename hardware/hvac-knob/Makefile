@@ -77,7 +77,7 @@ install:
 
 dev: sync
 	$(MPREMOTE) reset
-	sleep 2
+	sleep 3
 	$(MPREMOTE) repl
 
 undev:

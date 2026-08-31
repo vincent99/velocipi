@@ -51,7 +51,7 @@ def decode_frame(frame):
     return password, cmd, param1, param2
 
 
-def encode_status(cmd_echo, on, gear, fault_code=0):
+def encode_status(cmd_echo, on, cooling, gear, fault_code=0):
     """Builds one device->app status push -- fixed NOTIFY_LEN bytes, XOR-
     obfuscated with NOTIFY_XOR_KEY, matching heater_ble.py's _apply_status()
     decode exactly (see heater_ble_config.py's NOTIFY_XOR_KEY comment for
@@ -60,17 +60,23 @@ def encode_status(cmd_echo, on, gear, fault_code=0):
     Encodes what's confirmed against real hardware (header, cmd echo,
     on/off, gear -- 0-indexed on the wire, `gear` here is this sim's own
     1-indexed heat_controller.py value, converted at this boundary) plus
-    fault_code, which is NOT confirmed (see config.py's NOTIFY_OFF_FAULT
-    comment -- included anyway so --heat-fault has something real to
-    exercise on the panel side). Everything else (mode, temperature-related
-    fields, the mostly-constant "remainder") is left zeroed rather than
-    guessed at, since this sim has no confirmed encoding for any of it.
+    fault_code and cooling, neither of which is confirmed (see config.py's
+    NOTIFY_OFF_FAULT/NOTIFY_ON_COOLING comments -- included anyway so
+    --heat-fault and heat_controller.py's own cooldown state machine have
+    something real to exercise on the panel side). `on` and `cooling` are
+    never both true (heat_controller.py's state machine treats them as
+    mutually exclusive); if they ever were, cooling wins here, matching
+    heater_ble.py's own decode priority (checks on_byte == 1 first, then
+    treats anything else as cooling). Everything else (mode, temperature-
+    related fields, the mostly-constant "remainder") is left zeroed rather
+    than guessed at, since this sim has no confirmed encoding for any of
+    it.
     """
     decoded = bytearray(config.NOTIFY_LEN)
     decoded[0] = 0xAA
     decoded[1] = 0x66
     decoded[2] = cmd_echo & 0xFF
-    decoded[config.NOTIFY_OFF_ON] = 1 if on else 0
+    decoded[config.NOTIFY_OFF_ON] = config.NOTIFY_ON_COOLING if cooling else (1 if on else 0)
     decoded[config.NOTIFY_OFF_FAULT] = fault_code & 0xFF
     decoded[config.NOTIFY_OFF_GEAR] = (gear - 1) & 0xFF
     key = config.NOTIFY_XOR_KEY

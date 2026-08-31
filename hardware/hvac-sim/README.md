@@ -115,7 +115,10 @@ pip install -r requirements.txt
   same channel/name — and if the Pi's main `velocipi` server is also
   configured with an AirCon section, it'll try to connect as a *central*
   to whatever's advertising the AC's service UUID, real or simulated.
-- Keep any `--name` override reasonably short. Not independently
+- Keep any `--name` override reasonably short, and containing `"sim"` as
+  its own space/hyphen/edge-delimited word (e.g. `"my-sim"`, not
+  `"mysim"`) — see "Run" below and `../hvac-knob/heater_ble.py`'s
+  `scan_for_heaters()` docstring for why. Length itself: not independently
   re-confirmed against this specific combined two-service advertisement
   (the predecessor `heater-sim/` found empirically that names 10
   characters or longer weren't reliably found by a real panel's scan on
@@ -132,19 +135,27 @@ python3 main.py --heat-only
 python3 main.py --ac-error "This is a test"
 python3 main.py --heat-fault 3
 python3 main.py --heat-password 1234
-python3 main.py --name HVAC-2
+python3 main.py --name my-sim
 ```
 
 Logs both halves' state every 5s (whichever are enabled), and on every BLE
 read/write/frame. Ctrl-C to stop. Then point the panel's Connect screens
 at it — `AirconClient.scan_for_aircons()` finds the AC half by its service
-UUID regardless of advertised name; `HeaterClient.scan_for_heaters()`
-finds the heater half either by name prefix (`"BYD-"`, which this sim's
-default name deliberately does *not* start with — see `config.py`'s
-`BLE_DEVICE_NAME` comment) or by falling back to the heater's own service
-UUID directly (see that method's own docstring's FALLBACK paragraph) —
-either way, it should show up in the Heater Connect screen's roller under
-whatever `--name`/`config.BLE_DEVICE_NAME` this sim is advertising as.
+UUID regardless of advertised name, so it isn't affected by any of this;
+`HeaterClient.scan_for_heaters()` finds the heater half via a dedicated
+SIM NAME MATCH path — any advertised name containing `"sim"` as its own
+space/hyphen/edge-delimited word (`"HVAC-Sim"`, `"hvac-sim"`, `"HVAC Sim"`,
+bare `"Sim"` all count; `"AirSim"`/`"Simulator"` don't) — added
+specifically so this sim doesn't need to follow the real heater's own
+`"BYD-"` naming convention (see that method's own docstring's SIM NAME
+MATCH paragraph; the real convention and its FALLBACK service-UUID match
+still work too, just aren't what this sim's default identity relies on).
+**Keep any `--name` override containing `"sim"` as its own word** (and
+under 10 characters total, same empirical macOS limit as before) or
+heater discovery falls back to depending on the heater's service UUID
+surviving the same over-budget advertisement trim that motivated this in
+the first place (see `config.py`'s `BLE_DEVICE_NAME` comment for the byte
+math) — which it doesn't, since it's the second service registered.
 
 - `--ac-only`/`--heat-only` (mutually exclusive): only register/advertise
   that one device's GATT service — the other one's Connect screen won't

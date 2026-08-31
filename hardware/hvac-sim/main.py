@@ -23,7 +23,7 @@ Usage:
     python3 main.py --ac-error "This is a test"
     python3 main.py --heat-fault 3
     python3 main.py --heat-password 1234
-    python3 main.py --name HVAC-2
+    python3 main.py --name my-sim
 """
 
 import argparse
@@ -67,8 +67,9 @@ def _ac_status_line(ctrl):
 
 def _heat_status_line(ctrl):
     s = ctrl.get_state()
-    return "heat: on=%-5s mode=%-10s run_param=%-3d now_gear=%-3d fault=%d" % (
+    return "heat: on=%-5s cooling=%-5s mode=%-10s run_param=%-3d now_gear=%-3d fault=%d" % (
         s["on"],
+        s["cooling"],
         _HEAT_RUN_MODE_NAME.get(s["run_mode"], s["run_mode"]),
         s["run_param"],
         s["now_gear"],
@@ -104,6 +105,13 @@ async def main(args):
     heat_ctrl = None
     if not args.ac_only:
         heat_ctrl = SimHeaterController(fault_code=args.heat_fault, password=args.heat_password)
+
+    # Lets ac_ctrl's own thermal model (_step_temps()'s cabin/panel probes)
+    # react to the heater actively running -- see ac_controller.py's
+    # _heater_cabin_target(). None (the attribute's own default) whenever
+    # heat_ctrl doesn't exist at all (--heat-only's mirror, --ac-only).
+    if ac_ctrl is not None:
+        ac_ctrl.heater_ctrl = heat_ctrl
 
     server = SimBLEServer(ac_ctrl, heat_ctrl, device_name=args.name)
 
@@ -178,12 +186,34 @@ if __name__ == "__main__":
         "--name",
         default=None,
         help="Advertised device name for the whole combined peripheral, overriding config.BLE_DEVICE_NAME "
-        "(default: %r). Keep it short on macOS -- see this package's own README's Platform notes."
+        "(default: %r). For heater discovery to reliably find it (unless --ac-only), it needs \"sim\" as "
+        "its own space/hyphen/edge-delimited word (e.g. \"my-sim\", not \"mysim\") -- see "
+        "../hvac-knob/heater_ble.py's scan_for_heaters() docstring's SIM NAME MATCH paragraph. Keep it "
+        "under 10 characters total on macOS -- see this package's own README's Platform notes."
         % config.BLE_DEVICE_NAME,
     )
     cli_args = parser.parse_args()
     if cli_args.heat_password is not None and not (0 <= cli_args.heat_password <= 9999):
         parser.error("--heat-password must be between 0 and 9999")
+    if cli_args.name is not None and not cli_args.ac_only:
+        # Mirrors heater_ble.py's scan_for_heaters() SIM NAME MATCH check
+        # exactly (see this argument's own help text) -- a soft warning,
+        # not a hard error, since NAME_PREFIX ("BYD-...") still works too
+        # and there's no way to check that without importing the knob's
+        # own heater_ble_config.py from this desktop package.
+        if "sim" not in cli_args.name.lower().replace("-", " ").split():
+            logger.warning(
+                '--name %r doesn\'t have "sim" as its own word -- the heater Connect screen\'s scan may '
+                "not find it, see ../hvac-knob/heater_ble.py's scan_for_heaters() docstring",
+                cli_args.name,
+            )
+        if len(cli_args.name) >= 10:
+            logger.warning(
+                "--name %r is 10 characters or more -- confirmed on real hardware that this isn't reliably "
+                "advertised alongside both GATT services on macOS, even though bless itself reports "
+                "advertising cleanly. See config.py's BLE_DEVICE_NAME comment.",
+                cli_args.name,
+            )
     try:
         asyncio.run(main(cli_args))
     except KeyboardInterrupt:

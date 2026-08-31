@@ -316,7 +316,7 @@ async def main():
     )
     _checkpoint("heater_client constructed")
 
-    link = serial_link.SerialLink(display, client)
+    link = serial_link.SerialLink(display, client, heater_client)
 
     # The real screen construction (lv.tileview + widgets) was cleared of
     # suspicion via a hand-built minimal version of this same screen: the
@@ -399,8 +399,17 @@ async def main():
         # last tick, and pushes a state/settings message for whatever
         # changed since the last one -- see serial_link.py.
         link.poll()
-        if client.state_dirty.is_set():
+        # heater_client.state_dirty (not just client.state_dirty) so a
+        # heater-only change -- it powering on/off, a new run_mode/gear
+        # from the panel, or a status push updating now_gear/fault_code --
+        # still reaches the Pi promptly instead of waiting on the AirCon's
+        # own state to change too. See heater_ble.HeaterClient's own
+        # _mark_state_dirty() for exactly which changes set this (a subset
+        # of what sets its plainer .dirty, which also covers password/
+        # handshake bookkeeping this serial payload doesn't report).
+        if client.state_dirty.is_set() or heater_client.state_dirty.is_set():
             client.state_dirty.clear()
+            heater_client.state_dirty.clear()
             link.send_state()
         if client.settings_dirty.is_set():
             client.settings_dirty.clear()

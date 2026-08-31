@@ -890,6 +890,19 @@ class App:
             if required == "heater" and not heater_ok:
                 self._show("heater_disconnected")
                 return
+            if required == "heater" and heater_ok and self.heater_client.state.password_required:
+                # Only reachable post-setup via heater_ble.HeaterClient.
+                # _schedule_verify() -- the connection itself never drops
+                # (see heater_ok above), so unlike a real disconnect this
+                # can only ever be noticed once the user is actually trying
+                # to use heat/heat_auto (required == "heater") and a
+                # command silently didn't take -- gated the same way as the
+                # disconnected check just above, for the same "don't nag
+                # about the heater while the dial's on an AC-only mode"
+                # reasoning as this module's docstring, point 2.
+                self.heater_password_tile.refresh()
+                self._show("heater_password")
+                return
             if not aircon_ok and not heater_ok:
                 self._show(
                     "aircon_disconnected"

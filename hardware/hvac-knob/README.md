@@ -357,7 +357,118 @@ actual hands-on debugging on real hardware afterward.
    "unretrieved task exception" traceback naming `_find_device`, that's
    the bug this was; it shouldn't happen anymore, but if it does, that's
    the first thing to suspect.
-4. **The heater protocol itself** — the write side (frame format, UUIDs,
+4. **`ble_shared.canonical_device()`/`discovery_lock_for()`/
+   `mtu_exchange_needed()`/`discover_all()`/`subscribe()`** (added so
+   ../hvac-sim/'s combined single-peripheral simulator is actually usable
+   from the knob) — item 3 above is about two connections to two
+   *different* addresses; this is the opposite case, AirconClient and
+   HeaterClient both resolving to the exact *same* address, which BLE
+   doesn't support two independent connections to at all. Landed in three
+   passes, each confirmed on real hardware to fix the specific failure
+   found by actually trying the previous pass end-to-end with both roles
+   pointed at the sim simultaneously, and each surfacing the next:
+   - A naive second `device.connect()` to an address the other client
+     already holds fails outright (`OSError 5 EIO`) -- fixed by routing
+     both clients' `_find_device()` through `canonical_device()` so they
+     resolve to the same `aioble.Device` Python object for a shared
+     address, letting aioble's own `Device.connect()` caching (confirmed
+     by reading its source, `lib/micropython-lib/.../aioble/device.py`:
+     `if self._connection: return self._connection`) return the
+     already-live connection instead of attempting a second one.
+   - Once past that, an MTU exchange request collided (`OSError 120
+     EALREADY`) -- it's negotiated once per *connection*, not once per
+     client, and a second explicit request isn't just redundant, it's
+     rejected outright. `mtu_exchange_needed()` makes sure only the first
+     client to reach a shared connection's discovery phase actually
+     requests it.
+   - Once past *that*, `connection.service(_SVC)`/`service.
+     characteristic(uuid)` (and, it turns out, `char.subscribe()`, which
+     does its own internal descriptor discovery) came back empty for
+     whichever client's discovery ran second on the shared connection,
+     despite the service/characteristic/descriptor genuinely being there
+     -- root cause not confirmed (possibly a GATT client-side discovery
+     cache on this board's BLE stack, possibly a `bless`/CoreBluetooth
+     peripheral-side quirk answering a second, differently-filtered
+     discovery request incorrectly), but a second discovery of *any* kind
+     on an already-discovered connection isn't reliable either way.
+     `discover_all()` sidesteps the question of which side is at fault by
+     discovering the connection's entire GATT tree (every service,
+     characteristic, and descriptor) exactly once, caching it on the
+     connection object itself, and having both clients look up their own
+     UUIDs from that cache instead of ever triggering a second discovery
+     call on the same connection -- `subscribe()` writes the CCCD
+     directly from that same cache instead of going through aioble's own
+     `char.subscribe()` for the same reason.
+
+   `discovery_lock_for()` serializes all of the above between the two
+   clients regardless (aioble only allows one discovery in flight per
+   connection at a time, confirmed true within a single client even
+   before any of this). Both `await connection.disconnected()` calls (one
+   per client, on the same underlying connection) rely on plain
+   `asyncio.Task` supporting multiple independent awaiters, which is
+   standard asyncio behavior, not aioble-specific, and wasn't itself a
+   problem in practice.
+
+   `discover_all()`'s first version had its own self-inflicted bug, caught
+   before ever reaching real hardware for that specific failure but worth
+   noting: it nested `service.characteristics()`/`char.descriptors()`
+   calls *inside* the still-open `async for service in connection.
+   services():` body. `connection._discover` (the single-discovery-in-
+   flight slot) only clears once a discovery's entire result stream is
+   fully consumed, not after each individual yielded result, so starting
+   a nested discovery while the outer one is still mid-iteration collides
+   with itself ("Discovery in progress") -- true for a single client
+   alone, nothing to do with sharing a connection with the other one.
+   Fixed by collecting each level into a plain list (services, then each
+   service's characteristics, then each characteristic's descriptors)
+   before moving on to the next, so every discovery pass fully finishes
+   before the next one starts.
+
+   With that fixed, `discover_all()`'s own diagnostic (a permanent print of
+   every discovered service UUID, left in -- see its own docstring)
+   surfaced two more things, one explained and fixed, one still open:
+   - **Explained and fixed**: the heater's service/characteristic UUIDs
+     (`heater_ble_config.SERVICE_UUID`/`CHAR_UUID`, both plain ints,
+     `0xFFE0`/`0xFFE1`) never matched anything in the discovered map.
+     `heater_ble.py`'s `_SVC`/`_CHAR` are built from those ints in
+     *compact* 16-bit form deliberately, to match how a real heater
+     reports them over the wire (see `heater_ble_config.py`'s own
+     `SERVICE_UUID` comment) -- but confirmed on real hardware,
+     `../hvac-sim/` (which registers the same service via a 128-bit
+     *string* with `bless`) reports it back over ATT in *expanded*
+     128-bit form instead, and MicroPython's `bluetooth.UUID` doesn't
+     consider those equal or hash equal. `ble_shared.find_entry()` tries
+     both forms (the real one, and the algorithmically-expanded
+     `0000XXXX-0000-1000-8000-00805F9B34FB` string form) so the same
+     lookup works against either a real heater or this sim.
+   - **Still open, NOT understood**: an unfiltered `connection.services()`
+     discovery pass on this board was confirmed returning far more
+     entries than exist (21-22, vs. the ~5 actually registered across both
+     halves), heavily duplicated, and including two UUIDs
+     (`9fa480e0-4967-4542-9390-d343dc5d04ae`,
+     `d0611e78-bbb4-4591-a5f8-487910ae4366`) that neither AC nor heater
+     registers at all -- reproduced after a full knob power cycle (rules
+     out leftover state from repeated test connections that boot), and
+     reproduced identically running the sim `--heat-only` (where
+     `AC_BLE_SVC_UUID` is never even registered, yet its UUID still shows
+     up in the discovered list) or `--ac-only`, which rules out this being
+     a real reflection of whatever the peripheral currently exposes.
+     `find_entry()` above works around this in practice (dict
+     construction just keeps overwriting duplicate keys, and as long as
+     *one* of a UUID's several noisy occurrences resolves to a working
+     entry, the lookup succeeds regardless of the extra noise around it),
+     but the underlying cause is unknown -- possibly memory/buffer reuse
+     in the underlying `bluetooth` C module's IRQ data marshaling,
+     possibly something else. If AC's own connection starts failing
+     intermittently (not just heater's), or characteristics/values come
+     back wrong, this is the first thing to suspect.
+
+   This whole fix (`canonical_device()`/`discovery_lock_for()`/
+   `mtu_exchange_needed()`/`discover_all()`/`find_entry()`/`subscribe()`,
+   all of it) is NOT yet confirmed working end-to-end against real
+   hardware -- if picking the sim for both AirCon and heater still doesn't
+   work, this is the first thing to suspect.
+5. **The heater protocol itself** — the write side (frame format, UUIDs,
    checksum, the "v1" header, Write Request vs. Write Command, the MTU
    exchange needed for notifications to arrive at all) is now CONFIRMED
    against a real unit via a BLE capture of the vendor iOS app, after an
@@ -369,27 +480,32 @@ actual hands-on debugging on real hardware afterward.
    `heater_ble_config.py`'s `NOTIFY_XOR_KEY` comment for exactly what's
    confirmed vs. not, and `HEAT_LEVEL_MIN`/`MAX`'s own comment (now
    confirmed 1-10 against this real unit).
-5. **Heater password detection** — this protocol version has no distinct
+6. **Heater password detection** — this protocol version has no distinct
    handshake/login command at all (the password rides along on every
    frame instead); whether a unit actively rejects a wrong one currently
    can't be observed at all (no confirmed decode of an explicit reject in
-   the status payload — see point 4), so `password_required` can in
+   the status payload — see item 5 above), so `password_required` can in
    practice currently only ever resolve to `False`. See `heater_ble.py`'s
    module docstring, point 3, for the full (now much weaker than an
    earlier version assumed) heuristic. The password screen itself is
    still built and reachable, just not yet observed to actually trigger
    on real hardware.
-6. **`aioble.DeviceConnection.disconnect()`** (added for Info's "change
+7. **`aioble.DeviceConnection.disconnect()`** (added for Info's "change
    device" buttons) — every other aioble call site in `aircon_ble.py`/
    `heater_ble.py` was confirmed against real hardware before this;
    `disconnect()` is the one exception, needed to force an already-live
    connection to drop when the user picks a *different* device rather than
    only from a nothing-connected-yet state (the only case the original
-   pairing flow ever needed). Matches aioble's documented central-role API
-   shape, not independently verified. If picking a new device from Info
-   doesn't actually drop the old connection, see
+   pairing flow ever needed). Not independently verified against real
+   hardware, but now confirmed by reading aioble's own source directly
+   (`lib/micropython-lib/.../aioble/device.py`): `disconnect()` just calls
+   `disconnected(disconnect=True)`, which issues `ble.gap_disconnect()`
+   then awaits the same internal device-cleanup task `disconnected()`
+   itself waits on -- exactly the documented central-role shape this was
+   already assumed to have. If picking a new device from Info doesn't
+   actually drop the old connection, see
    `AirconClient`/`HeaterClient._disconnect_current()`.
-7. **`arc.set_style_arc_rounded(False, ...)`** (Home's radial mode menu,
+8. **`arc.set_style_arc_rounded(False, ...)`** (Home's radial mode menu,
    `screens/home.py`'s `_init_mode_menu()`) — assumed to exist by analogy
    with the already-confirmed-working `line.set_style_line_rounded(False,
    0)` (`screens/disconnected.py`), since this is the property actually
@@ -401,7 +517,7 @@ actual hands-on debugging on real hardware afterward.
    `check_lvgl_api.py`'s "six ring-segment arcs" section exercises the
    call but, same as the rest of that file, can only confirm the API
    exists, not what it actually looks like rendered.
-8. **Holding the knob's button continuously while also touching Home's
+9. **Holding the knob's button continuously while also touching Home's
    mode/recirc cell** (or Info's device buttons) for
    `screens.App._COOLDOWN_HOLD_MS` or longer — untested interaction
    between two independent input paths: `screens.widgets._wire_button()`
@@ -421,7 +537,7 @@ actual hands-on debugging on real hardware afterward.
    model), but if a mode/recirc click or device-button click appears to
    fire unexpectedly right after a cooldown ends, this is the first thing
    to suspect.
-9. **`scan_for_heaters()`'s `SERVICE_UUID` fallback match** (added while
+10. **`scan_for_heaters()`'s `SERVICE_UUID` fallback match** (added while
    chasing a report of the desktop heater simulator never being found at
    all) — the actual root cause turned out to be a same-Mac Bluetooth
    radio limitation on the simulator side, not anything about this scan
@@ -612,8 +728,14 @@ name, since each physical controller can have its own custom
 `BLE_DEVICE_NAME` (`../aircon/config.py`'s `set_ble_name()`).
 `HeaterClient.scan_for_heaters()` instead matches on advertised name prefix
 (`heater_ble_config.NAME_PREFIX`), since the heater has no service UUID of
-its own to filter on (see that config file's module docstring) — but
-returns the exact same `(found, other_count)` shape, so `ConnectTile`
+its own to filter on (see that config file's module docstring) — plus two
+secondary paths, primarily useful for `../hvac-sim/`: a dedicated dev/
+testing convenience matching any name containing `"sim"` as its own
+space/hyphen/edge-delimited word, and a fallback matching the heater's own
+(generic, shared-with-unrelated-devices) service UUID directly when the
+name doesn't match either of those — see that method's own docstring for
+the full reasoning behind both. Returns the exact same `(found,
+other_count)` shape either way, so `ConnectTile`
 doesn't need to know which kind of client it's driving. Until a real match
 turns up, `ConnectTile` shows a spinner and "N other devices found" instead
 of a roller with an unselectable "(none found)" entry (unless `allow_skip`

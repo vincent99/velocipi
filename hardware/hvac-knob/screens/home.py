@@ -13,16 +13,24 @@ to decide whether Home is even reachable for whatever mode is currently
 selected.
 """
 
-import math
-
 import asyncio
-
-import lvgl as lv
+import math
 
 import hal
 import heater_ble_config as heater_cfg
+import lvgl as lv
 import theme
-from .widgets import _column, _fmt_temp, _label, _make_bare_tile, _make_button_cell, _set_visible, _transparent, _wire_button
+
+from .widgets import (
+    _column,
+    _fmt_temp,
+    _label,
+    _make_bare_tile,
+    _make_button_cell,
+    _set_visible,
+    _transparent,
+    _wire_button,
+)
 
 # Display order matches the radial menu's clockwise layout below, starting
 # from "off" at 6 o'clock: Off, Fan, Cool, '[ac] Auto', '[heat] Auto', Heat
@@ -88,16 +96,18 @@ POWER_STATES = ("low", "medium", "high")
 # be in this exact range.
 HEAT_LEVELS = tuple(range(heater_cfg.HEAT_LEVEL_MIN, heater_cfg.HEAT_LEVEL_MAX + 1))
 
-# "heat_auto" mode's target-temp dial bounds, Fahrenheit (this dial always
+# "heat_auto" mode's target-temp dial default, Fahrenheit (this dial always
 # works in Fahrenheit, matching the AirCon-auto setpoint dial and
-# current_temp display elsewhere on this screen) -- converted from
-# heater_ble_config.py's THERMOSTAT_TEMP_MIN_C/MAX_C, themselves the vendor
-# app's own clamp range for this field. The heater's own firmware owns all
-# on/off cycling and hysteresis around this target -- this client only ever
-# sets the target itself (heater_ble.HeaterClient.set_auto_target()), same
-# as "heat" mode only ever sets a gear level, never manages on/off timing.
-_HEAT_AUTO_TARGET_MIN_F = heater_cfg.THERMOSTAT_TEMP_MIN_C * 9.0 / 5.0 + 32.0
-_HEAT_AUTO_TARGET_MAX_F = heater_cfg.THERMOSTAT_TEMP_MAX_C * 9.0 / 5.0 + 32.0
+# current_temp display elsewhere on this screen). The dial's actual bounds
+# now follow the same _setpoint_min()/_setpoint_max() as AC-auto's own
+# setpoint dial (see handle_knob()/apply_mode()/refresh()) rather than a
+# range derived from heater_ble_config.py's own THERMOSTAT_TEMP_MIN_C/
+# MAX_C -- that vendor clamp range (8-36C) converts to a 46-97F swing, wide
+# enough to be a confusing dial for a cabin heater target (nobody wants a
+# 46F target) even though it's the real hardware's own accepted range.
+# _heat_auto_target_c() below still clamps into that real range right
+# before the value hits the wire, regardless of what setpoint_min/max
+# happen to be configured to.
 _HEAT_AUTO_TARGET_DEFAULT_F = 72.0
 
 # Fallback setpoint bounds, used only until the controller's BLE settings
@@ -131,7 +141,14 @@ _MODE_ICON = {
     "heat_auto": lv.SYMBOL.EYE_OPEN,
     "auto": lv.SYMBOL.EYE_OPEN,
 }
-_MODE_TEXT = {"off": "Off", "fan": "Fan", "cool": "Cool", "heat": "Heat", "heat_auto": "Auto", "auto": "Auto"}
+_MODE_TEXT = {
+    "off": "Off",
+    "fan": "Fan",
+    "cool": "Cool",
+    "heat": "Heat",
+    "heat_auto": "Auto",
+    "auto": "Auto",
+}
 # Radial menu slice labels -- distinguish the two Autos (main dial doesn't
 # need to: only one mode is ever the *active* one, shown via _MODE_TEXT
 # above, so there's no ambiguity there) in the small space a slice label
@@ -178,8 +195,8 @@ class HomeTile:
     # nudge these directly if they're off; there's no layout engine
     # computing them anymore.
     _TEMP_W = 240
-    _TEMP_H = 56
-    _TEMP_Y = -70
+    _TEMP_H = 60
+    _TEMP_Y = -65
     _BUTTON_W = 100
     _BUTTON_H = 80
     _BUTTON_GAP = 10
@@ -261,7 +278,7 @@ class HomeTile:
         self.tile = _make_bare_tile(tileview, 1, 1, lv.DIR.NONE)
 
         self.arc = lv.arc(self.tile)
-        self.arc.set_size(236,236)
+        self.arc.set_size(236, 236)
         self.arc.center()
         self.arc.set_bg_angles(self._GAUGE_START_ANGLE, self._GAUGE_END_ANGLE)
         self.arc.set_style_arc_width(self._ARC_WIDTH, lv.PART.MAIN)
@@ -287,7 +304,9 @@ class HomeTile:
         self.row1 = _transparent(self.tile)
         self.row1.set_size(self._TEMP_W, self._TEMP_H)
         self.row1.set_style_radius(0, 0)
-        self.current_temp_label = _label(self.row1, font=theme.FONT_CURRENT_TEMP, color=theme.COLOR_TEXT)
+        self.current_temp_label = _label(
+            self.row1, font=theme.FONT_CURRENT_TEMP, color=theme.COLOR_TEXT
+        )
         self.current_temp_label.center()
         self.row1.align(lv.ALIGN.CENTER, 0, self._TEMP_Y)
 
@@ -297,8 +316,10 @@ class HomeTile:
         # (the heater's own state is independent of the dial's current
         # focus -- see apply_mode()'s docstring), so it lives outside the
         # per-mode row1/row3 content instead of being tied to mode=="heat".
-        self.cooling_off_label = _label(self.tile, "Cooling Off", font=theme.FONT_TINY, color=theme.COLOR_TEXT_MUTED)
-        self.cooling_off_label.align(lv.ALIGN.CENTER, 0, self._TEMP_Y + self._TEMP_H // 2 + theme.SPACE_SM)
+        self.cooling_off_label = _label(
+            self.tile, "Cooling Off", font=theme.FONT_TINY, color=theme.COLOR_TEXT_MUTED
+        )
+        self.cooling_off_label.align(lv.ALIGN.BOTTOM_MID, 0, -15)
         _set_visible(self.cooling_off_label, False)
 
         # Mode/recirc buttons, side by side, symmetric about tile-center.
@@ -324,9 +345,32 @@ class HomeTile:
         # HomeTile's bg_angles leaves a 60-degree gap centered at the
         # bottom (see _GAUGE_START_ANGLE/_GAUGE_END_ANGLE above) where the
         # arc draws nothing at all.
+        # Heater-on indicator: a background fill below the mode/recirc
+        # buttons, independent of row1's error/compressor-on fill above
+        # them -- the AC and heater are independent devices (see
+        # apply_mode()'s docstring) and can legitimately both be doing
+        # something at once (e.g. AC compressor running while the heater's
+        # still working through its post-off cooldown), so the two need to
+        # be visible at the same time rather than sharing one highlight
+        # slot. Created before row3 so row3's own fan/setpoint labels paint
+        # on top of this fill without needing an explicit
+        # move_foreground() call (same reasoning as self.arc's own, just
+        # via creation order instead). Same size/alignment as row3 itself,
+        # which also sits low enough to fall inside the arc's bottom gap
+        # (see row3's own comment below) -- so, like row3, this needs no
+        # move_foreground() help to stay clear of the arc's ring either.
+        self.heat_band = _transparent(self.tile)
+        self.heat_band.set_size(self._TEMP_W, self._TEMP_H + 10)
+        self.heat_band.set_style_radius(0, 0)
+        self.heat_band.align(lv.ALIGN.BOTTOM_MID, 0, -2)
+
         self.row3 = _column(self.tile)
-        self.fan_label = _label(self.row3, font=theme.FONT_TITLE, color=theme.COLOR_TEXT)
-        self.setpoint_label = _label(self.row3, font=theme.FONT_TITLE, color=theme.COLOR_TEXT)
+        self.fan_label = _label(
+            self.row3, font=theme.FONT_TITLE, color=theme.COLOR_TEXT
+        )
+        self.setpoint_label = _label(
+            self.row3, font=theme.FONT_TITLE, color=theme.COLOR_TEXT
+        )
         # NOT hardware-verified: obj.align()/lv.ALIGN.BOTTOM_MID follow this
         # binding's usual naming convention and lv_obj_center() (used
         # elsewhere in this file, confirmed working) is itself just a thin
@@ -403,7 +447,11 @@ class HomeTile:
             mid_angle = math.radians(center_angle)
             lx = int(round(math.cos(mid_angle) * self._MENU_ICON_RADIUS))
             ly = int(round(math.sin(mid_angle) * self._MENU_ICON_RADIUS))
-            icon = _label(self._menu_container, text=_MODE_ICON.get(mode, ""), font=theme.FONT_BUTTON_ICON)
+            icon = _label(
+                self._menu_container,
+                text=_MODE_ICON.get(mode, ""),
+                font=theme.FONT_BUTTON_ICON,
+            )
             icon.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
             icon.align(lv.ALIGN.CENTER, lx, ly)
             self._menu_icons[mode] = icon
@@ -412,7 +460,9 @@ class HomeTile:
         # frame by _refresh_menu_visuals(), not here (nothing selected to
         # show yet at construction time beyond MODES[0], not worth a
         # separate code path for).
-        self._menu_center_label = _label(self._menu_container, font=theme.FONT_BUTTON_LABEL, color=theme.COLOR_TEXT)
+        self._menu_center_label = _label(
+            self._menu_container, font=theme.FONT_BUTTON_LABEL, color=theme.COLOR_TEXT
+        )
         self._menu_center_label.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
         self._menu_center_label.center()
 
@@ -433,7 +483,11 @@ class HomeTile:
         avail = []
         for mode in MODES:
             device = MODE_DEVICE[mode]
-            if device is None or (device == "aircon" and aircon_ok) or (device == "heater" and heater_ok):
+            if (
+                device is None
+                or (device == "aircon" and aircon_ok)
+                or (device == "heater" and heater_ok)
+            ):
                 avail.append(mode)
         return avail
 
@@ -462,7 +516,9 @@ class HomeTile:
             return
         avail = self._available_modes()
         current = self.current_mode()
-        self._menu_selected = current if current in avail else (avail[0] if avail else "off")
+        self._menu_selected = (
+            current if current in avail else (avail[0] if avail else "off")
+        )
         self._menu_open = True
         self._refresh_menu_visuals()
         _set_visible(self._menu_container, True)
@@ -472,7 +528,15 @@ class HomeTile:
         # ring itself doesn't reach all the way to center, so there's
         # always tile background visible through/inside the menu regardless
         # of how the ring segments render.
-        for obj in (self.arc, self.row1, self.row3, self.mode_cell, self.recirc_cell, self.cooling_off_label):
+        for obj in (
+            self.arc,
+            self.row1,
+            self.row3,
+            self.heat_band,
+            self.mode_cell,
+            self.recirc_cell,
+            self.cooling_off_label,
+        ):
             _set_visible(obj, False)
 
     @property
@@ -526,7 +590,13 @@ class HomeTile:
         """
         self._menu_open = False
         _set_visible(self._menu_container, False)
-        for obj in (self.row1, self.row3, self.mode_cell, self.recirc_cell):
+        for obj in (
+            self.row1,
+            self.row3,
+            self.heat_band,
+            self.mode_cell,
+            self.recirc_cell,
+        ):
             _set_visible(obj, True)
         hs = self.heater_client.state
         _set_visible(self.arc, self.current_mode() != "off")
@@ -582,17 +652,18 @@ class HomeTile:
         spot that needs to reason about what leaving/entering each mode
         implies for the heater.
 
-        The heater's on/off bit is ONLY ever commanded from here, and only
-        for three cases: entering heat/heat_auto (turns it on, with
-        whatever mode/level-or-temp that entry implies), and entering
-        "off" specifically (turns it off, as a universal safety/reset
-        state). Switching between the three AC-only modes (fan/cool/auto)
-        never touches the heater at all -- it keeps doing whatever it was
-        last told, independent of what the dial is currently showing. This
-        means the heater can legitimately keep running while the dial is
-        parked on an AC mode; heater_ble.HeaterState.on/cooling_off (see
-        refresh()) reflect that regardless of self._mode.
+        The heater's on/off bit is ONLY ever commanded from here: entering
+        heat/heat_auto turns it on (with whatever mode/level-or-temp that
+        entry implies); entering "off", or leaving heat/heat_auto for any
+        AC-only mode (fan/cool/auto), turns it off. Switching between the
+        three AC-only modes themselves never re-sends heater-off (it's
+        already off by then, or was never on) -- only the transition *out*
+        of a heat mode does. Commanding the heater off doesn't mean it
+        stops running immediately -- the real unit (and this project's sim)
+        keeps blowing through a cooldown period first; heater_ble.
+        HeaterState.on/cooling_off (see refresh()) reflect that.
         """
+        previous = self.current_mode()
         self._mode = mode
         self._mode_is_local = mode in ("heat", "heat_auto")
 
@@ -613,25 +684,35 @@ class HomeTile:
                 level = hs.run_param
             else:
                 level = HEAT_LEVELS[0]
-            asyncio.create_task(self.heater_client.power_on(heater_cfg.RUN_MODE_GEAR, level))
+            asyncio.create_task(
+                self.heater_client.power_on(heater_cfg.RUN_MODE_GEAR, level)
+            )
         elif mode == "heat_auto":
             asyncio.create_task(self.client.set_mode("off"))
             hs = self.heater_client.state
+            lo, hi = self._setpoint_min(), self._setpoint_max()
             if hs.run_mode == heater_cfg.RUN_MODE_THERMOSTAT and hs.run_param:
                 target_f = round(hs.run_param * 9.0 / 5.0 + 32.0)
-                target_f = min(max(target_f, _HEAT_AUTO_TARGET_MIN_F), _HEAT_AUTO_TARGET_MAX_F)
             else:
                 target_f = _HEAT_AUTO_TARGET_DEFAULT_F
+            target_f = min(max(target_f, lo), hi)
             self._heat_auto_target_f = target_f
-            target_c = round((target_f - 32.0) * 5.0 / 9.0, 1)
-            asyncio.create_task(self.heater_client.power_on(heater_cfg.RUN_MODE_THERMOSTAT, target_c))
+            asyncio.create_task(
+                self.heater_client.power_on(
+                    heater_cfg.RUN_MODE_THERMOSTAT, self._heat_auto_target_c(target_f)
+                )
+            )
         elif mode == "off":
             asyncio.create_task(self.client.set_mode("off"))
             asyncio.create_task(self.heater_client.power_off())
         else:
-            # fan/cool/auto -- AC-only; heater deliberately untouched, see
-            # this method's own docstring.
+            # fan/cool/auto -- AC-only. Only turns the heater off if we're
+            # actually leaving a heat mode (previous); switching among
+            # fan/cool/auto themselves doesn't re-send it, see this
+            # method's own docstring.
             asyncio.create_task(self.client.set_mode(mode))
+            if previous in ("heat", "heat_auto"):
+                asyncio.create_task(self.heater_client.power_off())
 
     # ── Knob ──────────────────────────────────────────────────────────────
 
@@ -644,6 +725,22 @@ class HomeTile:
     def _setpoint_max(self):
         sv = self.client.state.settings.get("set_max")
         return sv["value"] if sv else _DEFAULT_SETPOINT_MAX
+
+    def _heat_auto_target_c(self, target_f):
+        """Converts a heat_auto dial value (Fahrenheit, bounded by
+        _setpoint_min()/_setpoint_max() -- see the module-level comment
+        above _HEAT_AUTO_TARGET_DEFAULT_F for why this dial no longer uses
+        its own separately-derived range) to the Celsius value heater_ble.
+        HeaterClient.set_auto_target()/power_on() actually send over the
+        wire, clamped into heater_cfg.THERMOSTAT_TEMP_MIN_C/MAX_C -- the
+        heater's own real hardware range -- regardless of whatever
+        setpoint_min/max happen to be configured to, since those now drive
+        the dial instead of that hardware range directly.
+        """
+        c = round((target_f - 32.0) * 5.0 / 9.0, 1)
+        return min(
+            max(c, heater_cfg.THERMOSTAT_TEMP_MIN_C), heater_cfg.THERMOSTAT_TEMP_MAX_C
+        )
 
     def handle_knob(self, delta):
         """Called with the encoder's accumulated detent delta since the
@@ -671,10 +768,12 @@ class HomeTile:
             return
 
         if mode == "heat_auto":
-            target = min(max(self._heat_auto_target_f + delta, _HEAT_AUTO_TARGET_MIN_F), _HEAT_AUTO_TARGET_MAX_F)
+            lo, hi = self._setpoint_min(), self._setpoint_max()
+            target = min(max(self._heat_auto_target_f + delta, lo), hi)
             self._heat_auto_target_f = target
-            target_c = round((target - 32.0) * 5.0 / 9.0, 1)
-            asyncio.create_task(self.heater_client.set_auto_target(target_c))
+            asyncio.create_task(
+                self.heater_client.set_auto_target(self._heat_auto_target_c(target))
+            )
             return
 
         if mode == "heat":
@@ -738,14 +837,18 @@ class HomeTile:
         self.mode_text_label.set_text(_MODE_TEXT.get(mode, mode or "--"))
 
         self.recirc_icon_label.set_text(_CIRC_ICON.get(s.circulation, ""))
-        self.recirc_text_label.set_text(_CIRC_TEXT.get(s.circulation, s.circulation or "--"))
+        self.recirc_text_label.set_text(
+            _CIRC_TEXT.get(s.circulation, s.circulation or "--")
+        )
 
         _set_visible(self.setpoint_label, mode in ("auto", "heat_auto"))
         if mode == "auto":
             # See widgets._fmt_temp for why this is "\xb0" and not
             # "\xc2\xb0". No "F" suffix here (unlike _fmt_temp) -- setpoint
             # is shown bare, e.g. "72°".
-            self.setpoint_label.set_text("%.0f\xb0" % s.setpoint if s.setpoint else "--")
+            self.setpoint_label.set_text(
+                "%.0f\xb0" % s.setpoint if s.setpoint else "--"
+            )
         elif mode == "heat_auto":
             self.setpoint_label.set_text("%.0f\xb0" % self._heat_auto_target_f)
 
@@ -775,12 +878,24 @@ class HomeTile:
         # reachable setting, instead of looking fully empty right at the
         # true minimum.
         _set_visible(self.arc, mode != "off")
+        # Indicator color: red while a heat mode is showing (matching the
+        # radial menu's own heat/AC color split -- theme.COLOR_MODE_*, see
+        # that constant's own comment), theme.COLOR_ACCENT otherwise --
+        # lets the gauge itself read as "heating" vs. "cooling/circulating"
+        # at a glance, on top of the icon/text already saying so.
+        self.arc.set_style_arc_color(
+            theme.COLOR_MODE_HEAT_SELECTED
+            if mode in ("heat", "heat_auto")
+            else theme.COLOR_ACCENT,
+            lv.PART.INDICATOR,
+        )
         if mode == "auto":
             lo, hi = self._setpoint_min(), self._setpoint_max()
             self.arc.set_range(int(lo) - 1, int(hi))
             self.arc.set_value(int(s.setpoint))
         elif mode == "heat_auto":
-            self.arc.set_range(int(_HEAT_AUTO_TARGET_MIN_F) - 1, int(_HEAT_AUTO_TARGET_MAX_F))
+            lo, hi = self._setpoint_min(), self._setpoint_max()
+            self.arc.set_range(int(lo) - 1, int(hi))
             self.arc.set_value(int(self._heat_auto_target_f))
         elif mode == "heat":
             self.arc.set_range(-1, len(HEAT_LEVELS) - 1)
@@ -803,12 +918,10 @@ class HomeTile:
         # confident to be in that byte -- best-guess, not confirmed against
         # a real fault; wired up the same way state.error already is, not
         # a new category of behavior) -- the full text of either is one
-        # swipe away on the Info screen, see screens/info.py; the AC
-        # compressor running; the heater actively on and connected
-        # (independent of which mode is currently selected/displayed here
-        # -- see apply_mode()'s docstring -- just with a distinct warm
-        # color instead of the compressor's cool blue, see
-        # theme.COLOR_HEATER_ON); otherwise no highlight at all.
+        # swipe away on the Info screen, see screens/info.py; else the AC
+        # compressor running; otherwise no highlight at all. Heater-on no
+        # longer shares this slot -- see self.heat_band below, split out
+        # so the two can show independently.
         hs = self.heater_client.state
         if s.error or (hs.connected and hs.fault_code):
             self.row1.set_style_bg_opa(lv.OPA.COVER, 0)
@@ -816,10 +929,22 @@ class HomeTile:
         elif s.compressor == "on":
             self.row1.set_style_bg_opa(lv.OPA.COVER, 0)
             self.row1.set_style_bg_color(theme.COLOR_COMPRESSOR_ON, 0)
-        elif hs.connected and hs.on:
-            self.row1.set_style_bg_opa(lv.OPA.COVER, 0)
-            self.row1.set_style_bg_color(theme.COLOR_HEATER_ON, 0)
         else:
             self.row1.set_style_bg_opa(lv.OPA.TRANSP, 0)
+
+        # heat_band (below the mode/recirc buttons, see __init__): the
+        # heater actively on and connected, independent of which mode is
+        # currently selected/displayed here (see apply_mode()'s docstring)
+        # and independent of row1's own fill above -- so a compressor-on/
+        # error highlight up top and a heater-on highlight down here can
+        # both show at once, e.g. mid-switch away from a heat mode while
+        # the heater's still cooling down (hs.on is only True for actively-
+        # heating, not cooldown -- see heater_ble.HeaterState.cooling_off's
+        # own comment; that case shows cooling_off_label instead, below).
+        if hs.connected and hs.on:
+            self.heat_band.set_style_bg_opa(lv.OPA.COVER, 0)
+            self.heat_band.set_style_bg_color(theme.COLOR_HEATER_ON, 0)
+        else:
+            self.heat_band.set_style_bg_opa(lv.OPA.TRANSP, 0)
 
         _set_visible(self.cooling_off_label, hs.connected and hs.cooling_off)

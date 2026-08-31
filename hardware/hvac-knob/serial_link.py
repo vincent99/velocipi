@@ -97,9 +97,10 @@ def _set_rtc(iso_str):
 
 
 class SerialLink:
-    def __init__(self, display, client):
+    def __init__(self, display, client, heater_client):
         self._display = display
         self._client = client
+        self._heater_client = heater_client
         self._buf = ""
         self._next_out_id = 0
 
@@ -119,6 +120,7 @@ class SerialLink:
         # names, since nothing on the Pi side parses individual field names
         # yet (hardware/knob.go stores this payload as opaque JSON).
         s = self._client.state
+        hs = self._heater_client.state
         _write({
             "id": self._next_id(),
             "cmd": "state",
@@ -139,6 +141,24 @@ class SerialLink:
                 "tail_temp": s.tail_temp,
                 "error": s.error,
                 "controller_version": s.controller_version,
+                # Snake_case, matching HeaterState's own attribute names --
+                # same reasoning as the AirCon fields above. Nested under
+                # its own key rather than flattened alongside the AirCon
+                # fields since these two are independent devices (see
+                # ../hvac-knob/screens/home.py's apply_mode() docstring)
+                # and a couple of names would otherwise collide in meaning
+                # if not outright in name (e.g. this "on"/"run_mode" have
+                # no AirCon equivalent, but "connected" does and means a
+                # different device's link state here).
+                "heater": {
+                    "connected": hs.connected,
+                    "on": hs.on,
+                    "cooling_off": hs.cooling_off,
+                    "run_mode": hs.run_mode,
+                    "run_param": hs.run_param,
+                    "now_gear": hs.now_gear,
+                    "fault_code": hs.fault_code,
+                },
             },
         })
 

@@ -23,14 +23,24 @@ whichever of the two predecessor files it came from.
 # starved each other on the same radio even though each looked like it
 # advertised successfully in isolation).
 #
-# AirconClient.scan_for_aircons() finds this by AC_BLE_SVC_UUID regardless
-# of name; HeaterClient.scan_for_heaters() primarily wants a name starting
-# with "BYD-" but also falls back to matching HEAT_BLE_SVC_UUID directly
-# when the name doesn't (see that method's own docstring's FALLBACK
-# paragraph) -- this name deliberately does NOT start with "BYD-" (there's
-# only one name for the whole combined identity, and "AC+heater" has no
-# single sensible "BYD-..." spelling), so heater discovery against this sim
-# always goes through that fallback path, by design, not as a workaround.
+# Contains "Sim" as its own word (space/hyphen/edge-delimited): with both
+# services registered, the combined advertisement (Flags + local name +
+# AC_BLE_SVC_UUID's full 128-bit UUID + HEAT_BLE_SVC_UUID) needs ~35 bytes
+# even in the best case (HEAT_BLE_SVC_UUID canonicalized down to its
+# compact 16-bit form) -- over the legacy BLE advertisement's 31-byte
+# limit, confirmed on real hardware to make the heater's service UUID
+# silently not survive whatever CoreBluetooth trims to fit (it's the
+# second one registered; AC's own discovery, which only ever needed its
+# own UUID + a non-empty name, wasn't affected). AirconClient.
+# scan_for_aircons() finds this by AC_BLE_SVC_UUID regardless of name --
+# unaffected either way. HeaterClient.scan_for_heaters() has a dedicated
+# SIM NAME MATCH path (see that method's own docstring) that checks for
+# "sim" as a name word *before* ever looking at advertised services
+# specifically so this sim doesn't need to follow the real heater's own
+# "BYD-" naming convention just to be discoverable -- so heater discovery
+# against this name succeeds independent of whether HEAT_BLE_SVC_UUID
+# actually made it into the (over-budget, silently trimmed) advertisement
+# at all.
 BLE_DEVICE_NAME = "HVAC-Sim"
 
 # ── AC (was ../aircon-sim/config.py) ─────────────────────────────────────
@@ -151,6 +161,25 @@ NOTIFY_LEN = 48
 NOTIFY_OFF_ON = 3
 NOTIFY_OFF_FAULT = 4
 NOTIFY_OFF_GEAR = 5
+
+# NOTIFY_OFF_ON's byte, while cooling down after being commanded off (still
+# blowing to purge residual heat, not fully off yet) -- see heat_controller.
+# py's own module docstring for the on/cooling/off state machine this
+# drives. Arbitrary placeholder, same status as NOTIFY_OFF_FAULT: real
+# hardware has only ever been captured showing 0 (off) or 1 (on) in this
+# byte (see ../hvac-knob/heater_ble.py's _apply_status() docstring), never
+# mid-cooldown, so this is picked purely to be "neither 0 nor 1" -- which is
+# all heater_ble.py's own decode currently checks for.
+NOTIFY_ON_COOLING = 2
+
+# Seconds the sim keeps blowing (NOTIFY_ON_COOLING, hs.on False/
+# hs.cooling_off True on the panel) after being commanded off before
+# actually reporting fully off -- NOT confirmed against real hardware (no
+# capture has caught this window yet, see NOTIFY_ON_COOLING's own comment);
+# picked short purely so the panel's "Cooling Off" state is easy to observe
+# in a test/dev session rather than to model any real unit's actual
+# duration.
+HEATER_COOLDOWN_SECONDS = 15
 
 DEFAULT_RUN_MODE = RUN_MODE_GEAR
 DEFAULT_RUN_PARAM = HEAT_LEVEL_MIN

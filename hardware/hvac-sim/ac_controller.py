@@ -53,6 +53,12 @@ _FAN_ORDER = {config.FAN_LOW: 0, config.FAN_MEDIUM: 1, config.FAN_HIGH: 2}
 
 class SimController:
     def __init__(self):
+        # Set by main.py after both controllers exist (this sim's heater
+        # is its own independent SimHeaterController instance, constructed
+        # separately -- see main.py) -- None whenever the heater half is
+        # disabled entirely (--ac-only). Read by _heater_cabin_target()
+        # only; nothing else here reaches into the heater controller.
+        self.heater_ctrl = None
         self.mode = config.DEFAULT_MODE
         self.fan = config.DEFAULT_FAN
         self.setpoint_min = config.DEFAULT_SETPOINT_MIN
@@ -261,16 +267,56 @@ class SimController:
 
     # ── Thermal model ───────────────────────────────────────────────────────
 
+    def _heater_cabin_target(self, default_target):
+        """"cabin"/panel_temp's target while the heater (a separate device,
+        this sim's own SimHeaterController -- see self.heater_ctrl's own
+        comment) is actively heating -- lets ../hvac-knob/screens/home.py's
+        current_temp readout visibly climb while heat/heat_auto mode is
+        active, the heating analog of watching it fall while the compressor
+        runs. Only "cabin"/panel_temp use this (see _step_temps()) -- the
+        AC-specific probes (blower/exhaust/compressor/baggage/tail) keep
+        approaching `default_target` regardless, since a cabin heater
+        wouldn't run air through the AC's own ducts/compressor.
+
+        hc.on specifically (not hc.cooling) -- mid-cooldown the heater
+        isn't actively adding heat anymore, so cabin/panel should drift
+        back toward default_target same as if it were fully off already;
+        see heat_controller.SimHeaterController's own state-machine
+        docstring.
+
+        RUN_MODE_GEAR's target (80 + 2*gear) is a made-up ceiling -- this
+        sim has no real thermal spec to model against, same as everywhere
+        else in this class -- picked so higher gears visibly plateau
+        higher. RUN_MODE_THERMOSTAT's target is just the heater's own
+        commanded setpoint (run_param, Celsius), converted to this class's
+        native Fahrenheit.
+        """
+        hc = self.heater_ctrl
+        if hc is None or not hc.on:
+            return default_target
+        if hc.run_mode == config.RUN_MODE_GEAR:
+            return 80.0 + 2.0 * hc.run_param
+        if hc.run_mode == config.RUN_MODE_THERMOSTAT:
+            return hc.run_param * 9.0 / 5.0 + 32.0
+        return default_target
+
     def _step_temps(self):
         target = COOLING_FLOOR if self.compressor_on else AMBIENT_CEILING
+        # Compressor takes priority if it's ever running at the same time
+        # as the heater (not expected in normal panel use -- apply_mode()
+        # forces the AirCon to "off" before turning the heater on -- but
+        # this sim shouldn't assume that invariant holds, e.g. against a
+        # test script driving both independently over BLE).
+        cabin_target = target if self.compressor_on else self._heater_cabin_target(target)
         for name, rate in PROBE_RATES.items():
             t = self.temps[name]
-            t += (target - t) * rate
+            probe_target = cabin_target if name == "cabin" else target
+            t += (probe_target - t) * rate
             t += random.uniform(-0.05, 0.05)
             self.temps[name] = t
 
         if not self._panel_external:
-            self.panel_temp += (target - self.panel_temp) * PANEL_RATE
+            self.panel_temp += (cabin_target - self.panel_temp) * PANEL_RATE
             self.panel_temp += random.uniform(-0.05, 0.05)
 
     def _notify(self):

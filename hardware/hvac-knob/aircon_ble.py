@@ -436,7 +436,13 @@ class AirconClient:
             ) as scanner:
                 async for result in scanner:
                     if result.name() == self.device_name:
-                        return result.device
+                        # Not result.device directly -- see ble_shared.
+                        # canonical_device()'s own docstring: lets this
+                        # resolve to the same aioble.Device HeaterClient
+                        # may already be connected on, when both happen to
+                        # point at the same address (only ever expected
+                        # against ../hvac-sim/'s combined peripheral).
+                        return ble_shared.canonical_device(result.device)
         return None
 
     async def scan_for_aircons(self, duration_ms=_PICKER_SCAN_DURATION_MS):
@@ -513,57 +519,85 @@ class AirconClient:
             connection = await device.connect(timeout_ms=5000)
         self._connection = connection
         async with connection:
-            # The fix for the settings/status JSON truncation (see
-            # aioble.config(mtu=256) above): that call alone only sets the
-            # *preferred* MTU, per MicroPython's bluetooth module docs --
-            # the exchange itself must be actively triggered, and aioble
-            # never does that on its own (central.py/client.py have no
-            # gattc_exchange_mtu call anywhere), so it's done manually here.
-            # bluetooth.BLE() is a singleton, so constructing it again just
-            # returns aioble's own radio object. connection._conn_handle is
-            # private (no public accessor), used because aioble's own
-            # central.py._connect() relies on that same attribute name
-            # internally.
-            #
-            # No IRQ handler awaits the _IRQ_MTU_EXCHANGED completion event
-            # -- bluetooth.BLE.irq() only supports one global callback, and
-            # aioble already owns that slot for its own dispatch, so a
-            # fixed sleep stands in for it instead (the exchange is one
-            # fast round-trip, and service/characteristic discovery right
-            # after this adds further real time before the first read).
-            try:
-                bluetooth.BLE().gattc_exchange_mtu(connection._conn_handle)
-                await asyncio.sleep_ms(200)
-            except Exception as e:
-                print("aircon_ble: MTU exchange request failed: %s" % e)
+            # Discovery (ble_shared.discover_all()) and the subscribe loop
+            # below serialized against HeaterClient's own, in case this
+            # connection is shared with it -- see ble_shared.
+            # discovery_lock_for()'s own docstring; a no-op lock
+            # (uncontended) whenever it isn't, which is every real-hardware
+            # case. Also still needed *within* this one client on its own,
+            # same as always: aioble only allows one discovery in flight
+            # per connection at a time.
+            async with ble_shared.discovery_lock_for(device):
+                # The fix for the settings/status JSON truncation (see
+                # aioble.config(mtu=256) above): that call alone only sets
+                # the *preferred* MTU, per MicroPython's bluetooth module
+                # docs -- the exchange itself must be actively triggered,
+                # and aioble never does that on its own (central.py/
+                # client.py have no gattc_exchange_mtu call anywhere), so
+                # it's done manually here. bluetooth.BLE() is a singleton,
+                # so constructing it again just returns aioble's own radio
+                # object. connection._conn_handle is private (no public
+                # accessor), used because aioble's own central.py._connect()
+                # relies on that same attribute name internally.
+                #
+                # No IRQ handler awaits the _IRQ_MTU_EXCHANGED completion
+                # event -- bluetooth.BLE.irq() only supports one global
+                # callback, and aioble already owns that slot for its own
+                # dispatch, so a fixed sleep stands in for it instead (the
+                # exchange is one fast round-trip, and service/
+                # characteristic discovery right after this adds further
+                # real time before the first read).
+                #
+                # ble_shared.mtu_exchange_needed() guard: MTU is negotiated
+                # once per *connection*, not once per client -- if
+                # HeaterClient already exchanged it on this connection (see
+                # canonical_device()'s own docstring for when that
+                # happens), attempting it again here isn't just redundant,
+                # it's rejected outright (confirmed on real hardware:
+                # OSError 120 EALREADY). See that function's own docstring.
+                if ble_shared.mtu_exchange_needed(connection):
+                    try:
+                        bluetooth.BLE().gattc_exchange_mtu(connection._conn_handle)
+                        await asyncio.sleep_ms(200)
+                    except Exception as e:
+                        print("aircon_ble: MTU exchange request failed: %s" % e)
 
-            service = await connection.service(_SVC)
-            if service is None:
-                print("aircon_ble: service not found")
-                return
+                # ble_shared.discover_all(), not connection.service(_SVC)/
+                # service.characteristic(uuid) directly -- confirmed on
+                # real hardware that a second, differently-filtered
+                # discovery call on an already-discovered shared connection
+                # (HeaterClient's own discovery having already run first on
+                # it) comes back empty even though the service/
+                # characteristic genuinely is there -- see that function's
+                # own docstring for the full story, including why
+                # subscribe() below also goes through ble_shared instead of
+                # aioble's own ch.subscribe() (which does its own fresh
+                # CCCD descriptor discovery internally, exposed to the same
+                # risk).
+                discovered = await ble_shared.discover_all(connection)
+                entry = discovered.get(_SVC)
+                if entry is None:
+                    print("aircon_ble: service not found")
+                    return
+                _service, all_chars = entry
 
-            chars = {}
-            for name, uuid in _CHAR_UUIDS.items():
-                try:
-                    chars[name] = await service.characteristic(uuid)
-                except Exception:
-                    chars[name] = None
-            self._chars = chars
+                chars = {}
+                char_descs = {}
+                for name, uuid in _CHAR_UUIDS.items():
+                    char_entry = all_chars.get(uuid)
+                    if char_entry is None:
+                        chars[name] = None
+                        continue
+                    chars[name], char_descs[name] = char_entry
+                self._chars = chars
 
-            # Sequential, not one asyncio.create_task() per characteristic --
-            # ch.subscribe() does CCCD descriptor discovery under the hood,
-            # and aioble only allows one discovery in flight per connection
-            # at a time. Firing all of them at once (as _notify_loop used to
-            # do internally, all scheduled together right below) raced for
-            # that single-discovery guard and most of them lost with
-            # "ValueError: Discovery in progress".
-            for name, ch in chars.items():
-                if ch is None:
-                    continue
-                try:
-                    await ch.subscribe(notify=True)
-                except Exception as e:
-                    print("aircon_ble: subscribe %s failed: %s" % (name, e))
+                for name, ch in chars.items():
+                    if ch is None:
+                        continue
+                    try:
+                        await ble_shared.subscribe(ch, char_descs[name], notify=True)
+                    except Exception as e:
+                        print("aircon_ble: subscribe %s failed: %s" % (name, e))
 
             await self._read_initial()
 

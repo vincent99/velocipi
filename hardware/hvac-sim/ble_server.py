@@ -381,7 +381,9 @@ class SimBLEServer:
         leaves zeroed.
         """
         s = self.heat_ctrl.get_state()
-        data = heat_protocol.encode_status(cmd_echo, s["on"], s["now_gear"], fault_code=s["fault_code"])
+        data = heat_protocol.encode_status(
+            cmd_echo, s["on"], s["cooling"], s["now_gear"], fault_code=s["fault_code"]
+        )
 
         if not force and self._last_sent.get("heat") == data:
             return

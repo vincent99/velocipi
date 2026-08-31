@@ -41,20 +41,42 @@ Three real differences from AirconClient worth knowing before touching this:
      file assumed. This protocol version has no distinct handshake/login
      command at all (confirmed via a real BLE capture -- see
      heater_ble_config.py's frame-format comment): the password just rides
-     along on every frame. _attempt_handshake() sends a CMD_READ probe on
-     every fresh connection and waits briefly to see if *anything* comes
-     back, since the real notify payload's structure isn't decoded yet and
-     so can't be checked for an explicit accept/reject the way an earlier
-     version of this assumed a dedicated handshake response could be. That
-     means state.password_required can currently only ever resolve to
-     False -- there's no way yet to observe this device actively rejecting
-     a wrong password, only "responded" or "didn't" -- see
-     _attempt_handshake()'s own comment.
+     along on every frame, checked (or not) per-frame device-side, with no
+     ATT-level or application-level reject either way for this client to
+     catch (see _schedule_verify()'s own docstring). Two independent,
+     weaker-than-ideal signals feed state.password_required as a result:
+     _attempt_handshake() sends a CMD_READ probe on every fresh connection
+     and waits briefly to see if *anything* comes back at all -- since the
+     real notify payload's structure isn't decoded yet and so can't be
+     checked for an explicit accept/reject the way an earlier version of
+     this assumed a dedicated handshake response could be, this alone can
+     only ever resolve to False, never actually catching a wrong password
+     at connect time (see that method's own comment). _schedule_verify()
+     (called from _apply_run()/power_off(), and from _connect_and_run()
+     itself whenever a fresh connection finds state.on already True -- see
+     that reassert call's own comment) is the one path that can actually
+     resolve this True: it catches a password that goes wrong after a
+     successful connection -- most plausibly on this project's own
+     ../hvac-sim/, which only takes a --heat-password change via a full
+     process restart, forcing exactly that kind of reconnect -- by
+     noticing a freshly (re)commanded on/off value the device's own status
+     pushes never end up agreeing with.
 
 Confirmed on real hardware: this board's BLE stack (aioble/the underlying
 `bluetooth` module in this lvgl_micropython build) holds two independent
 central connections open at once fine -- one to the AirCon controller, one
-to this heater -- with neither connection making the other flaky.
+to this heater -- with neither connection making the other flaky. That's
+the normal case (a real AirCon and a real heater are always two separate
+physical devices with separate BLE addresses). If AirconClient and
+HeaterClient ever resolve to the *same* address instead (only ever
+expected against ../hvac-sim/'s combined single-peripheral simulator --
+see that package's own README), BLE itself only supports one link-layer
+connection per peer address at all, so a second independent
+device.connect() to that address fails outright (confirmed on real
+hardware: OSError 5 EIO) -- see ble_shared.canonical_device()'s own
+docstring for how this module and aircon_ble.py cooperate to share one
+underlying connection in that case instead, transparently to everything
+else in this file.
 ../README.md's "Still open" list documents a DIFFERENT single-central
 constraint (the AirCon controller itself accepting only one central at a
 time, panel vs. the Pi); that one's unrelated and still applies.
@@ -89,6 +111,16 @@ _DEBOUNCE_MS = 600
 # unit -- shorten if a real one answers reliably faster, lengthen if it
 # turns out slower than this.
 _HANDSHAKE_TIMEOUT_MS = 3000
+
+# How long _schedule_verify() waits after commanding on/off before checking
+# whether the device's own reported state.on (reconciled by _apply_status()
+# from a real notification) ever agreed -- see that method's own docstring.
+# Longer than _HANDSHAKE_TIMEOUT_MS: this has to outlast not just one BLE
+# round-trip but this protocol's own unprompted status cadence too (../
+# hvac-sim/config.py's HEAT_NOTIFY_INTERVAL is 2s; a real unit's own
+# unprompted push rate isn't confirmed, so this leaves extra margin above
+# that sim's value rather than tuning tight against it).
+_VERIFY_TIMEOUT_MS = 5000
 
 # See scan_for_heaters()'s per-result diagnostic below -- disabled again
 # now that it served its purpose confirming the real cause behind that
@@ -211,6 +243,16 @@ class HeaterClient:
         self.password = password if password is not None else 0
         self.state = HeaterState()
         self.dirty = asyncio.Event()
+        # Set only on the subset of _mark_dirty() call sites that change a
+        # field serial_link.py's send_state() actually reports (connected,
+        # on, run_mode/run_param, now_gear, fault_code) -- separate from
+        # self.dirty (which also covers password/handshake bookkeeping
+        # that only screens/__init__.py's App needs to redraw for) so
+        # main.py can push a fresh serial "state" packet promptly on a real
+        # heater state change without also spamming one on every password-
+        # flow event. Mirrors aircon_ble.AirconClient's own dirty/
+        # state_dirty split exactly -- see that class's _mark_state_dirty().
+        self.state_dirty = asyncio.Event()
         self._char = None
         # The live aioble connection object, or None whenever not connected
         # -- same purpose as aircon_ble.AirconClient._connection: lets
@@ -235,9 +277,18 @@ class HeaterClient:
         # for what's always at most one outstanding probe at a time.
         self._handshake_event = None
         self._handshake_success = None
+        # The single outstanding _verify_run() task, if any -- see
+        # _schedule_verify()'s own docstring. Cancel-and-replace, same
+        # pattern as self._pending's per-key debounce tasks, so only the
+        # most recently commanded on/off value ever gets checked.
+        self._verify_task = None
 
     def _mark_dirty(self):
         self.dirty.set()
+
+    def _mark_state_dirty(self):
+        self.dirty.set()
+        self.state_dirty.set()
 
     def _debounce(self, key, coro):
         prev = self._pending.get(key)
@@ -319,7 +370,7 @@ class HeaterClient:
         while True:
             if not self.device_name:
                 self.state.connected = False
-                self._mark_dirty()
+                self._mark_state_dirty()
                 await self._name_event.wait()
                 self._name_event.clear()
                 continue
@@ -344,7 +395,7 @@ class HeaterClient:
             self.state.connected = False
             self._char = None
             self._connection = None
-            self._mark_dirty()
+            self._mark_state_dirty()
             await asyncio.sleep_ms(_RECONNECT_DELAY_MS)
 
     async def _find_device(self):
@@ -358,7 +409,13 @@ class HeaterClient:
             ) as scanner:
                 async for result in scanner:
                     if result.name() == self.device_name:
-                        return result.device
+                        # Not result.device directly -- see ble_shared.
+                        # canonical_device()'s own docstring: lets this
+                        # resolve to the same aioble.Device AirconClient
+                        # may already be connected on, when both happen to
+                        # point at the same address (only ever expected
+                        # against ../hvac-sim/'s combined peripheral).
+                        return ble_shared.canonical_device(result.device)
         return None
 
     async def scan_for_heaters(self, duration_ms=_PICKER_SCAN_DURATION_MS):
@@ -370,6 +427,21 @@ class HeaterClient:
         devices in the wild (see heater_ble_config.py's module docstring).
         Same (found, other_count) return shape as scan_for_aircons() though,
         so screens.ConnectTile can drive either client identically.
+
+        SIM NAME MATCH: also matches any device whose advertised name
+        contains "sim" as its own word (case-insensitive), where a "word"
+        is delimited by spaces, hyphens, or the start/end of the name --
+        e.g. "HVAC-Sim", "hvac-sim", "HVAC Sim", or bare "Sim" all match,
+        but "AirSim"/"Simulator" don't (no separator on both sides of the
+        substring). A deliberate, permanent dev/testing convenience, not a
+        workaround for anything in particular: it means ../hvac-sim/ (or
+        any future desktop simulator) doesn't need to follow the real
+        heater's own "BYD-" naming convention just to be discoverable
+        here, one less thing to get right when standing up a test rig.
+        Independent of NAME_PREFIX/NAME_EXCLUDE_PREFIXES entirely -- a
+        real heater is never going to legitimately advertise a name
+        shaped like this, so there's no real-world exclusion list to
+        apply.
 
         FALLBACK: also matches any device advertising cfg.SERVICE_UUID
         whose name *doesn't* match the prefix (including no name at all) --
@@ -434,8 +506,14 @@ class HeaterClient:
                     name_matches = name and name.startswith(cfg.NAME_PREFIX) and not any(
                         name.startswith(p) for p in cfg.NAME_EXCLUDE_PREFIXES
                     )
-                    svc_matches = not name_matches and _SVC in svcs
-                    if name_matches or svc_matches:
+                    # "word" here means space/hyphen/string-edge delimited --
+                    # lowercasing then swapping hyphens for spaces before
+                    # split() turns both separators into the same plain
+                    # whitespace-split check, no regex needed. See this
+                    # method's own docstring's SIM NAME MATCH paragraph.
+                    sim_matches = name and "sim" in name.lower().replace("-", " ").split()
+                    svc_matches = not (name_matches or sim_matches) and _SVC in svcs
+                    if name_matches or sim_matches or svc_matches:
                         # Falls back to the address for the roller's display
                         # text when svc_matches fired with no usable name --
                         # see this method's own docstring's FALLBACK
@@ -464,53 +542,98 @@ class HeaterClient:
         # procedure" constraint scan-vs-scan already needed this lock for.
         # Only held through connection establishment, not this
         # connection's whole subsequent lifetime -- see that module's
-        # docstring for why that's deliberate.
+        # docstring for why that's deliberate. Separately: device.connect()
+        # itself is safe even if AirconClient already holds a connection to
+        # this exact address -- see ble_shared.canonical_device()'s own
+        # docstring (device here is already routed through it, in
+        # _find_device() above) for why that doesn't raise the OSError 5
+        # EIO a naive second connect() would.
         async with ble_shared.radio_lock:
             connection = await device.connect(timeout_ms=5000)
         self._connection = connection
         async with connection:
-            # Confirmed via a real BLE capture of the vendor iOS app's own
-            # connection: it negotiates MTU 247 (Client Rx MTU 527, Server
-            # Rx MTU 247), while this connection otherwise sits at the BLE
-            # default of 23 (20 usable bytes) -- and this heater's status
-            # notification payload is ~50 bytes, well over that. Without
-            # this exchange, the device never sends a single notification
-            # at all (not truncated/garbled -- completely silent, confirmed
-            # against real hardware with a standalone script identical in
-            # every other respect to what's below), consistent with its
-            # firmware just dropping a notification it can't fit in one
-            # packet rather than fragmenting or truncating it. Requesting
-            # 247 to match the app exactly rather than guessing a smaller
-            # value that "should" be enough -- connection.exchange_mtu()
-            # (unlike aircon_ble.py's own MTU dance for its completely
-            # separate connection) returns the negotiated value directly,
-            # no manual IRQ-less sleep-and-hope needed on this build.
-            try:
-                mtu = await connection.exchange_mtu(247)
-                print("heater_ble: mtu=%r" % (mtu,))
-            except Exception as e:
-                print("heater_ble: exchange_mtu failed: %s" % e)
+            # Discovery (service()/characteristic() lookups) and
+            # subscribe() serialized against AirconClient's own, in case
+            # this connection is shared with it -- see ble_shared.
+            # discovery_lock_for()'s own docstring; a no-op lock
+            # (uncontended) whenever it isn't, which is every real-hardware
+            # case.
+            async with ble_shared.discovery_lock_for(device):
+                # Confirmed via a real BLE capture of the vendor iOS app's
+                # own connection: it negotiates MTU 247 (Client Rx MTU 527,
+                # Server Rx MTU 247), while this connection otherwise sits
+                # at the BLE default of 23 (20 usable bytes) -- and this
+                # heater's status notification payload is ~50 bytes, well
+                # over that. Without this exchange, the device never sends
+                # a single notification at all (not truncated/garbled --
+                # completely silent, confirmed against real hardware with a
+                # standalone script identical in every other respect to
+                # what's below), consistent with its firmware just
+                # dropping a notification it can't fit in one packet
+                # rather than fragmenting or truncating it. Requesting 247
+                # to match the app exactly rather than guessing a smaller
+                # value that "should" be enough -- connection.exchange_mtu()
+                # (unlike aircon_ble.py's own MTU dance for its completely
+                # separate connection) returns the negotiated value
+                # directly, no manual IRQ-less sleep-and-hope needed on
+                # this build.
+                #
+                # ble_shared.mtu_exchange_needed() guard: MTU is negotiated
+                # once per *connection*, not once per client -- if
+                # AirconClient already exchanged it on this connection
+                # (see canonical_device()'s own docstring for when that
+                # happens), attempting it again here isn't just redundant,
+                # it's rejected outright (confirmed on real hardware:
+                # OSError 120 EALREADY). See that function's own docstring.
+                if ble_shared.mtu_exchange_needed(connection):
+                    try:
+                        mtu = await connection.exchange_mtu(247)
+                        print("heater_ble: mtu=%r" % (mtu,))
+                    except Exception as e:
+                        print("heater_ble: exchange_mtu failed: %s" % e)
 
-            # Earlier attempt here: pairing (bond=True, io=NO_INPUT_OUTPUT),
-            # on the theory that this device only exposes FFE0 to a bonded
-            # central. Confirmed WRONG on real hardware -- see git history
-            # -- and reverted; the MTU exchange above was the actual fix.
-            service = await connection.service(_SVC)
-            if service is None:
-                print("heater_ble: service not found")
-                return
-            try:
-                char = await service.characteristic(_CHAR)
-            except Exception as e:
-                print("heater_ble: characteristic not found:", e)
-                return
-            self._char = char
+                # Earlier attempt here: pairing (bond=True,
+                # io=NO_INPUT_OUTPUT), on the theory that this device only
+                # exposes FFE0 to a bonded central. Confirmed WRONG on real
+                # hardware -- see git history -- and reverted; the MTU
+                # exchange above was the actual fix.
+                #
+                # ble_shared.discover_all(), not connection.service(_SVC)/
+                # service.characteristic(_CHAR) directly -- confirmed on
+                # real hardware that a second, differently-filtered
+                # discovery call on an already-discovered shared connection
+                # (AirconClient's own discovery having already run first on
+                # it) comes back empty even though the service/
+                # characteristic genuinely is there -- see that function's
+                # own docstring for the full story, including why
+                # subscribe() below also goes through ble_shared instead of
+                # aioble's own char.subscribe().
+                #
+                # ble_shared.find_entry(), not discovered.get(_SVC)/
+                # chars.get(_CHAR) directly -- confirmed on real hardware
+                # that ../hvac-sim/ reports this service/characteristic in
+                # expanded 128-bit UUID form over ATT, unlike a real
+                # heater (which reports the same logical UUID in compact
+                # 16-bit form, matching _SVC/_CHAR below directly) -- see
+                # that function's own docstring.
+                discovered = await ble_shared.discover_all(connection)
+                entry = ble_shared.find_entry(discovered, cfg.SERVICE_UUID)
+                if entry is None:
+                    print("heater_ble: service not found")
+                    return
+                _service, chars = entry
+                char_entry = ble_shared.find_entry(chars, cfg.CHAR_UUID)
+                if char_entry is None:
+                    print("heater_ble: characteristic not found")
+                    return
+                char, descs = char_entry
+                self._char = char
 
-            try:
-                await char.subscribe(notify=True)
-            except Exception as e:
-                print("heater_ble: subscribe failed:", e)
-                return
+                try:
+                    await ble_shared.subscribe(char, descs, notify=True)
+                except Exception as e:
+                    print("heater_ble: subscribe failed:", e)
+                    return
 
             self.state.connected = True
             # Reset, not carried over from a previous connection this same
@@ -519,7 +642,7 @@ class HeaterClient:
             # from this new attempt, not keep showing a stale result from
             # before the connection dropped.
             self.state.password_required = None
-            self._mark_dirty()
+            self._mark_state_dirty()
             print("heater_ble: connected")
 
             # _notify_loop must already be running before
@@ -527,6 +650,30 @@ class HeaterClient:
             # the handshake's own response back to it.
             task = asyncio.create_task(self._notify_loop())
             await self._attempt_handshake()
+            if self.state.on and self.state.run_mode is not None:
+                # Reassert the last known desired run state across this
+                # fresh connection -- state.on/run_mode/run_param are
+                # purely local memory (this module's docstring, point 1),
+                # never automatically resent by aioble/BLE itself on a
+                # reconnect, so a heater that's actually gone back to its
+                # own power-on-default "off" while this client was briefly
+                # disconnected (a real power cycle, or -- the case that
+                # actually surfaced this -- ../hvac-sim/ restarted with a
+                # new --heat-password, which forces exactly this reconnect
+                # path) would otherwise leave the panel silently showing
+                # "on" forever, with nothing to trigger a fresh
+                # _apply_run()/power_off() call (and this its
+                # _schedule_verify()) until the user happens to touch the
+                # knob again. Also doubles as a stronger password probe
+                # than _attempt_handshake()'s own bare CMD_READ above --
+                # its "did anything at all come back" heuristic can't tell
+                # a rejected probe apart from this sim's (and presumably
+                # real hardware's) own unprompted periodic status pushes,
+                # which arrive regardless of any password at all -- see
+                # _schedule_verify()'s own docstring for why comparing
+                # against state.on instead doesn't have that blind spot.
+                self._debounce("run", self._commit_run(self.state.run_mode, self.state.run_param))
+                self._schedule_verify(True)
             try:
                 await connection.disconnected()
             finally:
@@ -629,7 +776,7 @@ class HeaterClient:
                 self._handshake_event.set()
             try:
                 buf += data
-                self._drain_frames(buf)
+                buf = self._drain_frames(buf)
             except Exception as e:
                 print("heater_ble: notify handling failed: %s" % e)
                 buf = bytearray()
@@ -642,16 +789,27 @@ class HeaterClient:
         (pre-XOR) header bytes rather than decoding incrementally -- cheap,
         and that header is fixed regardless of the rest of the payload (see
         NOTIFY_RAW_HEAD_1/2's own comment for why).
+
+        Returns the remaining, not-yet-consumed tail of `buf` -- confirmed
+        on real hardware that this build's bytearray has no __delitem__ at
+        all (`del buf[0]`/`del buf[:n]` both raised "'bytearray' object
+        doesn't support item deletion", caught by _notify_loop()'s own
+        try/except and silently dropping the whole buffer, including
+        already-received bytes, every single time any resync was actually
+        needed), unlike CPython's. Slicing (buf[1:]/buf[n:], which builds
+        and returns a new bytearray rather than mutating this one in place)
+        works on every port and is what this returns for _notify_loop() to
+        reassign over its own `buf` local instead.
         """
         while True:
             while len(buf) >= 2 and not (
                 buf[0] == cfg.NOTIFY_RAW_HEAD_1 and buf[1] == cfg.NOTIFY_RAW_HEAD_2
             ):
-                del buf[0]
+                buf = buf[1:]
             if len(buf) < cfg.NOTIFY_LEN:
-                return  # not enough yet for a full fixed-size frame
+                return buf  # not enough yet for a full fixed-size frame
             frame = bytes(buf[: cfg.NOTIFY_LEN])
-            del buf[: cfg.NOTIFY_LEN]
+            buf = buf[cfg.NOTIFY_LEN :]
             self._handle_status_frame(frame)
 
     def _handle_status_frame(self, frame):
@@ -695,7 +853,7 @@ class HeaterClient:
         s.cooling_off = on_byte not in (0, 1)
         s.fault_code = decoded[cfg.NOTIFY_OFF_FAULT]
         s.now_gear = decoded[cfg.NOTIFY_OFF_GEAR] + 1
-        self._mark_dirty()
+        self._mark_state_dirty()
 
     # --- send ----------------------------------------------------------------
 
@@ -741,12 +899,12 @@ class HeaterClient:
         state.password_required is True -- if the device is known to be
         rejecting unauthenticated commands, applying an optimistic "on"
         update anyway would show the panel lying about what the heater is
-        actually doing. NOT currently reachable in practice -- see
-        _attempt_handshake()'s own comment: this protocol version gives no
-        way yet to observe an explicit reject, only "responded" or
-        "didn't", so password_required can only ever resolve to False.
-        Kept as a guard regardless, in case that changes once the status
-        payload format is decoded.
+        actually doing. Reachable now via _schedule_verify() below (a
+        password change mid-session, so every subsequent frame's embedded
+        password stops matching -- see that method's own docstring), not
+        just _attempt_handshake()'s own weaker connect-time heuristic
+        (still can only ever resolve to False on its own -- see that
+        method's own comment).
         """
         if self.state.password_required:
             print("heater_ble: password required, refusing to send run command")
@@ -754,8 +912,9 @@ class HeaterClient:
         self.state.on = True
         self.state.run_mode = run_mode
         self.state.run_param = run_param
-        self._mark_dirty()
+        self._mark_state_dirty()
         self._debounce("run", self._commit_run(run_mode, run_param))
+        self._schedule_verify(True)
 
     async def _commit_run(self, run_mode, run_param):
         """Three separate writes, not one combined frame -- see
@@ -795,8 +954,56 @@ class HeaterClient:
             print("heater_ble: password required, refusing to send run command")
             return
         self.state.on = False
-        self._mark_dirty()
+        self._mark_state_dirty()
         self._debounce("run", self._write_frame(cfg.CMD_ON_OFF, 0))
+        self._schedule_verify(False)
+
+    def _schedule_verify(self, expected_on):
+        """Cancel-and-replace a background check of whether the device ever
+        actually agrees with the on/off value just commanded -- the closest
+        thing to a reject signal this protocol has (see this module's
+        docstring, point 3, and _apply_run()'s own comment): every frame
+        carries the password, a wrong one gets silently dropped rather than
+        answered (confirmed as this project's own sim's behavior in
+        ../hvac-sim/ble_server.py's _on_write_heat()), so a command that
+        never takes effect looks identical to one that was never sent at
+        all -- there's no ATT-level or application-level error to catch
+        instead (_write_frame() already sends response=True and still gets
+        a normal Write Response either way).
+
+        state.on is the one field _apply_status() reconciles against the
+        device's own real reports rather than leaving purely optimistic
+        (see this module's docstring, point 1) -- including the unprompted
+        periodic pushes this sim (and presumably real hardware) sends
+        regardless of any password, so it's the one field that will
+        eventually disagree with what was just commanded if that command
+        was silently dropped, without needing this client to guess at
+        whether any given notification was actually a response to it.
+
+        Not proof of a wrong password specifically -- a real fault shutdown
+        could produce the same "commanded on, device still reports off"
+        symptom -- but it's the best signal this protocol version's
+        silent-failure design leaves available, and wrong-password-mid-
+        session is a far more likely cause of a *freshly* commanded change
+        never taking effect than a fault landing in that exact window.
+        """
+        prev = self._verify_task
+        if prev is not None:
+            prev.cancel()
+        self._verify_task = asyncio.create_task(self._verify_run(expected_on))
+
+    async def _verify_run(self, expected_on):
+        try:
+            await asyncio.sleep_ms(_VERIFY_TIMEOUT_MS)
+        except asyncio.CancelledError:
+            return
+        if self.state.connected and self.state.on != expected_on:
+            print(
+                "heater_ble: commanded on=%r but device still reports on=%r after %dms -- "
+                "assuming the password is wrong" % (expected_on, self.state.on, _VERIFY_TIMEOUT_MS)
+            )
+            self.state.password_required = True
+            self._mark_state_dirty()
 
     async def set_heat_level(self, level):
         """"heat" mode's knob dial -- manual heat output level (RUN_MODE_GEAR),
