@@ -17,6 +17,19 @@ COLOR_TEXT_MUTED = lv.color_hex(0x7A8090)
 COLOR_ACCENT = lv.color_hex(0x9429FF)
 COLOR_ACCENT_TEXT = lv.color_hex(0xFFFFFF)
 COLOR_DANGER = lv.color_hex(0xFF0000)
+# home.HomeTile.refresh()'s row1 (AirCon/"cooling" error) and heat_band
+# (heater error) fills both use this now instead of COLOR_DANGER -- yellow
+# reads as "needs attention" without implying the same "actively dangerous"
+# urgency red still carries elsewhere (e.g. main.py's _LED_RED, now reserved
+# for "heater is on" specifically -- see that module's own _led_rgb_for()).
+COLOR_WARNING = lv.color_hex(0xE0B400)
+# Text meant to sit directly over a COLOR_WARNING fill (home.HomeTile's
+# heater-fault message, shown in the same slot as heat_band's own
+# COLOR_WARNING fill when both are keyed off the same hs.fault_code) --
+# confirmed on real hardware that COLOR_WARNING text there was unreadable
+# (yellow-on-yellow); plain black reads clearly against that fill the same
+# way hazard-stripe text does.
+COLOR_TEXT_ON_WARNING = lv.color_hex(0x000000)
 COLOR_TRACK = lv.color_hex(0x9AA3B2)
 COLOR_COMPRESSOR_ON = lv.color_hex(0x0B1F4D)  # dark blue fill behind the current-temp cell while the compressor is running
 COLOR_HEATER_ON = lv.color_hex(0x4D1F0B)  # warm dark-orange fill behind the current-temp cell while the heater is on -- same treatment as COLOR_COMPRESSOR_ON, warm instead of cool

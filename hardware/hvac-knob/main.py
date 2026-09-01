@@ -86,19 +86,23 @@ _SPLASH_IMAGE = "images/splash.bin"
 # docstring for why this blinks instead of just staying lit.
 _HEARTBEAT_PERIOD_MS = 500
 
-# The 5 status LEDs (see hal.init_rgb_leds()): red/blue/white, not the
-# theme's own COLOR_DANGER/COLOR_COMPRESSOR_ON hex values -- those were
-# tuned as a subtle translucent *background fill* behind text (home.py's
-# row1), not a standalone illuminated color, so COLOR_COMPRESSOR_ON in
-# particular (a near-black navy, 0x0B1F4D) would read as barely-lit rather
-# than "blue" here. Same priority order as row1's own fill logic (error
-# beats compressor-on beats neutral) -- see _led_rgb_for().
+# The 5 status LEDs (see hal.init_rgb_leds()): red/yellow/blue/white, not
+# the theme's own COLOR_DANGER/COLOR_WARNING/COLOR_COMPRESSOR_ON/
+# COLOR_HEATER_ON hex values -- those were tuned as a subtle translucent
+# *background fill* behind text (home.py's row1/heat_band), not a
+# standalone illuminated color, so COLOR_COMPRESSOR_ON/COLOR_HEATER_ON in
+# particular (near-black navy/near-black brown) would read as barely-lit
+# rather than "blue"/"red" here. Same priority order as home.HomeTile.
+# refresh()'s own row1/heat_band fill logic, collapsed onto one shared
+# strip (error beats heater-on beats compressor-on beats neutral) -- see
+# _led_rgb_for().
 #
 # Component values are capped at hal.LED_MAX_PCT (100), not the usual
 # 0-255 per channel -- see that constant's own comment for why (also used
 # by hal.init_rgb_leds()'s own initial startup color, so both places agree
 # on the same ceiling).
 _LED_RED = (hal.LED_MAX_PCT, 0, 0)
+_LED_YELLOW = (hal.LED_MAX_PCT, hal.LED_MAX_PCT, 0)
 _LED_BLUE = (0, 0, hal.LED_MAX_PCT)
 _LED_WHITE = (hal.LED_MAX_PCT, hal.LED_MAX_PCT, hal.LED_MAX_PCT)
 
@@ -214,26 +218,33 @@ def _show_splash():
         return None
 
 
-def _led_rgb_for(state, brightness_pct):
-    """Same priority as home.HomeTile.refresh()'s row1 fill logic (error,
+def _led_rgb_for(state, heater_state, brightness_pct):
+    """Same priority as home.HomeTile.refresh()'s row1/heat_band fill
+    logic, collapsed onto this one shared strip (error, then heater-on,
     then compressor-on, then neutral) -- except neutral is solid white
     here rather than transparent/off, since absent a user-dialed-down
     brightness_pct these are physical always-lit status LEDs, not a UI
     highlight that should disappear when there's nothing to call out, and a
-    lost BLE connection counts as an error too (row1 doesn't need that case
-    explicitly -- DisconnectedTile takes over the whole display whenever
-    state.connected is False, see screens/__init__.py's App.refresh(), so
-    row1 isn't even visible then; the LEDs have no such "different screen"
-    to fall back on). Scaled by brightness_pct (0-100, hal.
-    get_led_brightness_pct() -- the neopixels' own user-set brightness, see
-    screens.settings.SettingsTile's "LEDs" field -- clamped there already,
-    not re-clamped here) -- deliberately independent of the LCD backlight's
-    own brightness (hal.get_brightness_pct(), which the Pi drives instead,
-    see serial_link.py's _cmd_set_brightness()); 0 here means the LEDs go
-    fully dark, not just dim, which the backlight's own equivalent
-    (_BACKLIGHT_MIN_PCT) deliberately never allows.
+    lost AirCon BLE connection counts as an error too (row1 doesn't need
+    that case explicitly -- DisconnectedTile takes over the whole display
+    whenever state.connected is False, see screens/__init__.py's App.
+    refresh(), so row1 isn't even visible then; the LEDs have no such
+    "different screen" to fall back on). A disconnected *heater* is NOT
+    folded into this error case, matching row1/heat_band's own
+    heater_state.connected guards -- see screens/__init__.py's module
+    docstring, point 2, on the heater being non-blocking. Scaled by
+    brightness_pct (0-100, hal.get_led_brightness_pct() -- the neopixels'
+    own user-set brightness, see screens.settings.SettingsTile's "LEDs"
+    field -- clamped there already, not re-clamped here) -- deliberately
+    independent of the LCD backlight's own brightness (hal.
+    get_brightness_pct(), which the Pi drives instead, see serial_link.py's
+    _cmd_set_brightness()); 0 here means the LEDs go fully dark, not just
+    dim, which the backlight's own equivalent (_BACKLIGHT_MIN_PCT)
+    deliberately never allows.
     """
-    if not state.connected or state.error:
+    if not state.connected or state.error or (heater_state.connected and heater_state.fault_code):
+        color = _LED_YELLOW
+    elif heater_state.connected and heater_state.on:
         color = _LED_RED
     elif state.compressor == "on":
         color = _LED_BLUE
@@ -316,6 +327,15 @@ async def main():
     )
     _checkpoint("heater_client constructed")
 
+    # fuel_ble doesn't re-import aioble/bluetooth either, same reasoning as
+    # heater_ble above -- and needs no MTU/password setup of its own at all
+    # (see that module's own docstring).
+    import fuel_ble
+
+    _checkpoint("after importing fuel_ble")
+    fuel_client = fuel_ble.FuelClient(panel_settings.get_fuel_device_name())
+    _checkpoint("fuel_client constructed")
+
     link = serial_link.SerialLink(display, client, heater_client)
 
     # The real screen construction (lv.tileview + widgets) was cleared of
@@ -335,10 +355,13 @@ async def main():
     _checkpoint("screens imported")
 
     scr = lv.screen_active()
-    app = screens.build(client, heater_client, encoder, scr, checkpoint=_checkpoint)
+    app = screens.build(
+        client, heater_client, fuel_client, encoder, scr, checkpoint=_checkpoint
+    )
     _checkpoint("screens built")
     asyncio.create_task(client.run())
     asyncio.create_task(heater_client.run())
+    asyncio.create_task(fuel_client.run())
 
     last_refresh_ms = 0
     last_tick_ms = time.ticks_ms()
@@ -371,17 +394,19 @@ async def main():
         # screens.App.poll_input()/HomeTile.handle_knob().
         app.poll_input()
 
-        # heater_client.dirty (not just client.dirty) so a heater-only
-        # change -- e.g. its own status notification updating now_gear/
-        # fault_code, see heater_ble.py -- still triggers a redraw promptly
+        # heater_client.dirty/fuel_client.dirty (not just client.dirty) so a
+        # heater- or fuel-only change -- e.g. a fresh fuel percentage
+        # notification, see fuel_ble.py -- still triggers a redraw promptly
         # rather than waiting out the rest of this refresh period.
         if (
             client.dirty.is_set()
             or heater_client.dirty.is_set()
+            or fuel_client.dirty.is_set()
             or time.ticks_diff(now, last_refresh_ms) >= _REFRESH_PERIOD_MS
         ):
             client.dirty.clear()
             heater_client.dirty.clear()
+            fuel_client.dirty.clear()
             last_refresh_ms = now
             app.refresh()
 
@@ -389,7 +414,7 @@ async def main():
         # unless it actually changed) rather than only on the screen's own
         # refresh cadence above, so a brightness push takes effect on the
         # LEDs immediately instead of waiting for the next state change.
-        led_rgb = _led_rgb_for(client.state, hal.get_led_brightness_pct())
+        led_rgb = _led_rgb_for(client.state, heater_client.state, hal.get_led_brightness_pct())
         if led_rgb != last_led_rgb:
             last_led_rgb = led_rgb
             rgb_leds.fill(led_rgb)

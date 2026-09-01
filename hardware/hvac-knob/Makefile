@@ -13,7 +13,7 @@ MPY_CROSS ?= mpy-cross
 FIRMWARE ?= "tools/lvgl_micropy_ESP32_GENERIC_S3-SPIRAM_OCT-8.bin"
 
 BOOT_MAIN_PY := boot.py main.py
-COMPILE_PY := aircon_ble_config.py heater_ble_config.py ble_shared.py panel_settings.py serial_link.py theme.py hal.py encoder.py aircon_ble.py heater_ble.py
+COMPILE_PY := aircon_ble_config.py heater_ble_config.py fuel_ble_config.py ble_shared.py panel_settings.py serial_link.py theme.py hal.py encoder.py aircon_ble.py heater_ble.py fuel_ble.py
 COMPILE_MPY := $(COMPILE_PY:.py=.mpy)
 
 SCREENS_PY := $(wildcard screens/*.py)

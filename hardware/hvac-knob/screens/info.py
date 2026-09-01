@@ -1,9 +1,9 @@
 """Info: "about" screen -- app/controller identification, whatever error
-the controller last reported, and (see the two device buttons below) which
-AirCon controller and heater are configured and whether each is currently
-connected. Reached by swiping right from Home, the mirror image of Temps
-(reached by swiping left) -- see screens/__init__.py's App.__init__ for
-the grid layout.
+the controller last reported, and (see the three device buttons below)
+which AirCon controller, heater, and fuel sensor are configured and
+whether each is currently connected. Reached by swiping right from Home,
+the mirror image of Temps (reached by swiping left) -- see
+screens/__init__.py's App.__init__ for the grid layout.
 """
 
 import lvgl as lv
@@ -25,19 +25,39 @@ from .widgets import (
 # screen also reports -- see refresh()).
 KNOB_VERSION = "1.0"
 
-_DEVICE_BUTTON_W = 200
-_DEVICE_BUTTON_H = 64
+# Narrower than an earlier 200, paired with _DEVICE_BUTTON_H's own increase
+# below -- a round display's usable chord narrows the taller a fixed-width
+# element sits away from vertical center, so pulling the width in some is
+# what keeps the now-taller cells from getting cut off at the edges rather
+# than just growing them straight down. Two lines (kind+name combined, then
+# status -- see _refresh_device()) don't need the full width the old
+# 3-line/200px layout did anyway. NOT hardware-verified at this exact
+# value -- nudge if the corners still clip.
+_DEVICE_BUTTON_W = 170
+# Confirmed on real hardware that an earlier 44 (sized back when each cell
+# held 3 separate lines: kind, name, status) clipped down to showing only
+# one line -- a fixed-height flex container that doesn't fit its content
+# clips it in LVGL, rather than growing or overflowing visibly. Combining
+# kind+name onto one line (see _refresh_device()) cuts these down to 2
+# lines each; this is bumped up from that cramped 44 regardless, for
+# margin. NOT independently hardware-verified at this exact value -- nudge
+# further (together with _DEVICE_BUTTON_W above) if either line still
+# clips, or if the taller cells now clip against the round display's edge
+# instead.
+_DEVICE_BUTTON_H = 54
+_DEVICE_CELL_PAD = theme.SPACE_XS
 
 
 class InfoTile:
-    def __init__(self, client, heater_client, encoder, tileview, on_reconnect):
+    def __init__(self, client, heater_client, fuel_client, encoder, tileview, on_reconnect):
         self.client = client
         self.heater_client = heater_client
-        # Called with "aircon" or "heater" when one of the device buttons
-        # below is clicked -- screens/__init__.py's App.request_reconnect(),
-        # threaded through as a plain callback rather than this tile
-        # holding a reference to the whole App, matching how screens.
-        # ConnectTile's on_skip already does the same thing for a
+        self.fuel_client = fuel_client
+        # Called with "aircon", "heater", or "fuel" when one of the device
+        # buttons below is clicked -- screens/__init__.py's App.
+        # request_reconnect(), threaded through as a plain callback rather
+        # than this tile holding a reference to the whole App, matching how
+        # screens.ConnectTile's on_skip already does the same thing for a
         # different button.
         self.on_reconnect = on_reconnect
         # (2, 1): matches App.__init__'s grid layout -- Info sits to the
@@ -48,6 +68,11 @@ class InfoTile:
         col.set_size(lv.pct(100), lv.pct(100))
         col.set_style_pad_all(theme.SPACE_LG, 0)
         col.set_flex_flow(lv.FLEX_FLOW.COLUMN)
+        # Tighter than col's own SPACE_LG outer padding -- the default gap
+        # a flex COLUMN puts between children would otherwise eat back
+        # most of what shrinking _DEVICE_BUTTON_H/_DEVICE_CELL_PAD just
+        # freed up now that there are three device rows instead of two.
+        col.set_style_pad_row(theme.SPACE_XS, 0)
         # main_place=START (not CENTER, used by widgets._make_tile's other
         # caller, History): the error label below needs the title packed
         # at the top so its flex_grow(1) can actually claim whatever's
@@ -77,21 +102,23 @@ class InfoTile:
         # per-button adjustment needed.
         title.set_style_pad_top(theme.SPACE_MD, 0)
 
-        # Two device buttons, AirCon then Heater -- see refresh() for what
-        # each line shows; click handling is the same widgets._wire_button()
-        # home.HomeTile's mode/recirc cells use (touch + knob-button, see
-        # this screen's swipe-back-to-Home gesture -- a bare tap alone
-        # would be ambiguous with that the same way it is on Home).
-        # _make_button_cell() (also used by those same Home cells) already
-        # gives these the same border/radius/touch-feedback styling, just
-        # sized for 3 lines of text instead of an icon+label pair.
+        # Three device buttons, AirCon/Heat/Fuel -- see _refresh_device()
+        # for what each line shows; click handling is the same widgets.
+        # _wire_button() home.HomeTile's mode/recirc cells use (touch +
+        # knob-button, see this screen's swipe-back-to-Home gesture -- a
+        # bare tap alone would be ambiguous with that the same way it is on
+        # Home). _make_button_cell() (also used by those same Home cells)
+        # already gives these the same border/radius/touch-feedback
+        # styling, just sized for 2 lines of text instead of an icon+label
+        # pair -- pad_all is knocked down from its own default
+        # (theme.SPACE_MD) to _DEVICE_CELL_PAD on all three, freeing up the
+        # room three rows need. Two labels per cell now, not three: the
+        # kind ("AirCon"/"Heat"/"Fuel") and device name share one line
+        # ("Heat: HVAC-Sim") instead of each getting their own -- see
+        # _refresh_device() -- so a fixed cell height only ever has to fit
+        # two lines, not three.
         self.aircon_cell = _make_button_cell(col, _DEVICE_BUTTON_W, _DEVICE_BUTTON_H)
-        self.aircon_kind_label = _label(
-            self.aircon_cell,
-            "AirCon",
-            font=theme.FONT_TINY,
-            color=theme.COLOR_TEXT_MUTED,
-        )
+        self.aircon_cell.set_style_pad_all(_DEVICE_CELL_PAD, 0)
         self.aircon_name_label = _label(
             self.aircon_cell, font=theme.FONT_BODY, color=theme.COLOR_TEXT
         )
@@ -99,17 +126,20 @@ class InfoTile:
         _wire_button(self.aircon_cell, encoder, lambda: self.on_reconnect("aircon"))
 
         self.heater_cell = _make_button_cell(col, _DEVICE_BUTTON_W, _DEVICE_BUTTON_H)
-        self.heater_kind_label = _label(
-            self.heater_cell,
-            "Heater",
-            font=theme.FONT_TINY,
-            color=theme.COLOR_TEXT_MUTED,
-        )
+        self.heater_cell.set_style_pad_all(_DEVICE_CELL_PAD, 0)
         self.heater_name_label = _label(
             self.heater_cell, font=theme.FONT_BODY, color=theme.COLOR_TEXT
         )
         self.heater_status_label = _label(self.heater_cell, font=theme.FONT_TINY)
         _wire_button(self.heater_cell, encoder, lambda: self.on_reconnect("heater"))
+
+        self.fuel_cell = _make_button_cell(col, _DEVICE_BUTTON_W, _DEVICE_BUTTON_H)
+        self.fuel_cell.set_style_pad_all(_DEVICE_CELL_PAD, 0)
+        self.fuel_name_label = _label(
+            self.fuel_cell, font=theme.FONT_BODY, color=theme.COLOR_TEXT
+        )
+        self.fuel_status_label = _label(self.fuel_cell, font=theme.FONT_TINY)
+        _wire_button(self.fuel_cell, encoder, lambda: self.on_reconnect("fuel"))
 
         # Hidden entirely while state.error is empty (see refresh()) --
         # flex_grow(1) only claims space while the label itself isn't
@@ -130,27 +160,34 @@ class InfoTile:
         # lines at full tile width and would otherwise read ragged-left.
         for label in (
             title,
-            self.aircon_kind_label,
             self.aircon_name_label,
             self.aircon_status_label,
-            self.heater_kind_label,
             self.heater_name_label,
             self.heater_status_label,
+            self.fuel_name_label,
+            self.fuel_status_label,
             self.error_label,
         ):
             label.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
 
-    def _refresh_device(self, client, name_label, status_label, version=None):
-        """Shared by both device rows below -- AirCon and heater are both
-        optional/skippable now (see screens/__init__.py's module
+    def _refresh_device(self, kind, client, name_label, status_label, version=None):
+        """Shared by all three device rows below -- AirCon, heater, and the
+        fuel sensor are all optional now (see screens/__init__.py's module
         docstring), so their Info display is fully symmetric: a picked-and-
-        connected device shows its name + "Connected", a picked-but-
-        currently-unreachable one shows its name + "Disconnected", and a
+        connected device shows "Kind: Name" + "Connected", a picked-but-
+        currently-unreachable one shows "Kind: Name" + "Disconnected", and a
         never-picked/explicitly-skipped/gave-up-waiting one (App._
-        DEVICE_CONNECT_TIMEOUT_MS/_HEATER_PASSWORD_TIMEOUT_MS) shows "Not
-        configured" with no status text -- there's no device name to show
-        in that last case, and neither "Connected" nor "Disconnected"
-        would be accurate.
+        DEVICE_CONNECT_TIMEOUT_MS/_HEATER_PASSWORD_TIMEOUT_MS -- the fuel
+        sensor has neither of those timeouts, but starts out just as
+        unpicked) shows bare "Kind" + "Not configured" -- there's no device
+        name to combine it with in that last case, and neither "Connected"
+        nor "Disconnected" would be accurate.
+
+        `kind` ("AirCon"/"Heat"/"Fuel") is folded onto the same line as the
+        device name ("Heat: HVAC-Sim") rather than getting its own label
+        above it -- frees up a whole line per cell, needed once
+        _DEVICE_BUTTON_H had only room for two lines, not the three an
+        earlier version of this screen used.
 
         `version`, if given (only ever passed for the AirCon -- the heater
         has no equivalent firmware-version field to report), is appended to
@@ -160,7 +197,7 @@ class InfoTile:
         so the two device buttons could move up into that space).
         """
         if client.device_name:
-            name_label.set_text(client.device_name)
+            name_label.set_text("%s: %s" % (kind, client.device_name))
             if client.state.connected:
                 text = "Connected"
                 if version:
@@ -171,20 +208,24 @@ class InfoTile:
                 status_label.set_text("Disconnected")
                 status_label.set_style_text_color(theme.COLOR_DANGER, 0)
         else:
-            name_label.set_text("Not configured")
-            status_label.set_text("")
+            name_label.set_text(kind)
+            status_label.set_text("Not configured")
 
     def refresh(self):
         s = self.client.state
 
         self._refresh_device(
+            "AirCon",
             self.client,
             self.aircon_name_label,
             self.aircon_status_label,
             version=s.controller_version,
         )
         self._refresh_device(
-            self.heater_client, self.heater_name_label, self.heater_status_label
+            "Heat", self.heater_client, self.heater_name_label, self.heater_status_label
+        )
+        self._refresh_device(
+            "Fuel", self.fuel_client, self.fuel_name_label, self.fuel_status_label
         )
 
         # Combines the AirCon's own state.error with the heater reporting a

@@ -1,46 +1,52 @@
-"""Constants for the combined AC + heater BLE simulator -- mirrors
-../aircon/config.py and ../hvac-knob/heater_ble_config.py as plain
-duplicates, since both real firmwares run on MicroPython/RP2350 with no
-shared import path to this desktop/RPi CPython process. If you change
-UUIDs or defaults in either real firmware's config.py, update the matching
-half of this file to match.
+"""Constants for the combined AC + heater + fuel-sensor BLE simulator --
+mirrors ../aircon/config.py, ../hvac-knob/heater_ble_config.py, and
+../fuel-level/config.py as plain duplicates, since all three real
+firmwares run on MicroPython (RP2350 for AC/heater, ESP32-S3 for the fuel
+sensor) with no shared import path to this desktop/RPi CPython process. If
+you change UUIDs or defaults in any real firmware's config.py, update the
+matching section of this file to match.
 
 This file replaces ../aircon-sim/config.py + ../heater-sim/config.py (see
-git history for those) now that both simulators run as one process -- see
-ble_server.py's own module docstring for why. Named AC_*/HEAT_* only where
-a name would otherwise collide between the two devices (VERSION,
+git history for those) now that all three simulators run as one process --
+see ble_server.py's own module docstring for why. Named AC_*/HEAT_*/FUEL_*
+only where a name would otherwise collide between devices (VERSION,
 BLE_SVC_UUID, *_NOTIFY_INTERVAL) or where a device's own GATT service UUID
-specifically needs disambiguating now that both live under one BLE
+specifically needs disambiguating now that all three live under one BLE
 peripheral -- everything else keeps its original, already-unique name from
-whichever of the two predecessor files it came from.
+whichever real project's config.py it came from.
 """
 
 # ── Shared BLE identity ──────────────────────────────────────────────────
 # One process, one BlessServer, one advertised local name -- see ble_server.
 # py's own module docstring for why (a single Mac generally only reliably
-# advertises one BLE peripheral identity at a time; two separate processes
-# each running their own simulator, as this used to be split into, silently
+# advertises one BLE peripheral identity at a time; separate processes each
+# running their own simulator, as this used to be split into, silently
 # starved each other on the same radio even though each looked like it
 # advertised successfully in isolation).
 #
-# Contains "Sim" as its own word (space/hyphen/edge-delimited): with both
-# services registered, the combined advertisement (Flags + local name +
-# AC_BLE_SVC_UUID's full 128-bit UUID + HEAT_BLE_SVC_UUID) needs ~35 bytes
-# even in the best case (HEAT_BLE_SVC_UUID canonicalized down to its
-# compact 16-bit form) -- over the legacy BLE advertisement's 31-byte
-# limit, confirmed on real hardware to make the heater's service UUID
-# silently not survive whatever CoreBluetooth trims to fit (it's the
-# second one registered; AC's own discovery, which only ever needed its
-# own UUID + a non-empty name, wasn't affected). AirconClient.
-# scan_for_aircons() finds this by AC_BLE_SVC_UUID regardless of name --
-# unaffected either way. HeaterClient.scan_for_heaters() has a dedicated
-# SIM NAME MATCH path (see that method's own docstring) that checks for
-# "sim" as a name word *before* ever looking at advertised services
-# specifically so this sim doesn't need to follow the real heater's own
-# "BYD-" naming convention just to be discoverable -- so heater discovery
-# against this name succeeds independent of whether HEAT_BLE_SVC_UUID
-# actually made it into the (over-budget, silently trimmed) advertisement
-# at all.
+# Contains "Sim" as its own word (space/hyphen/edge-delimited): with even
+# just the first two services registered, the combined advertisement
+# (Flags + local name + AC_BLE_SVC_UUID's full 128-bit UUID +
+# HEAT_BLE_SVC_UUID) already needs ~35 bytes in the best case (HEAT_BLE_
+# SVC_UUID canonicalized down to its compact 16-bit form) -- over the
+# legacy BLE advertisement's 31-byte limit, confirmed on real hardware to
+# make the heater's service UUID silently not survive whatever
+# CoreBluetooth trims to fit (it's the second one registered; AC's own
+# discovery, which only ever needed its own UUID + a non-empty name,
+# wasn't affected). Adding the fuel sensor's own two services (FUEL_BLE_
+# SVC_BATTERY -- cheap, compact 16-bit -- and FUEL_BLE_SVC_UUID, another
+# full 128-bit custom UUID) only makes this worse, not better -- expect
+# FUEL_BLE_SVC_UUID to be just as unreliably present in what actually
+# reaches the air as HEAT_BLE_SVC_UUID already is.
+#
+# AirconClient.scan_for_aircons() finds this by AC_BLE_SVC_UUID regardless
+# of name -- unaffected either way (it was registered first). HeaterClient.
+# scan_for_heaters() and FuelClient.scan_for_fuel_sensors() both have a
+# dedicated SIM NAME MATCH path (see each method's own docstring) that
+# checks for "sim" as a name word *before* (heater) or alongside (fuel)
+# looking at advertised services, specifically so discovery against this
+# sim succeeds independent of whether either UUID actually made it into
+# the (over-budget, silently trimmed) advertisement at all.
 BLE_DEVICE_NAME = "HVAC-Sim"
 
 # ── AC (was ../aircon-sim/config.py) ─────────────────────────────────────
@@ -183,3 +189,48 @@ HEATER_COOLDOWN_SECONDS = 15
 
 DEFAULT_RUN_MODE = RUN_MODE_GEAR
 DEFAULT_RUN_PARAM = HEAT_LEVEL_MIN
+
+# ── Fuel sensor (was ../fuel-level/) ─────────────────────────────────────
+
+FUEL_VERSION = "1.0-sim"  # currently unused -- nothing reads it yet, same as HEAT_VERSION's own comment
+
+# Must match ../fuel-level/config.py exactly, and whatever
+# ../hvac-knob/fuel_ble_config.py the panel is flashed with. Battery
+# Service/Battery Level/Voltage are standard Bluetooth SIG UUIDs (0x180F/
+# 0x2A19/0x2B18) -- expanded to their full 128-bit string form here for
+# `bless`, same reasoning as HEAT_BLE_SVC_UUID/HEAT_BLE_CHAR_UUID's own
+# comment above (0000XXXX-0000-1000-8000-00805F9B34FB, the standard
+# Bluetooth Base UUID expansion -- matches ../hvac-knob/ble_shared.py's own
+# find_entry() expansion formula exactly, which is what lets that side
+# find these regardless of which form bless actually reports them in over
+# ATT).
+FUEL_BLE_SVC_BATTERY = "0000180f-0000-1000-8000-00805f9b34fb"
+FUEL_BLE_CHAR_BATTERY_LEVEL = "00002a19-0000-1000-8000-00805f9b34fb"
+FUEL_BLE_CHAR_VOLTAGE = "00002b18-0000-1000-8000-00805f9b34fb"
+
+# Custom service for the raw voltage + calibration characteristics, same
+# "cccc-00dd" family suffix as AC_BLE_SVC_UUID above -- see ../fuel-level/
+# config.py's own BLE_SVC_UUID comment for why this half is custom.
+FUEL_BLE_SVC_UUID = "eeeeeeee-4444-cccc-00dd-000000000000"
+FUEL_BLE_UUID_CAL_ZERO = "eeeeeeee-4444-cccc-00dd-000000000001"
+FUEL_BLE_UUID_CAL_FULL = "eeeeeeee-4444-cccc-00dd-000000000002"
+
+FUEL_NOTIFY_INTERVAL = 2  # seconds; matches AC_NOTIFY_INTERVAL/HEAT_NOTIFY_INTERVAL
+
+# Starting tank level (%) -- main.py's --fuel-percent overrides.
+DEFAULT_FUEL_PERCENT = 75.0
+# %/minute the simulated tank drains on its own -- purely so the panel's
+# arc/percent readout has something to visibly change during a test
+# session (same "watch it move over time" reasoning as ac_controller.py's
+# thermal model and heat_controller.py's cooldown timer), not modeling any
+# real consumption rate. 0 (main.py's --fuel-drain-rate can set this)
+# disables draining entirely. At the default, empties in ~1000 minutes
+# from full -- slow enough to look steady rather than alarming during a
+# normal test session, fast enough to visibly move if left running a
+# while.
+DEFAULT_FUEL_DRAIN_PCT_PER_MIN = 0.1
+# Volts fuel_controller.SimFuelController's own percent-to-voltage
+# conversion treats as 0%/100% -- see that module's own comment. Same
+# values as ../fuel-level/config.py's own DEFAULT_CAL_ZERO_V/FULL_V.
+DEFAULT_FUEL_CAL_ZERO_V = 0.0
+DEFAULT_FUEL_CAL_FULL_V = 3.3

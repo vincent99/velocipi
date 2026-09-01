@@ -11,6 +11,16 @@ which one (if either) each mode needs, used both to grey out/skip menu
 slices for a currently-unavailable device and by screens/__init__.py's App
 to decide whether Home is even reachable for whatever mode is currently
 selected.
+
+A third device, the fuel sensor (fuel_ble.FuelClient), has no MODE_DEVICE
+entry at all and never affects Home's reachability -- it's shown
+independently of mode as a battery-level icon + percent readout (self.
+fuel_icon_label/fuel_percent_label), or a red X in the icon's place for
+"configured but not currently connected". This shares one status-line slot
+just under the mode/recirc buttons with the heater's own fault/cooldown
+message rather than getting a separate line -- see
+_refresh_status_line()'s own docstring for the priority order between the
+three.
 """
 
 import asyncio
@@ -168,6 +178,49 @@ _CIRC_TEXT = {"recirc": "Recirc", "fresh": "Fresh"}
 # at render time.
 _FAN_TEXT = {"low": "Low", "medium": "Medium", "high": "High"}
 
+# Heater fault codes -> display text, shown in self.cooling_off_label's own
+# spot (see refresh()) whenever heater_ble.HeaterState.fault_code is
+# nonzero. Vendor-supplied mapping, not decoded/confirmed against this
+# codebase's own captures the way NOTIFY_OFF_FAULT's byte position itself
+# is (see that constant's own comment in heater_ble_config.py) -- an
+# unlisted code falls back to "Fault N" (see refresh()'s own .get() call)
+# rather than failing outright.
+_HEATER_FAULT_TEXT = {
+    1: "Voltage Low",
+    2: "Voltage High",
+    3: "Ignition Plug",
+    4: "Fuel Pump",
+    5: "Over Temp",
+    6: "Fan Speed",
+    7: "Communication",
+    8: "Ignition Fail 2",
+    9: "Sensor Fail",
+    10: "Ignition Fail 1",
+}
+
+# Fuel-level icon thresholds -- (minimum percent, symbol), checked in order
+# and falls through to the last (BATTERY_EMPTY) entry once none of the
+# earlier minimums are met. 5 discrete levels is all lv.SYMBOL.BATTERY_*
+# has (FULL/3/2/1/EMPTY, matching upstream LVGL's own built-in battery
+# icon family -- not specific to fuel, but reused here as a generic
+# "level" gauge the same way fuel_ble.py itself reuses the Bluetooth SIG's
+# own Battery Level characteristic for the same reason), so the cutoffs
+# are just evenly spaced across that range, not tied to any real
+# fuel-gauge convention.
+_FUEL_ICON_THRESHOLDS = (
+    (80, lv.SYMBOL.BATTERY_FULL),
+    (55, lv.SYMBOL.BATTERY_3),
+    (30, lv.SYMBOL.BATTERY_2),
+    (10, lv.SYMBOL.BATTERY_1),
+)
+
+
+def _fuel_icon(percent):
+    for minimum, symbol in _FUEL_ICON_THRESHOLDS:
+        if percent >= minimum:
+            return symbol
+    return lv.SYMBOL.BATTERY_EMPTY
+
 
 class HomeTile:
     """The main screen: an outer dial gauge (knob-driven) ringing three
@@ -216,12 +269,13 @@ class HomeTile:
     # adjacent slices rather than relying on exactly-abutting bg_angles --
     # see _init_mode_menu().
     #
-    # hal.WIDTH (240, the full round panel diameter), not self.arc's own
-    # 236 -- the menu is meant to visually replace the whole dial while
-    # open, all the way out to the physical bezel, not leave a ring of its
-    # own inset from it (confirmed on real hardware: an earlier version at
-    # 230 left a visible several-pixel gap between the wedges' outer edge
-    # and the screen edge).
+    # hal.WIDTH (240, the full round panel diameter) -- same size self.arc
+    # itself now uses (see its own comment; it used to be a few pixels
+    # smaller) -- the menu is meant to visually replace the whole dial
+    # while open, all the way out to the physical bezel, not leave a ring
+    # of its own inset from it (confirmed on real hardware: an earlier
+    # version at 230 left a visible several-pixel gap between the wedges'
+    # outer edge and the screen edge).
     _MENU_DIAMETER = hal.WIDTH
     _MENU_RING_DIAMETER = hal.WIDTH
     _MENU_RING_WIDTH = 50
@@ -242,9 +296,10 @@ class HomeTile:
     # clear for the center label -- see _init_mode_menu().
     _MENU_ICON_RADIUS = _MENU_RING_DIAMETER // 2 - _MENU_RING_WIDTH // 2
 
-    def __init__(self, client, heater_client, encoder, tileview):
+    def __init__(self, client, heater_client, fuel_client, encoder, tileview):
         self.client = client
         self.heater_client = heater_client
+        self.fuel_client = fuel_client
         self.encoder = encoder
 
         # Local "which mode is displayed/selected" state -- see MODES'
@@ -278,7 +333,15 @@ class HomeTile:
         self.tile = _make_bare_tile(tileview, 1, 1, lv.DIR.NONE)
 
         self.arc = lv.arc(self.tile)
-        self.arc.set_size(236, 236)
+        # hal.WIDTH (240, the full round panel diameter), not the 236 an
+        # earlier version of this used -- see _MENU_DIAMETER's own comment
+        # below, which explains exactly this: confirmed on real hardware
+        # that sizing a full-dial ring a few pixels under the panel's own
+        # diameter leaves a visible gap between the ring's outer edge and
+        # the physical bezel (that comment's own earlier version used 230
+        # for the radial menu and found the same gap) -- the menu was
+        # already corrected to hal.WIDTH for this reason; this arc wasn't.
+        self.arc.set_size(hal.WIDTH, hal.WIDTH)
         self.arc.center()
         self.arc.set_bg_angles(self._GAUGE_START_ANGLE, self._GAUGE_END_ANGLE)
         self.arc.set_style_arc_width(self._ARC_WIDTH, lv.PART.MAIN)
@@ -310,17 +373,103 @@ class HomeTile:
         self.current_temp_label.center()
         self.row1.align(lv.ALIGN.CENTER, 0, self._TEMP_Y)
 
-        # Cooling-off indicator -- see heater_ble.HeaterState.cooling_off's
-        # own comment for how confident to be in the byte this reflects.
-        # Shown regardless of which mode is currently selected/displayed
-        # (the heater's own state is independent of the dial's current
-        # focus -- see apply_mode()'s docstring), so it lives outside the
-        # per-mode row1/row3 content instead of being tied to mode=="heat".
+        # Status slot, just under the mode/recirc buttons -- shows at most
+        # one of three things, in priority order: the heater's own fault
+        # message, its "Cooling Off" notice, or the fuel level (icon +
+        # percent) -- see _refresh_status_line() for the actual priority
+        # logic and why one shared slot instead of a separate line for
+        # fuel (which would compete for the same cramped bottom-of-dial
+        # space as row3/heat_band). Shown regardless of which mode is
+        # currently selected/displayed (the heater/fuel sensor's own state
+        # is independent of the dial's current focus -- see apply_mode()'s
+        # docstring), so it lives outside the per-mode row1/row3 content.
+        # CENTER + a y-offset derived from the button geometry, not
+        # BOTTOM_MID, so this can't ever land underneath row3/self.
+        # heat_band's own bottom-anchored content the way a fixed
+        # BOTTOM_MID offset once did (effectively invisible, painted behind
+        # heat_band's opaque fill whenever that was showing). The extra
+        # +18 (roughly one FONT_BODY line-height -- NOT hardware-measured,
+        # just this font's nominal pixel size as a stand-in for its actual
+        # line height, nudge if it's off) pushes it down off the buttons'
+        # own bottom edge, per feedback that it was sitting too close/
+        # overlapping them.
+        _status_line_y = self._BUTTON_Y + self._BUTTON_H // 2 + theme.SPACE_SM + 18
+
         self.cooling_off_label = _label(
-            self.tile, "Cooling Off", font=theme.FONT_TINY, color=theme.COLOR_TEXT_MUTED
+            self.tile, "Cooling Off", font=theme.FONT_BODY, color=theme.COLOR_TEXT_MUTED
         )
-        self.cooling_off_label.align(lv.ALIGN.BOTTOM_MID, 0, -15)
+        self.cooling_off_label.align(lv.ALIGN.CENTER, 0, _status_line_y)
         _set_visible(self.cooling_off_label, False)
+
+        # Fuel level: a battery-family icon (lv.SYMBOL.BATTERY_* -- see
+        # _fuel_icon()) + a "NN%" readout, side by side, sharing
+        # cooling_off_label's own slot above (mutually exclusive with it,
+        # never both visible -- see _refresh_status_line()) rather than
+        # getting a separate line of its own. Hidden entirely, not shown
+        # red-X, for a panel with no fuel sensor configured at all (see
+        # _refresh_fuel()'s own fuel_configured check): plenty of users
+        # don't have one installed, and a permanent "no signal" indicator
+        # for hardware that was never going to exist would just be noise.
+        #
+        # self.fuel_row is a plain flex ROW container (same _transparent()
+        # + manual flex setup _column() itself uses, just the other axis --
+        # not worth a shared widgets._row() helper for this one call site)
+        # so the icon and percent text lay out side by side and stay
+        # visually paired regardless of either glyph's actual rendered
+        # width, rather than each needing its own hand-measured x-offset.
+        self.fuel_row = _transparent(self.tile)
+        self.fuel_row.set_size(lv.SIZE_CONTENT, lv.SIZE_CONTENT)
+        self.fuel_row.set_flex_flow(lv.FLEX_FLOW.ROW)
+        self.fuel_row.set_flex_align(
+            lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER, lv.FLEX_ALIGN.CENTER
+        )
+        self.fuel_row.align(lv.ALIGN.CENTER, 0, _status_line_y)
+
+        # Icon smaller than the percent text next to it (FONT_BODY, not
+        # FONT_BUTTON_ICON like the mode/recirc cells' own icons -- this
+        # slot is a small status line, not a headline element) -- lv.
+        # SYMBOL.CLOSE (a red X) swaps in for the battery glyph when the
+        # sensor's configured but not currently connected -- see
+        # _refresh_fuel(). Text/color set per-frame there; font/initial
+        # state only here.
+        self.fuel_icon_label = _label(self.fuel_row, font=theme.FONT_BODY, color=theme.COLOR_TEXT)
+        # Rotated 90 degrees left (counterclockwise) so the battery glyph's
+        # own baked-in orientation (a wide "AA cell on its side" shape in
+        # this font, like every other lv.SYMBOL.* glyph) reads as a
+        # vertical fuel gauge instead -- set_style_transform_rotation is
+        # LVGL v9's name for this style property (v8 called it
+        # set_style_transform_angle; lvgl_micropython, this project's
+        # firmware fork, tracks v9) in tenths of a degree, so -900 here.
+        # Pivot defaults to the object's own top-left corner, not its
+        # center, without this -- centered here (50%/50%) so the glyph
+        # rotates in place rather than swinging out of its own layout box.
+        # NOT hardware-verified at all -- this codebase has never rotated
+        # anything before now (see check_lvgl_api.py's own new checks for
+        # this) -- wrapped in try/except so a wrong method name/behavior
+        # just leaves the icon unrotated (still fully legible, just
+        # sideways-glyph-shaped rather than a true vertical gauge) instead
+        # of crashing HomeTile's whole constructor.
+        try:
+            self.fuel_icon_label.set_style_transform_pivot_x(lv.pct(50), 0)
+            self.fuel_icon_label.set_style_transform_pivot_y(lv.pct(50), 0)
+            self.fuel_icon_label.set_style_transform_rotation(-900, 0)
+        except Exception as e:
+            print("home: fuel icon rotation not supported on this LVGL build:", e)
+        # Nudged up a few px -- self.fuel_row's flex ROW only CENTERs each
+        # child's own bounding box on the cross axis, not its text
+        # baseline, and this icon's smaller FONT_BODY box sits low relative
+        # to fuel_percent_label's own baseline as a result (more so once
+        # rotated above). translate_y shifts the rendered position after
+        # flex layout runs rather than fighting it the way a plain
+        # .align()/.set_pos() call on a flex child would. NOT hardware-
+        # verified at this exact pixel value -- nudge further if it's
+        # still off.
+        self.fuel_icon_label.set_style_translate_y(-4, 0)
+
+        # Percent text larger than the icon next to it (FONT_BUTTON_LABEL,
+        # not FONT_BODY) -- the actual number is the more useful-at-a-glance
+        # half of this pairing.
+        self.fuel_percent_label = _label(self.fuel_row, font=theme.FONT_BUTTON_LABEL, color=theme.COLOR_TEXT)
 
         # Mode/recirc buttons, side by side, symmetric about tile-center.
         button_x = self._BUTTON_W // 2 + self._BUTTON_GAP // 2
@@ -391,6 +540,24 @@ class HomeTile:
         # NOT hardware-verified: first use of move_foreground() in this
         # codebase -- see check_lvgl_api.py.
         self.arc.move_foreground()
+
+        # self.cooling_off_label was created earlier (right after row1),
+        # before self.heat_band/row3 existed -- paint order is creation
+        # order, so without this it would render *underneath* heat_band's
+        # opaque fill whenever that's showing, effectively invisible again
+        # (the exact bug its own reposition above just moved it out of).
+        # move_foreground() only reorders relative to siblings that already
+        # exist at the time of the call, so this has to happen down here,
+        # after heat_band/row3 are both actually created, not up where the
+        # label itself was constructed.
+        self.cooling_off_label.move_foreground()
+
+        # Same reasoning as self.cooling_off_label just above -- self.
+        # fuel_row (and its icon/percent-label children) was also created
+        # before heat_band/row3 existed, so without this it'd paint
+        # underneath heat_band's own opaque fill too. Moving the row moves
+        # both children along with it -- no need to move each individually.
+        self.fuel_row.move_foreground()
 
         self._init_mode_menu()
 
@@ -536,6 +703,7 @@ class HomeTile:
             self.mode_cell,
             self.recirc_cell,
             self.cooling_off_label,
+            self.fuel_row,
         ):
             _set_visible(obj, False)
 
@@ -580,13 +748,14 @@ class HomeTile:
         mode_cell/recirc_cell are always visible outside the menu (refresh()
         never toggles those containers themselves, only their children's
         text/styling), so unconditionally showing them again is correct.
-        self.arc/cooling_off_label are mode-dependent instead (refresh()
-        already recomputes their visibility fresh every tick regardless of
-        this) -- recomputed here too, rather than left for the next
-        refresh() tick to fix, so there's no possible one-frame flash of
-        the wrong state in between (confirm_mode_menu() closes the menu
-        from inside poll_input(), which can run several ticks before
-        refresh() runs again).
+        self.arc/the status-line trio (cooling_off_label/fuel_row) are
+        mode- or state-dependent instead (refresh() already recomputes
+        their visibility fresh every tick regardless of this) --
+        recomputed here too, rather than left for the next refresh() tick
+        to fix, so there's no possible one-frame flash of the wrong state
+        in between (confirm_mode_menu() closes the menu from inside
+        poll_input(), which can run several ticks before refresh() runs
+        again).
         """
         self._menu_open = False
         _set_visible(self._menu_container, False)
@@ -598,9 +767,76 @@ class HomeTile:
             self.recirc_cell,
         ):
             _set_visible(obj, True)
-        hs = self.heater_client.state
         _set_visible(self.arc, self.current_mode() != "off")
-        _set_visible(self.cooling_off_label, hs.connected and hs.cooling_off)
+        self._refresh_status_line()
+
+    def _refresh_status_line(self):
+        """Shared by refresh() and close_mode_menu() (called from the
+        latter so there's no possible one-frame flash of the wrong state,
+        same reasoning as self.arc just above -- see close_mode_menu()'s
+        own docstring). Picks at most one of three things to show in
+        cooling_off_label/fuel_row's shared slot, in priority order: the
+        heater's own fault message (most urgent -- see heater_ble_config.
+        py's NOTIFY_OFF_FAULT comment for how confident to be in that
+        byte), then its "Cooling Off" notice (see HeaterState.cooling_off's
+        own comment), then the fuel level. hs.on is only True for
+        actively-heating, not cooldown or faulted, so there's no way to
+        distinguish fault-vs-cooldown just from hs.on/hs.cooling_off alone
+        without this explicit priority chain.
+        """
+        hs = self.heater_client.state
+        if hs.connected and hs.fault_code:
+            self.cooling_off_label.set_text(
+                _HEATER_FAULT_TEXT.get(hs.fault_code, "Fault %d" % hs.fault_code)
+            )
+            # Black, not theme.COLOR_WARNING -- this text can sit directly
+            # over heat_band's own COLOR_WARNING fill (both keyed off this
+            # exact same hs.fault_code condition, see refresh()'s own
+            # heat_band block) -- confirmed on real hardware that yellow
+            # text over that same yellow fill was unreadable.
+            self.cooling_off_label.set_style_text_color(theme.COLOR_TEXT_ON_WARNING, 0)
+            _set_visible(self.cooling_off_label, True)
+            _set_visible(self.fuel_row, False)
+            return
+        if hs.connected and hs.cooling_off:
+            self.cooling_off_label.set_text("Cooling Off")
+            self.cooling_off_label.set_style_text_color(theme.COLOR_TEXT_MUTED, 0)
+            _set_visible(self.cooling_off_label, True)
+            _set_visible(self.fuel_row, False)
+            return
+        _set_visible(self.cooling_off_label, False)
+        self._refresh_fuel()
+
+    def _refresh_fuel(self):
+        """Only called from _refresh_status_line(), once neither the
+        heater fault nor cooldown message takes priority (see there).
+        Hides self.fuel_row entirely whenever no fuel sensor has ever been
+        picked at all (fuel_client.device_name == "") -- plenty of users
+        have no fuel sensor installed, and showing a permanent "no signal"
+        indicator for hardware that was never going to exist would just be
+        noise. The red X is reserved for a sensor that IS configured but
+        currently unreachable (dropped connection, out of range, etc.) --
+        see fuel_ble.py's module docstring for why there's no full-screen
+        equivalent of that case either.
+        """
+        fs = self.fuel_client.state
+        fuel_configured = bool(self.fuel_client.device_name)
+        _set_visible(self.fuel_row, fuel_configured)
+        if not fuel_configured:
+            return
+        # fs.percent is None until the very first reading ever arrives
+        # (see fuel_ble.FuelState's own comment) -- treated the same as
+        # "not connected" here, not as "empty tank", since it's a real
+        # distinct state (unknown, not zero).
+        have_fuel = fs.connected and fs.percent is not None
+        _set_visible(self.fuel_percent_label, have_fuel)
+        if have_fuel:
+            self.fuel_icon_label.set_text(_fuel_icon(fs.percent))
+            self.fuel_icon_label.set_style_text_color(theme.COLOR_TEXT, 0)
+            self.fuel_percent_label.set_text("%d%%" % int(round(fs.percent)))
+        else:
+            self.fuel_icon_label.set_text(lv.SYMBOL.CLOSE)
+            self.fuel_icon_label.set_style_text_color(theme.COLOR_DANGER, 0)
 
     def _refresh_menu_visuals(self):
         avail = self._available_modes()
@@ -912,20 +1148,18 @@ class HomeTile:
         # edge-to-edge under the arc's ring rather than staying inside some
         # smaller inset. self.arc.move_foreground() (see __init__) keeps
         # those ring strokes rendering on top of this fill, not under it.
-        # Priority, most to least urgent: an error -- either the AirCon
-        # controller's own state.error, or the heater reporting a nonzero
-        # fault_code (see heater_ble.HeaterState's own docstring for how
-        # confident to be in that byte -- best-guess, not confirmed against
-        # a real fault; wired up the same way state.error already is, not
-        # a new category of behavior) -- the full text of either is one
-        # swipe away on the Info screen, see screens/info.py; else the AC
-        # compressor running; otherwise no highlight at all. Heater-on no
-        # longer shares this slot -- see self.heat_band below, split out
-        # so the two can show independently.
+        # Priority, most to least urgent: the AirCon controller's own
+        # state.error (a "cooling" error -- the full text is one swipe away
+        # on the Info screen, see screens/info.py); else the AC compressor
+        # running; otherwise no highlight at all. The heater's own errors no
+        # longer share this slot at all -- see self.heat_band below, a
+        # "heating" error's own separate spot so the two can show
+        # independently (both devices can legitimately be doing something,
+        # good or bad, at the same time -- see apply_mode()'s docstring).
         hs = self.heater_client.state
-        if s.error or (hs.connected and hs.fault_code):
+        if s.error:
             self.row1.set_style_bg_opa(lv.OPA.COVER, 0)
-            self.row1.set_style_bg_color(theme.COLOR_DANGER, 0)
+            self.row1.set_style_bg_color(theme.COLOR_WARNING, 0)
         elif s.compressor == "on":
             self.row1.set_style_bg_opa(lv.OPA.COVER, 0)
             self.row1.set_style_bg_color(theme.COLOR_COMPRESSOR_ON, 0)
@@ -933,18 +1167,32 @@ class HomeTile:
             self.row1.set_style_bg_opa(lv.OPA.TRANSP, 0)
 
         # heat_band (below the mode/recirc buttons, see __init__): the
-        # heater actively on and connected, independent of which mode is
-        # currently selected/displayed here (see apply_mode()'s docstring)
-        # and independent of row1's own fill above -- so a compressor-on/
-        # error highlight up top and a heater-on highlight down here can
-        # both show at once, e.g. mid-switch away from a heat mode while
-        # the heater's still cooling down (hs.on is only True for actively-
-        # heating, not cooldown -- see heater_ble.HeaterState.cooling_off's
-        # own comment; that case shows cooling_off_label instead, below).
-        if hs.connected and hs.on:
+        # heater's own error (see heater_ble.HeaterState's own docstring
+        # for how confident to be in that byte -- best-guess, not confirmed
+        # against a real fault) takes priority over plain heater-on, same
+        # shape as row1's own error-then-compressor priority above, just
+        # independent of it (a compressor-on/error highlight up top and a
+        # heater-on/error highlight down here can both show at once, e.g.
+        # mid-switch away from a heat mode while the heater's still cooling
+        # down). hs.on is only True for actively-heating, not cooldown or
+        # faulted -- see HeaterState.cooling_off's own comment; cooldown
+        # shows cooling_off_label instead, below, and a fault here already
+        # implies hs.on reads False regardless (this sim's own
+        # encode_status() never sets on=1 and a nonzero fault together, and
+        # nothing about the real protocol's byte layout suggests otherwise).
+        if hs.connected and hs.fault_code:
+            self.heat_band.set_style_bg_opa(lv.OPA.COVER, 0)
+            self.heat_band.set_style_bg_color(theme.COLOR_WARNING, 0)
+        elif hs.connected and hs.on:
             self.heat_band.set_style_bg_opa(lv.OPA.COVER, 0)
             self.heat_band.set_style_bg_color(theme.COLOR_HEATER_ON, 0)
         else:
             self.heat_band.set_style_bg_opa(lv.OPA.TRANSP, 0)
 
-        _set_visible(self.cooling_off_label, hs.connected and hs.cooling_off)
+        # cooling_off_label/fuel_row's shared status-line slot -- see
+        # _refresh_status_line()'s own docstring for the fault/cooldown/
+        # fuel priority order. Shown regardless of mode (including "off",
+        # unlike self.arc's own _set_visible() call above): whichever of
+        # the three applies is meaningful any time the panel's on,
+        # independent of whatever's currently selected on the dial.
+        self._refresh_status_line()

@@ -1,24 +1,32 @@
-"""BLE GATT peripheral exposing BOTH the AirCon's multi-characteristic
-service and the heater's single-characteristic service from one process,
-one BlessServer (cross-platform GATT server: CoreBluetooth on macOS,
-BlueZ/D-Bus on Linux) -- replaces the previous ../aircon-sim/ble_server.py
-+ ../heater-sim/ble_server.py split, which ran as two independent
-processes and turned out not to reliably coexist on one Mac's Bluetooth
-radio: each process's own bless/CoreBluetooth "did start advertising"
-confirmation only reflects THAT process's local CBPeripheralManager state,
-not whether the shared radio actually has room to broadcast a second,
-simultaneous peripheral identity -- so both could (and did) log a clean
-success while only one was actually reaching the air. One process, one
-CBPeripheralManager, one advertised identity, sidesteps that entirely.
-`bless` already supports registering multiple GATT services on a single
-BlessServer (add_new_service() is a plain dict keyed by service UUID,
-and start()'s own advertisement-building loop already iterates every
-registered service) -- that's exactly the mechanism this relies on.
+"""BLE GATT peripheral exposing the AirCon's multi-characteristic service,
+the heater's single-characteristic service, AND the fuel sensor's own two
+services (standard Battery Service + a custom one for raw voltage/
+calibration) from one process, one BlessServer (cross-platform GATT
+server: CoreBluetooth on macOS, BlueZ/D-Bus on Linux) -- replaces the
+previous ../aircon-sim/ble_server.py + ../heater-sim/ble_server.py split,
+which ran as two independent processes and turned out not to reliably
+coexist on one Mac's Bluetooth radio: each process's own bless/
+CoreBluetooth "did start advertising" confirmation only reflects THAT
+process's local CBPeripheralManager state, not whether the shared radio
+actually has room to broadcast a second, simultaneous peripheral identity
+-- so both could (and did) log a clean success while only one was actually
+reaching the air. One process, one CBPeripheralManager, one advertised
+identity, sidesteps that entirely, and the same reasoning is exactly why
+the fuel sensor joined this same process instead of getting its own --
+see ../hvac-knob/fuel_ble.py's own module docstring for how that client
+shares its own BLE connection/discovery with AirconClient/HeaterClient the
+same way those two already share with each other, needed because all
+three now resolve to one BLE address. `bless` already supports registering
+multiple GATT services on a single BlessServer (add_new_service() is a
+plain dict keyed by service UUID, and start()'s own advertisement-building
+loop already iterates every registered service) -- that's exactly the
+mechanism this relies on.
 
-Either half is independently optional -- see main.py's --ac-only/
---heat-only -- `ac_ctrl`/`heat_ctrl` are None when that half is disabled,
-and this class skips registering that half's service/characteristics
-entirely rather than just ignoring traffic for them.
+Each of the three devices is independently optional -- see main.py's
+--ac-only/--heat-only/--no-fuel -- `ac_ctrl`/`heat_ctrl`/`fuel_ctrl` are
+None when that device is disabled, and this class skips registering its
+service/characteristics entirely rather than just ignoring traffic for
+them.
 """
 
 import json
@@ -89,6 +97,29 @@ def _round(v):
     return round(float(v), 2) if v is not None else None
 
 
+# ── Fuel wire helpers (was ../fuel-level/ble_server.py) ──────────────────
+# Copied (not imported -- no shared path, see config.py's own module
+# docstring) directly from that real firmware's own _enc_v()/_dec_v(),
+# which encode the standard Voltage characteristic's own wire format
+# (org.bluetooth.characteristic.voltage, confirmed against the Bluetooth
+# SIG's own public GATT Specification Supplement source -- see that
+# file's own module docstring for the full citation): uint16 little-
+# endian, 1/64 V units, 0xFFFF reserved for "not known". Reused here for
+# the two calibration characteristics too, same as that real firmware
+# does, purely for encoding consistency -- see config.py's own
+# FUEL_BLE_UUID_CAL_ZERO/CAL_FULL comment.
+
+
+def _enc_v(volts):
+    raw = min(max(int(round(volts * 64)), 0), 0xFFFE)
+    return bytearray(raw.to_bytes(2, "little"))
+
+
+def _dec_v(data):
+    raw = int.from_bytes(bytes(data), "little")
+    return raw / 64.0
+
+
 def _unwrap_settings(d):
     """Accept flat {wire_key: value} or wrapped {wire_key: [value, default]}
     -- return flat {attr_key: value} for ac_controller.SimController.
@@ -113,17 +144,19 @@ def _unwrap_settings(d):
 
 
 class SimBLEServer:
-    def __init__(self, ac_ctrl, heat_ctrl, device_name=None):
-        """`ac_ctrl`/`heat_ctrl` are this package's ac_controller.
-        SimController/heat_controller.SimHeaterController instances, or
-        None to skip that device's service/characteristics entirely (see
-        main.py's --ac-only/--heat-only). `device_name` overrides
-        config.BLE_DEVICE_NAME for the one combined identity this whole
-        process advertises as -- there's no separate per-device name
-        anymore, see config.py's own BLE_DEVICE_NAME comment.
+    def __init__(self, ac_ctrl, heat_ctrl, fuel_ctrl, device_name=None):
+        """`ac_ctrl`/`heat_ctrl`/`fuel_ctrl` are this package's
+        ac_controller.SimController/heat_controller.SimHeaterController/
+        fuel_controller.SimFuelController instances, or None to skip that
+        device's service/characteristics entirely (see main.py's
+        --ac-only/--heat-only/--no-fuel). `device_name` overrides config.
+        BLE_DEVICE_NAME for the one combined identity this whole process
+        advertises as -- there's no separate per-device name anymore, see
+        config.py's own BLE_DEVICE_NAME comment.
         """
         self.ac_ctrl = ac_ctrl
         self.heat_ctrl = heat_ctrl
+        self.fuel_ctrl = fuel_ctrl
         self.device_name = device_name or config.BLE_DEVICE_NAME
         self.server = None
         self._last_sent = {}
@@ -143,6 +176,31 @@ class SimBLEServer:
         )
         self._ac_uuid_name = {v.lower(): k for k, v in self._ac_name_uuid.items()}
         self._heat_char_uuid = config.HEAT_BLE_CHAR_UUID.lower() if heat_ctrl is not None else None
+
+        # Spans BOTH of the fuel sensor's services (Battery Service +
+        # config.FUEL_BLE_SVC_UUID) in one flat map -- fine for _on_read()/
+        # _on_write()'s own purposes, which only ever need "which field is
+        # this characteristic's UUID" and don't care which service it
+        # happens to live under; _fuel_name_svc below is the one place that
+        # distinction actually matters (push_fuel()'s update_value() calls,
+        # which need the *right* service UUID per characteristic).
+        self._fuel_name_uuid = (
+            {
+                "level": config.FUEL_BLE_CHAR_BATTERY_LEVEL,
+                "voltage": config.FUEL_BLE_CHAR_VOLTAGE,
+                "cal_zero": config.FUEL_BLE_UUID_CAL_ZERO,
+                "cal_full": config.FUEL_BLE_UUID_CAL_FULL,
+            }
+            if fuel_ctrl is not None
+            else {}
+        )
+        self._fuel_uuid_name = {v.lower(): k for k, v in self._fuel_name_uuid.items()}
+        self._fuel_name_svc = {
+            "level": config.FUEL_BLE_SVC_BATTERY,
+            "voltage": config.FUEL_BLE_SVC_UUID,
+            "cal_zero": config.FUEL_BLE_SVC_UUID,
+            "cal_full": config.FUEL_BLE_SVC_UUID,
+        }
 
     async def start(self, loop):
         server = BlessServer(name=self.device_name, loop=loop)
@@ -185,6 +243,32 @@ class SimBLEServer:
                 config.HEAT_BLE_SVC_UUID, config.HEAT_BLE_CHAR_UUID, rw_notify, None, rw_perms
             )
 
+        if self.fuel_ctrl is not None:
+            # Two services, matching ../fuel-level/ble_server.py's own
+            # split exactly -- see this file's module docstring and
+            # config.py's own FUEL_BLE_* comments for why: standard
+            # Battery Service (just Battery Level) kept "clean" for
+            # generic-client recognition, custom Fuel Level service for
+            # everything the Bluetooth SIG has no standard slot for.
+            await server.add_new_service(config.FUEL_BLE_SVC_BATTERY)
+            await server.add_new_characteristic(
+                config.FUEL_BLE_SVC_BATTERY,
+                config.FUEL_BLE_CHAR_BATTERY_LEVEL,
+                ro_notify,
+                None,
+                ro_perms,
+            )
+            await server.add_new_service(config.FUEL_BLE_SVC_UUID)
+            await server.add_new_characteristic(
+                config.FUEL_BLE_SVC_UUID, config.FUEL_BLE_CHAR_VOLTAGE, ro_notify, None, ro_perms
+            )
+            await server.add_new_characteristic(
+                config.FUEL_BLE_SVC_UUID, config.FUEL_BLE_UUID_CAL_ZERO, rw_notify, None, rw_perms
+            )
+            await server.add_new_characteristic(
+                config.FUEL_BLE_SVC_UUID, config.FUEL_BLE_UUID_CAL_FULL, rw_notify, None, rw_perms
+            )
+
         await server.start()
 
         # server.start() returning without raising does NOT guarantee
@@ -194,10 +278,11 @@ class SimBLEServer:
         advertising = await server.is_advertising()
         if advertising:
             logger.info(
-                "advertising as %r (ac=%s heat=%s)",
+                "advertising as %r (ac=%s heat=%s fuel=%s)",
                 self.device_name,
                 self.ac_ctrl is not None,
                 self.heat_ctrl is not None,
+                self.fuel_ctrl is not None,
             )
         else:
             logger.warning(
@@ -213,8 +298,11 @@ class SimBLEServer:
             self.push_ac(force=True)
             self.ac_ctrl.on_change = self.push_ac
         if self.heat_ctrl is not None:
-            self.push_heat(force=True)
+            self.push_heat()
             self.heat_ctrl.on_change = self.push_heat
+        if self.fuel_ctrl is not None:
+            self.push_fuel()
+            self.fuel_ctrl.on_change = self.push_fuel
 
     # ── bless callbacks ──────────────────────────────────────────────────
     # Same threading caveat both predecessor sims' own docstrings noted: on
@@ -231,6 +319,13 @@ class SimBLEServer:
             )
         elif uuid == self._heat_char_uuid:
             logger.info("read heat (%s): %r", characteristic.uuid, bytes(characteristic.value or b""))
+        elif uuid in self._fuel_uuid_name:
+            logger.info(
+                "read fuel.%s (%s): %r",
+                self._fuel_uuid_name[uuid],
+                characteristic.uuid,
+                bytes(characteristic.value or b""),
+            )
         return characteristic.value
 
     def _on_write(self, characteristic, value, **kwargs):
@@ -239,6 +334,8 @@ class SimBLEServer:
             self._on_write_ac(self._ac_uuid_name[uuid], characteristic, value)
         elif uuid == self._heat_char_uuid:
             self._on_write_heat(value)
+        elif uuid in self._fuel_uuid_name:
+            self._on_write_fuel(self._fuel_uuid_name[uuid], characteristic, value)
         else:
             logger.warning("write to unrecognized characteristic %s, ignoring", characteristic.uuid)
 
@@ -317,7 +414,28 @@ class SimBLEServer:
         # response -- confirmed in the real capture for all four of these
         # (CMD_READ included: it's a poll, and every real one observed was
         # followed shortly by a notification).
-        self.push_heat(force=True, cmd_echo=cmd)
+        self.push_heat(cmd_echo=cmd)
+
+    # ── Fuel write dispatch (was ../fuel-level/ble_server.py's watch()) ────
+    # Only the two calibration characteristics are ever written -- Battery
+    # Level/Voltage are read/notify-only on the real firmware too (this
+    # sim's own percent/voltage are entirely internally driven, see
+    # fuel_controller.py).
+
+    def _on_write_fuel(self, name, characteristic, value):
+        characteristic.value = value
+        logger.info("write request fuel.%s (%s): %r", name, characteristic.uuid, bytes(value))
+        try:
+            if name == "cal_zero":
+                self.fuel_ctrl.set_cal_zero(_dec_v(value))
+            elif name == "cal_full":
+                self.fuel_ctrl.set_cal_full(_dec_v(value))
+            else:
+                logger.warning("write to read-only fuel.%s, ignoring", name)
+                return
+            logger.info("write fuel.%s applied: %r", name, bytes(value))
+        except Exception:
+            logger.exception("write fuel.%s failed (value=%r)", name, bytes(value))
 
     # ── push state -> characteristics, notify only what changed ───────────
 
@@ -371,7 +489,7 @@ class SimBLEServer:
             char.value = data
             self.server.update_value(config.AC_BLE_SVC_UUID, uuid)
 
-    def push_heat(self, force=False, cmd_echo=config.CMD_READ):
+    def push_heat(self, cmd_echo=config.CMD_READ):
         """cmd_echo defaults to CMD_READ for the background loop's
         unprompted periodic pushes (see heat_controller.py's run()), which
         have no real triggering command to echo -- NOT hardware-verified
@@ -379,17 +497,69 @@ class SimBLEServer:
         byte, if anything in particular; see heat_protocol.py's
         encode_status() for which fields this sim actually encodes vs.
         leaves zeroed.
+
+        Unconditionally writes + notifies every call -- no dedup against
+        the previous push (unlike push_ac(), which only actually
+        write+notify a given field when its encoded bytes change -- see
+        push_fuel()'s own docstring for why it now matches this method
+        instead of push_ac(), despite starting out closer to push_ac()'s
+        own shape). Confirmed to matter, not just needless traffic: this
+        controller has no continuous jitter the way ac_controller.py's
+        thermal model does (whose random.uniform() noise means some field
+        differs on nearly every tick, so its own dedup rarely actually
+        suppresses anything in practice) -- once state settles (e.g. fully
+        off after a cooldown), every subsequent encoded frame is byte-for-
+        byte identical to the last. A dedup gate here means the *one*
+        notification carrying a real transition (like COOLING -> OFF) is
+        the only opportunity the panel ever gets to learn about it -- if
+        that single BLE notification is ever dropped (a real, if
+        uncommon, possibility, not something this sim can rule out),
+        heater_ble.HeaterClient's own state.cooling_off has no way left to
+        ever self-correct, since no future push would ever differ from
+        the stale value it already has. Unconditional writes turn every
+        one of heat_controller.py's own HEAT_NOTIFY_INTERVAL heartbeat
+        ticks into another chance to self-heal instead.
         """
         s = self.heat_ctrl.get_state()
         data = heat_protocol.encode_status(
             cmd_echo, s["on"], s["cooling"], s["now_gear"], fault_code=s["fault_code"]
         )
-
-        if not force and self._last_sent.get("heat") == data:
-            return
-        self._last_sent["heat"] = data
         char = self.server.get_characteristic(config.HEAT_BLE_CHAR_UUID)
         if char is None:
             return
         char.value = bytearray(data)
         self.server.update_value(config.HEAT_BLE_SVC_UUID, config.HEAT_BLE_CHAR_UUID)
+
+    def push_fuel(self):
+        """Unconditionally writes + notifies every field, every call -- see
+        push_heat()'s own docstring for why a dedup-against-last-push gate
+        (like push_ac()'s own, which is fine for that controller -- see
+        that reasoning) is actively harmful here instead of just wasted
+        traffic: with --fuel-drain-rate 0 (a documented, supported way to
+        run this sim), fuel_controller.SimFuelController's own state is
+        exactly as static as the heater's once settled, and a single
+        dropped notification carrying a real change (e.g. a fresh
+        calibration write) would otherwise never have a second chance to
+        reach a connected panel.
+        """
+        s = self.fuel_ctrl.get_state()
+        values = {
+            # int(round(...)), not a bare int(...) truncation -- matches
+            # ../fuel-level/ble_server.py's own _push_state(). Clamped
+            # 0-100 the same way that real firmware's own FuelSensor.
+            # percent property is (this sim's own percent should already
+            # be in range -- see fuel_controller.py -- but this is the
+            # wire boundary, the same place that real firmware enforces it
+            # too).
+            "level": bytearray([min(max(int(round(s["percent"])), 0), 100)]),
+            "voltage": _enc_v(s["voltage"]),
+            "cal_zero": _enc_v(s["cal_zero_v"]),
+            "cal_full": _enc_v(s["cal_full_v"]),
+        }
+        for name, data in values.items():
+            uuid = self._fuel_name_uuid[name]
+            char = self.server.get_characteristic(uuid)
+            if char is None:
+                continue
+            char.value = data
+            self.server.update_value(self._fuel_name_svc[name], uuid)

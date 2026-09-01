@@ -71,6 +71,10 @@ print("\n=== lv.SYMBOL.* used for mode/recirc cell icons (screens/home.py) ===")
 for name in ("POWER", "REFRESH", "LOOP", "TINT"):
     check("lv.SYMBOL." + name, (lambda n=name: getattr(lv.SYMBOL, n)), search_in=lv.SYMBOL, search_term=name)
 
+print("\n=== lv.SYMBOL.BATTERY_* used for the fuel-level icon (screens/home.py's _fuel_icon()) ===")
+for name in ("BATTERY_FULL", "BATTERY_3", "BATTERY_2", "BATTERY_1", "BATTERY_EMPTY"):
+    check("lv.SYMBOL." + name, (lambda n=name: getattr(lv.SYMBOL, n)), search_in=lv.SYMBOL, search_term="BATTERY")
+
 print("\n=== confirmed: obj flags are lv.obj.FLAG.*, not a top-level lv.OBJ_FLAG ===")
 print("(found on real hardware: AttributeError: 'module' object has no")
 print(" attribute 'OBJ_FLAG' -- unlike DIR/EVENT/PART/etc., which *are*")
@@ -412,6 +416,47 @@ else:
                 search_in=lv,
                 search_term="font_montserrat",
             )
+
+        # screens/home.py's fuel-level icon rotates 90 degrees left via
+        # these three -- set_style_transform_rotation is this project's
+        # best guess at LVGL v9's name for what v8 called
+        # set_style_transform_angle (lvgl_micropython, this project's
+        # firmware fork, tracks v9). home.py wraps its own actual use of
+        # these in try/except (a wrong guess here just leaves that icon
+        # unrotated, not crashing), but check here too so a wrong guess is
+        # visible before ever flashing, not just silently swallowed at
+        # runtime.
+        check(
+            "label.set_style_transform_pivot_x",
+            lambda: label.set_style_transform_pivot_x(lv.pct(50), 0),
+            search_in=label,
+            search_term="transform",
+        )
+        check(
+            "label.set_style_transform_pivot_y",
+            lambda: label.set_style_transform_pivot_y(lv.pct(50), 0),
+            search_in=label,
+            search_term="transform",
+        )
+        check(
+            "label.set_style_transform_rotation",
+            lambda: label.set_style_transform_rotation(-900, 0),
+            search_in=label,
+            search_term="transform",
+        )
+        # screens/home.py's fuel icon also nudges itself up a few px this
+        # way, to align with the larger percent label next to it inside a
+        # flex ROW container (whose own CENTER cross-align only centers
+        # bounding boxes, not text baselines) -- translate_x/y is long-
+        # standing, unrenamed-since-v8 LVGL style API, so this is a much
+        # safer bet than the transform_rotation guess above, but still not
+        # independently confirmed against this specific binding.
+        check(
+            "label.set_style_translate_y",
+            lambda: label.set_style_translate_y(-4, 0),
+            search_in=label,
+            search_term="translate",
+        )
 
     arc = check("lv.arc(parent)", lambda: lv.arc(tile_parent))
     if arc is not None:

@@ -113,6 +113,23 @@ def set_led_brightness_pct(pct):
     _update("led_brightness_pct", pct)
 
 
+def get_fuel_device_name():
+    """Returns the previously-picked fuel sensor's BLE device name, or ""
+    if none has been chosen. Unlike get_aircon_device_name()/
+    get_heater_device_name(), there's no matching get_fuel_skipped(): the
+    fuel sensor never gates anything (see fuel_ble.py's own module
+    docstring and screens/__init__.py's module docstring), so there's no
+    one-time setup gate that ever needs to tell "never asked" apart from
+    "asked, said no" for it -- "" alone always just means "not currently
+    picked", full stop.
+    """
+    return _load().get("fuel_device_name", "")
+
+
+def set_fuel_device_name(name):
+    _update("fuel_device_name", name)
+
+
 def get_heater_password():
     """Returns the previously-entered heater password as an int 0-9999, or
     None if one has never been entered -- heater_ble.HeaterClient treats

@@ -15,6 +15,16 @@ the give-up timeout for a picked-but-currently-unreachable device (either
 one -- neither device blocks the other's setup, and once setup is done a
 device dropping later is never a hard blocker on its own; see below).
 
+A third device, `fuel_client` (fuel_ble.FuelClient), is NOT part of any of
+this -- see that module's own docstring. It never gates anything (no
+"off"/mode dependency, home.MODE_DEVICE has no "fuel" entry at all), isn't
+asked about at first-boot setup, and has no full-screen Disconnected
+takeover -- it's purely an ambient reading, shown as a small arc on Home
+(screens/home.py) and a device row on Info (screens/info.py), reachable for
+pairing only via Info's own device button (App.request_reconnect_fuel()).
+See that method's own docstring for how much simpler its manual-reconnect
+flow is than the two below's.
+
 Once setup is done, Home is reachable as long as whatever the currently
 selected mode needs is available: home.MODE_DEVICE records which device
 (if any) each mode requires, "off" needing neither. If neither device is
@@ -175,10 +185,17 @@ class App:
     _COOLDOWN_DISPLAY_MS = 5000
 
     def __init__(
-        self, client, heater_client, encoder, scr, checkpoint=lambda label: None
+        self,
+        client,
+        heater_client,
+        fuel_client,
+        encoder,
+        scr,
+        checkpoint=lambda label: None,
     ):
         self.client = client
         self.heater_client = heater_client
+        self.fuel_client = fuel_client
         self.encoder = encoder
 
         self.tileview = lv.tileview(scr)
@@ -230,7 +247,7 @@ class App:
         self._mode_device = MODE_DEVICE
         self._mode_cooldown_target = MODE_COOLDOWN_TARGET
         checkpoint("screens: imported home")
-        self.home = HomeTile(client, heater_client, encoder, self.tileview)
+        self.home = HomeTile(client, heater_client, fuel_client, encoder, self.tileview)
 
         from .settings import SettingsTile
 
@@ -241,7 +258,12 @@ class App:
 
         checkpoint("screens: imported info")
         self.info_tile = InfoTile(
-            client, heater_client, encoder, self.tileview, self.request_reconnect
+            client,
+            heater_client,
+            fuel_client,
+            encoder,
+            self.tileview,
+            self.request_reconnect,
         )
 
         from .history import HistoryTile
@@ -318,6 +340,22 @@ class App:
             allow_skip=True,
             on_skip=lambda: self._skip_device("heater"),
         )
+        # Fuel sensor: unlike the two above, never shown as part of initial
+        # setup -- only reachable via info.InfoTile's own device button
+        # (self.request_reconnect_fuel(), see there) -- since it never
+        # gates anything (fuel_ble.py's own module docstring). allow_skip
+        # still makes sense here though: it's this screen's only way to
+        # back out of a manual re-pick without actually choosing a device
+        # (see _skip_fuel()), same escape hatch _skip_device() gives
+        # aircon/heater's own manual-reconnect flow.
+        self.fuel_connect_tile = ConnectTile(
+            fuel_client,
+            scr,
+            label="Fuel Sensor",
+            scan_fn=fuel_client.scan_for_fuel_sensors,
+            allow_skip=True,
+            on_skip=self._skip_fuel,
+        )
 
         from .disconnected import DisconnectedTile
 
@@ -393,6 +431,22 @@ class App:
         # None. Reset on every fresh request_reconnect() call.
         self._manual_reconnect_password_wait_start_ms = None
 
+        # True while fuel_connect_tile is up because of
+        # request_reconnect_fuel() (info.InfoTile's fuel device button) --
+        # a much simpler cousin of _manual_reconnect above: the fuel sensor
+        # never gates anything and has no password phase, so there's no
+        # connect-timeout/password bookkeeping to track here at all, just
+        # "is a pick still pending". See refresh()'s own handling.
+        self._fuel_manual_connect = False
+        # fuel_client.device_name at the moment request_reconnect_fuel()
+        # was called -- same "tell a fresh pick apart from nothing chosen
+        # yet" reasoning as _manual_reconnect_prev_name above, just without
+        # needing the connected/dropped bookkeeping that one also tracks
+        # (a fresh fuel pick doesn't need to wait for an actual connection
+        # before returning to Home -- see request_reconnect_fuel()'s own
+        # docstring).
+        self._fuel_manual_connect_prev_name = None
+
         # ticks_ms() of when the knob's push-button was last continuously
         # pressed down, or None -- tracked unconditionally at the top of
         # poll_input() regardless of which screen/tile is active (same
@@ -441,37 +495,76 @@ class App:
             ):
                 self.home.apply_mode("off")
 
+    def _skip_fuel(self):
+        """fuel_connect_tile's on_skip callback -- "(No Fuel Sensor)".
+        Unlike _skip_device() above, there's no panel_settings "skipped"
+        flag to persist (see panel_settings.get_fuel_device_name()'s own
+        docstring for why) and no mode to reset (home.MODE_DEVICE has no
+        "fuel" entry at all -- nothing on Home ever requires it). Just
+        clears whatever device_name was picked, if any, and closes out a
+        manual reconnect the same way _skip_device() does for aircon/
+        heater.
+        """
+        self.fuel_client.set_device_name("")
+        self._fuel_manual_connect = False
+
     def request_reconnect(self, kind):
         """info.InfoTile's device buttons' click callback -- `kind` is
-        "aircon" or "heater". Also reused by poll_input() for a knob push
-        on either *_disconnected screen once setup is done (see there).
-        Manually reopens that device's Connect screen so the user can pick
-        a different one, even though initial setup is long since done.
-        Suspends the normal automatic screen-selection gate in refresh()
-        until it resolves -- see there for the full sequencing, and
-        aircon_ble.AirconClient.set_device_name()/heater_ble.HeaterClient.
-        set_device_name() for how picking a new device actually
-        disconnects whatever was live before, which this whole flow
-        depends on.
+        "aircon", "heater", or "fuel". Also reused by poll_input() for a
+        knob push on either *_disconnected screen once setup is done (see
+        there) -- "fuel" never reaches this via that path, since there's no
+        fuel_disconnected screen at all (fuel_ble.py's own module
+        docstring). Manually reopens that device's Connect screen so the
+        user can pick a different one, even though initial setup is long
+        since done.
 
-        Clears panel_settings.get_aircon_skipped()/get_heater_skipped()
-        (whichever applies) -- opening this screen is itself an explicit
-        re-engagement with pairing that device, which should supersede an
-        earlier "skip" decision (the button/screen is reachable, and makes
-        sense to use, precisely *because* the user might want to reverse
-        that decision -- see info.InfoTile's "Not configured" display for
-        a skipped device).
+        "fuel" dispatches to request_reconnect_fuel() instead -- see that
+        method's own docstring for why its flow is simpler and doesn't
+        share the rest of this method's aircon/heater-specific state
+        (connect timeout, heater password phase, panel_settings skip
+        flags).
         """
+        if kind == "fuel":
+            self.request_reconnect_fuel()
+            return
+
         client = self.client if kind == "aircon" else self.heater_client
         self._manual_reconnect = kind
         self._manual_reconnect_prev_name = client.device_name
         self._manual_reconnect_dropped = False
         self._manual_reconnect_password_wait_start_ms = None
+        # Clears panel_settings.get_aircon_skipped()/get_heater_skipped()
+        # (whichever applies) -- opening this screen is itself an explicit
+        # re-engagement with pairing that device, which should supersede an
+        # earlier "skip" decision (the button/screen is reachable, and makes
+        # sense to use, precisely *because* the user might want to reverse
+        # that decision -- see info.InfoTile's "Not configured" display for
+        # a skipped device).
         if kind == "aircon":
             panel_settings.set_aircon_skipped(False)
         else:
             panel_settings.set_heater_skipped(False)
         self._show("%s_connect" % kind)
+
+    def request_reconnect_fuel(self):
+        """info.InfoTile's fuel device button's click callback, via
+        request_reconnect("fuel"). Manually reopens the fuel Connect screen
+        so the user can pick a different sensor (or the first one ever, or
+        none at all -- see fuel_connect_tile's allow_skip).
+
+        Much simpler than request_reconnect()'s aircon/heater flow: no
+        connect-timeout wait, no password phase, and refresh() doesn't wait
+        for the freshly-picked device to actually finish connecting before
+        returning to Home -- the fuel sensor never gates Home reachability
+        at all (fuel_ble.py's own module docstring), so there's nothing
+        that actually needs that connection to be live before this screen
+        can close. It'll show as "Disconnected" on Info and an X-hatched
+        arc on Home until it connects in the background, same as any other
+        later drop-and-reconnect.
+        """
+        self._fuel_manual_connect = True
+        self._fuel_manual_connect_prev_name = self.fuel_client.device_name
+        self._show("fuel_connect")
 
     def _show(self, name):
         if self._screen == name:
@@ -488,6 +581,7 @@ class App:
             self.heater_disconnected_tile.screen, name == "heater_disconnected"
         )
         _set_visible(self.heater_password_tile.screen, name == "heater_password")
+        _set_visible(self.fuel_connect_tile.screen, name == "fuel_connect")
         _set_visible(self.cooldown_tile.screen, name == "cooldown")
         if prev == "aircon_connect":
             # Stops ConnectTile's background scan loop rather than leaving
@@ -496,6 +590,8 @@ class App:
             self.aircon_connect_tile.on_hide()
         if prev == "heater_connect":
             self.heater_connect_tile.on_hide()
+        if prev == "fuel_connect":
+            self.fuel_connect_tile.on_hide()
         if prev == "home":
             # Defensive backstop for the same reasoning as _wire_tile_swipe's
             # own on_leave=cancel_active/close_mode_menu wiring in __init__
@@ -515,6 +611,8 @@ class App:
             self.heater_disconnected_tile.on_show(self._ever_connected)
         elif name == "heater_password":
             self.heater_password_tile.on_show()
+        elif name == "fuel_connect":
+            self.fuel_connect_tile.on_show()
 
     def _wire_tile_swipe(self, tile, col, row, allowed, on_leave=None):
         """Makes `tile` (one grid cell of self.tileview) respond to a swipe
@@ -693,6 +791,13 @@ class App:
             self.heater_password_tile.handle_knob(delta)
             if btn_edge:
                 self.heater_password_tile.select_current()
+        elif self._screen == "fuel_connect":
+            self.fuel_connect_tile.handle_knob(delta)
+            if btn_edge:
+                self.fuel_connect_tile.select_current()
+                # Same immediate-refresh reasoning as aircon_connect/
+                # heater_connect's own matching calls above.
+                self.refresh()
 
     def _enter_cooldown(self):
         """Triggered by poll_input() once the knob's push-button has been
@@ -832,6 +937,21 @@ class App:
             self._manual_reconnect_password_wait_start_ms = None
             # Falls through to the steady-state logic below.
 
+        if self._fuel_manual_connect:
+            # See request_reconnect_fuel()'s own docstring for why this is
+            # so much simpler than the aircon/heater block just above: no
+            # connect-timeout wait, no password phase, and no need to watch
+            # for the old connection actually dropping first -- the fuel
+            # sensor never gates Home reachability, so as soon as
+            # fuel_connect_tile has produced *some* outcome (a pick, or a
+            # skip -- both change device_name, including to "" for a skip),
+            # this can close and fall through to steady-state immediately
+            # rather than waiting on a connection to actually complete.
+            if self.fuel_client.device_name == self._fuel_manual_connect_prev_name:
+                return  # nothing picked (or skipped) yet -- stay on the picker
+            self._fuel_manual_connect = False
+            # Falls through to the steady-state logic below.
+
         if not self._setup_done:
             # One-time gate, evaluated only until it resolves -- see this
             # module's own docstring. AirCon first, then heater (its own
@@ -917,7 +1037,7 @@ class App:
         self.temps_tile.refresh()
 
 
-def build(client, heater_client, encoder, scr, checkpoint=lambda label: None):
+def build(client, heater_client, fuel_client, encoder, scr, checkpoint=lambda label: None):
     """Returns the App. `encoder` is the raw encoder.Encoder object from
     hal.hal_init_input() -- polled directly by App.poll_input()/
     HomeTile.handle_knob(), not wired through an lv.indev/group (see this
@@ -928,4 +1048,4 @@ def build(client, heater_client, encoder, scr, checkpoint=lambda label: None):
     so the watchdog gets fed between them instead of only once before/after
     this whole call.
     """
-    return App(client, heater_client, encoder, scr, checkpoint=checkpoint)
+    return App(client, heater_client, fuel_client, encoder, scr, checkpoint=checkpoint)
